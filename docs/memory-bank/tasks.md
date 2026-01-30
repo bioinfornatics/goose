@@ -1,42 +1,23 @@
 # Tasks (RPI)
 
-This file tracks the RPI workflow for building the Memory Bank.
-
-## Epic
-- **E1**: WebApp Factory: goose (Memory Bank bootstrap + code index)
+Epic: WebApp Factory: goose-recipe-webapp
+Branch: feature/memory-bank-index
 
 ## Research
-- **R1** (owner: webapp-role-pm, priority: 1): Capture repo purpose + high-level structure
-  - Deliverables: `docs/memory-bank/brief.md`, `docs/memory-bank/product.md`
-- **R2** (owner: webapp-role-architect, priority: 1): Identify core entry points + extension points
-  - Deliverables: `docs/memory-bank/architecture.md`
-- **R3** (owner: webapp-role-architect, priority: 2): Document build/test/lint/UI workflows
-  - Deliverables: `docs/memory-bank/tech.md`
-
-### Gate
-- **G1**: Gate: Research Complete (blocks Plan)
-  - Done when: R1–R3 are done
+- R1 (webapp-role-architect, P1) — Ground architecture/map from recipes — status: done
+- R2 (webapp-role-pm, P1) — Define README draft + acceptance criteria — status: done
+- G-R Gate: Research Complete — status: ready
 
 ## Plan
-- **P1** (owner: webapp-role-pm, priority: 1): Define ongoing update process + success criteria
-  - Deliverables: `docs/memory-bank/context.md`
-
-### Gate
-- **G2**: Gate: Plan Approved (blocks Implement)
-  - Done when: P1 done
+- P1 (webapp-role-pm, P1) — Plan process/phases + success criteria — status: todo
+- P2 (webapp-role-architect, P1) — Plan indexing (bank vs archive) — status: todo
+- G-P Gate: Plan Approved — status: todo
 
 ## Implement
-- **I1** (owner: webapp-role-architect, priority: 1): Create APP_CONTEXT + Memory Bank files in repo
-  - Deliverables: `APP_CONTEXT.md` + Memory Bank core docs
-
-### Gate
-- **G3**: Gate: Implementation Checkpoint (blocks Verify)
-  - Done when: I1 done
+- I1 (webapp-role-architect, P1) — Apply plan updates — status: blocked by G-P
+- I2 (webapp-role-pm, P1) — Create/promote README — status: blocked by G-P
+- G-I Gate: Implementation Checkpoint — status: todo
 
 ## Verify
-- **V1** (owner: webapp-role-qa, priority: 1): Sanity check docs exist + paths resolve
-  - Deliverables: `docs/memory-bank/map.md` updated if any archive files are created
-
-### Gate
-- **G4**: Gate: Verification Complete
-  - Done when: V1 done
+- V1 (webapp-role-qa, P1) — Verification pass — status: done (manual; QA subrecipe failed to parse)
+- G-V Gate: Verification Complete — status: ready

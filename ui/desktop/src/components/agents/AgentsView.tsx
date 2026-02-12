@@ -3,91 +3,93 @@ import {
   Bot,
   Plus,
   Trash2,
-  Play,
   RefreshCw,
   ChevronDown,
   ChevronRight,
-  Cpu,
   Code,
-  Circle,
   Plug,
+  Cpu,
+  Wrench,
+  Puzzle,
 } from 'lucide-react';
 import {
   listAgents,
   connectAgent,
   disconnectAgent,
-  createSession,
-  promptAgent,
   listBuiltinAgents,
 } from '../../api/sdk.gen';
-import type { BuiltinAgentInfo, BuiltinAgentMode } from '../../api/types.gen';
+import type { BuiltinAgentMode } from '../../api/types.gen';
 
-interface ConnectedAgent {
+// Unified agent type — both builtin and external
+interface AgentCard {
   id: string;
-  sessionId?: string;
+  name: string;
+  description: string;
+  status: 'active' | 'connected' | 'disconnected';
+  kind: 'builtin' | 'external';
+  modes: BuiltinAgentMode[];
+  defaultMode?: string;
 }
 
 export default function AgentsView() {
-  // Builtin agents
-  const [builtinAgents, setBuiltinAgents] = useState<BuiltinAgentInfo[]>([]);
-  const [expandedAgents, setExpandedAgents] = useState<Set<string>>(new Set(['Goose Agent', 'Coding Agent']));
+  const [agents, setAgents] = useState<AgentCard[]>([]);
+  const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const [selectedMode, setSelectedMode] = useState<string | null>(null);
-
-  // External agents
-  const [externalAgents, setExternalAgents] = useState<ConnectedAgent[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Connect form
   const [showConnect, setShowConnect] = useState(false);
   const [connectName, setConnectName] = useState('');
 
-  // Prompt
-  const [promptAgentId, setPromptAgentId] = useState<string | null>(null);
-  const [promptText, setPromptText] = useState('');
-  const [promptResponse, setPromptResponse] = useState<string | null>(null);
-  const [prompting, setPrompting] = useState(false);
+  const fetchAgents = useCallback(async () => {
+    setLoading(true);
+    const allAgents: AgentCard[] = [];
 
-  const fetchBuiltinAgents = useCallback(async () => {
+    // Fetch builtin agents
     try {
       const resp = await listBuiltinAgents();
-      if (resp.data) {
-        setBuiltinAgents(resp.data.agents);
-      }
-    } catch {
-      // Builtin agents are always available, this shouldn't fail normally
-    }
-  }, []);
-
-  const fetchExternalAgents = useCallback(async () => {
-    setLoading(true);
-    try {
-      const resp = await listAgents();
-      if (resp.data) {
-        setExternalAgents(
-          resp.data.agents.map((a: string) => ({ id: a }))
-        );
+      if (resp.data?.agents) {
+        for (const agent of resp.data.agents) {
+          allAgents.push({
+            id: agent.name.toLowerCase().replace(/\s+/g, '-'),
+            name: agent.name,
+            description: agent.description,
+            status: 'active',
+            kind: 'builtin',
+            modes: agent.modes,
+            defaultMode: agent.default_mode,
+          });
+        }
       }
     } catch (e) {
-      setError(`Failed to list agents: ${e}`);
-    } finally {
-      setLoading(false);
+      console.warn('Failed to fetch builtin agents:', e);
     }
+
+    // Fetch external agents
+    try {
+      const resp = await listAgents();
+      if (resp.data?.agents) {
+        for (const agentId of resp.data.agents) {
+          allAgents.push({
+            id: agentId,
+            name: agentId,
+            description: 'External ACP agent',
+            status: 'connected',
+            kind: 'external',
+            modes: [],
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to fetch external agents:', e);
+    }
+
+    setAgents(allAgents);
+    setLoading(false);
   }, []);
 
-  useEffect(() => {
-    fetchBuiltinAgents();
-    fetchExternalAgents();
-  }, [fetchBuiltinAgents, fetchExternalAgents]);
-
-  const toggleAgent = (name: string) => {
-    setExpandedAgents(prev => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
-      return next;
-    });
-  };
+  useEffect(() => { fetchAgents(); }, [fetchAgents]);
 
   const handleConnect = async () => {
     if (!connectName.trim()) return;
@@ -96,7 +98,7 @@ export default function AgentsView() {
       await connectAgent({ body: { name: connectName.trim() } });
       setConnectName('');
       setShowConnect(false);
-      fetchExternalAgents();
+      fetchAgents();
     } catch (e) {
       setError(`Connect failed: ${e}`);
     }
@@ -105,207 +107,91 @@ export default function AgentsView() {
   const handleDisconnect = async (id: string) => {
     try {
       await disconnectAgent({ path: { agent_id: id } });
-      fetchExternalAgents();
+      fetchAgents();
     } catch (e) {
       setError(`Disconnect failed: ${e}`);
     }
   };
 
-  const handlePrompt = async (agentId: string) => {
-    if (!promptText.trim()) return;
-    setPrompting(true);
-    setPromptResponse(null);
-    try {
-      // Create session first
-      const sessResp = await createSession({ path: { agent_id: agentId }, body: {} });
-      const sessionId = sessResp.data?.session_id;
-      if (!sessionId) throw new Error('No session ID returned');
+  const getAgentIcon = (agent: AgentCard) => {
+    if (agent.name === 'Goose Agent') return <Bot className="w-6 h-6" />;
+    if (agent.name === 'Coding Agent') return <Code className="w-6 h-6" />;
+    if (agent.kind === 'external') return <Plug className="w-6 h-6" />;
+    return <Cpu className="w-6 h-6" />;
+  };
 
-      const resp = await promptAgent({
-        path: { agent_id: agentId },
-        body: { session_id: sessionId, text: promptText },
-      });
-      setPromptResponse(resp.data?.text || '(empty response)');
-    } catch (e) {
-      setPromptResponse(`Error: ${e}`);
-    } finally {
-      setPrompting(false);
+  const getStatusStyle = (status: string) => {
+    switch (status) {
+      case 'active': return { color: 'text-emerald-500', bg: 'bg-emerald-500', label: 'Active' };
+      case 'connected': return { color: 'text-blue-500', bg: 'bg-blue-500', label: 'Connected' };
+      default: return { color: 'text-gray-400', bg: 'bg-gray-400', label: 'Offline' };
     }
   };
 
-  const getAgentIcon = (name: string) => {
-    if (name === 'Goose Agent') return <Bot className="w-5 h-5" />;
-    if (name === 'Coding Agent') return <Code className="w-5 h-5" />;
-    return <Cpu className="w-5 h-5" />;
+  const getKindBadge = (kind: string) => {
+    if (kind === 'builtin') return { bg: 'bg-violet-100 dark:bg-violet-900/30', text: 'text-violet-700 dark:text-violet-300', label: 'Built-in' };
+    return { bg: 'bg-sky-100 dark:bg-sky-900/30', text: 'text-sky-700 dark:text-sky-300', label: 'External' };
   };
 
-  const getStatusColor = (status: string) => {
-    if (status === 'active') return 'text-green-500';
-    if (status === 'degraded') return 'text-yellow-500';
-    return 'text-gray-400';
-  };
-
-  const getModeToolBadge = (group: string) => {
-    const colors: Record<string, string> = {
-      developer: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
-      command: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
-      edit: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
-      read: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200',
-      memory: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200',
-      fetch: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200',
-      browser: 'bg-pink-100 text-pink-800 dark:bg-pink-900 dark:text-pink-200',
-      mcp: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200',
+  const toolGroupColor = (group: string): string => {
+    const map: Record<string, string> = {
+      developer: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
+      command: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300',
+      edit: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
+      read: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
+      memory: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+      fetch: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
+      browser: 'bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300',
+      mcp: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300',
     };
-    return colors[group] || 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300';
+    return map[group] || 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300';
   };
 
   return (
-    <div className="h-full overflow-y-auto p-6 max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <Bot className="w-7 h-7 text-blue-500" />
-          <h1 className="text-2xl font-bold">Agents</h1>
-        </div>
-        <button
-          onClick={() => { fetchBuiltinAgents(); fetchExternalAgents(); }}
-          className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-          title="Refresh"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-        </button>
-      </div>
-
-      {error && (
-        <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-300 text-sm">
-          {error}
-          <button onClick={() => setError(null)} className="ml-2 underline">dismiss</button>
-        </div>
-      )}
-
-      {/* Builtin Agents Section */}
-      <section className="mb-8">
-        <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
-          Builtin Agents
-        </h2>
-        <div className="space-y-3">
-          {builtinAgents.map((agent) => (
-            <div
-              key={agent.name}
-              className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden"
+    <div className="h-full overflow-y-auto">
+      <div className="max-w-5xl mx-auto p-6">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-2xl font-bold flex items-center gap-2.5">
+              <Bot className="w-7 h-7 text-blue-500" />
+              Agents
+            </h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              {agents.length} agent{agents.length !== 1 ? 's' : ''} available
+              {' · '}{agents.filter(a => a.modes.length > 0).reduce((sum, a) => sum + a.modes.length, 0)} modes
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowConnect(!showConnect)}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
             >
-              {/* Agent Header */}
-              <button
-                onClick={() => toggleAgent(agent.name)}
-                className="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  {getAgentIcon(agent.name)}
-                  <div className="text-left">
-                    <div className="font-semibold">{agent.name}</div>
-                    <div className="text-sm text-gray-500 dark:text-gray-400">
-                      {agent.description}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1.5">
-                    <Circle className={`w-2.5 h-2.5 fill-current ${getStatusColor(agent.status)}`} />
-                    <span className={`text-xs font-medium ${getStatusColor(agent.status)}`}>
-                      {agent.status}
-                    </span>
-                  </div>
-                  <span className="text-xs text-gray-400">
-                    {agent.modes.length} modes
-                  </span>
-                  {expandedAgents.has(agent.name) ? (
-                    <ChevronDown className="w-4 h-4 text-gray-400" />
-                  ) : (
-                    <ChevronRight className="w-4 h-4 text-gray-400" />
-                  )}
-                </div>
-              </button>
-
-              {/* Modes Grid */}
-              {expandedAgents.has(agent.name) && (
-                <div className="border-t border-gray-200 dark:border-gray-700 p-4 bg-gray-50/50 dark:bg-gray-800/30">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {agent.modes.map((mode: BuiltinAgentMode) => (
-                      <button
-                        key={mode.slug}
-                        onClick={() => setSelectedMode(selectedMode === mode.slug ? null : mode.slug)}
-                        className={`text-left p-3 rounded-lg border transition-all ${
-                          selectedMode === mode.slug
-                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-sm'
-                            : mode.slug === agent.default_mode
-                            ? 'border-green-300 dark:border-green-700 bg-green-50/50 dark:bg-green-900/10'
-                            : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500 hover:bg-white dark:hover:bg-gray-800'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="font-medium text-sm">{mode.name}</span>
-                          {mode.slug === agent.default_mode && (
-                            <span className="text-[10px] bg-green-100 dark:bg-green-800 text-green-700 dark:text-green-200 px-1.5 py-0.5 rounded-full">
-                              default
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 mb-2">
-                          {mode.description}
-                        </p>
-                        <div className="flex flex-wrap gap-1">
-                          {mode.tool_groups.map((tg: string) => (
-                            <span
-                              key={tg}
-                              className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${getModeToolBadge(tg)}`}
-                            >
-                              {tg}
-                            </span>
-                          ))}
-                        </div>
-                        {mode.recommended_extensions.length > 0 && (
-                          <div className="mt-1.5 flex flex-wrap gap-1">
-                            {mode.recommended_extensions.map((ext: string) => (
-                              <span
-                                key={ext}
-                                className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-600"
-                              >
-                                {ext}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-          {builtinAgents.length === 0 && (
-            <div className="text-center py-8 text-gray-400">
-              Loading builtin agents...
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* External Agents Section */}
-      <section>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-            External Agents
-          </h2>
-          <button
-            onClick={() => setShowConnect(!showConnect)}
-            className="flex items-center gap-1.5 text-sm text-blue-500 hover:text-blue-600 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Connect
-          </button>
+              <Plus className="w-4 h-4" />
+              Connect Agent
+            </button>
+            <button
+              onClick={fetchAgents}
+              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              title="Refresh"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
         </div>
 
+        {/* Error */}
+        {error && (
+          <div className="mb-6 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-300 text-sm flex justify-between">
+            <span>{error}</span>
+            <button onClick={() => setError(null)} className="underline text-xs">dismiss</button>
+          </div>
+        )}
+
+        {/* Connect Form */}
         {showConnect && (
-          <div className="mb-4 p-4 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800/30">
+          <div className="mb-6 p-4 border-2 border-dashed border-blue-300 dark:border-blue-700 rounded-xl bg-blue-50/50 dark:bg-blue-900/10">
+            <p className="text-sm font-medium mb-2">Connect an external agent</p>
             <div className="flex gap-2">
               <input
                 value={connectName}
@@ -313,92 +199,172 @@ export default function AgentsView() {
                 placeholder="Agent name from registry..."
                 className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 onKeyDown={(e) => e.key === 'Enter' && handleConnect()}
+                autoFocus
               />
-              <button
-                onClick={handleConnect}
-                className="px-4 py-2 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-              >
+              <button onClick={handleConnect} className="px-4 py-2 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600">
                 Connect
               </button>
+              <button onClick={() => setShowConnect(false)} className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700">
+                Cancel
+              </button>
             </div>
           </div>
         )}
 
-        <div className="space-y-2">
-          {externalAgents.map((agent) => (
-            <div
-              key={agent.id}
-              className="flex items-center justify-between p-3 border border-gray-200 dark:border-gray-700 rounded-lg"
-            >
-              <div className="flex items-center gap-3">
-                <Plug className="w-4 h-4 text-green-500" />
-                <span className="font-medium text-sm">{agent.id}</span>
-                <Circle className="w-2 h-2 fill-green-500 text-green-500" />
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => {
-                    setPromptAgentId(agent.id);
-                    setPromptResponse(null);
-                  }}
-                  className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                  title="Prompt"
-                >
-                  <Play className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => handleDisconnect(agent.id)}
-                  className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 transition-colors"
-                  title="Disconnect"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          ))}
-          {externalAgents.length === 0 && !showConnect && (
-            <div className="text-center py-6 text-gray-400 dark:text-gray-500 text-sm border border-dashed border-gray-300 dark:border-gray-600 rounded-xl">
-              No external agents connected
-            </div>
-          )}
-        </div>
+        {/* Agent Cards Grid */}
+        {loading ? (
+          <div className="text-center py-16 text-gray-400">
+            <RefreshCw className="w-8 h-8 mx-auto mb-3 animate-spin" />
+            <p>Loading agents...</p>
+          </div>
+        ) : agents.length === 0 ? (
+          <div className="text-center py-16 text-gray-400">
+            <Bot className="w-12 h-12 mx-auto mb-3 opacity-30" />
+            <p className="text-lg font-medium">No agents available</p>
+            <p className="text-sm mt-1">Connect an external agent to get started</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {agents.map((agent) => {
+              const status = getStatusStyle(agent.status);
+              const kind = getKindBadge(agent.kind);
+              const isExpanded = expandedAgent === agent.id;
 
-        {/* Prompt Dialog */}
-        {promptAgentId && (
-          <div className="mt-4 p-4 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800/30">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium">Prompt: {promptAgentId}</span>
-              <button
-                onClick={() => { setPromptAgentId(null); setPromptResponse(null); }}
-                className="text-xs text-gray-400 hover:text-gray-600"
-              >
-                close
-              </button>
-            </div>
-            <div className="flex gap-2 mb-2">
-              <input
-                value={promptText}
-                onChange={(e) => setPromptText(e.target.value)}
-                placeholder="Enter prompt..."
-                className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                onKeyDown={(e) => e.key === 'Enter' && !prompting && handlePrompt(promptAgentId)}
-              />
-              <button
-                onClick={() => handlePrompt(promptAgentId)}
-                disabled={prompting}
-                className="px-4 py-2 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 transition-colors"
-              >
-                {prompting ? 'Sending...' : 'Send'}
-              </button>
-            </div>
-            {promptResponse && (
-              <pre className="mt-2 p-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-sm whitespace-pre-wrap max-h-48 overflow-y-auto">
-                {promptResponse}
-              </pre>
-            )}
+              return (
+                <div
+                  key={agent.id}
+                  className={`rounded-xl border transition-all duration-200 ${
+                    isExpanded
+                      ? 'border-blue-300 dark:border-blue-700 shadow-lg col-span-1 md:col-span-2'
+                      : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-md'
+                  }`}
+                >
+                  {/* Card Header */}
+                  <div
+                    className="p-4 cursor-pointer select-none"
+                    onClick={() => setExpandedAgent(isExpanded ? null : agent.id)}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-start gap-3">
+                        <div className="mt-0.5 text-gray-600 dark:text-gray-300">
+                          {getAgentIcon(agent)}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-semibold">{agent.name}</h3>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${kind.bg} ${kind.text}`}>
+                              {kind.label}
+                            </span>
+                          </div>
+                          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+                            {agent.description}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`w-2 h-2 rounded-full ${status.bg}`} />
+                          <span className={`text-xs ${status.color}`}>{status.label}</span>
+                        </div>
+                        {agent.modes.length > 0 && (
+                          <span className="text-xs text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full">
+                            {agent.modes.length} modes
+                          </span>
+                        )}
+                        {isExpanded ? (
+                          <ChevronDown className="w-4 h-4 text-gray-400" />
+                        ) : (
+                          <ChevronRight className="w-4 h-4 text-gray-400" />
+                        )}
+                      </div>
+                    </div>
+
+                    {/* External agent actions */}
+                    {agent.kind === 'external' && (
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDisconnect(agent.id); }}
+                          className="flex items-center gap-1 px-2.5 py-1 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          Disconnect
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Expanded: Modes Grid */}
+                  {isExpanded && agent.modes.length > 0 && (
+                    <div className="border-t border-gray-200 dark:border-gray-700 p-4 bg-gray-50/50 dark:bg-gray-800/20">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Wrench className="w-4 h-4 text-gray-400" />
+                        <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Available Modes
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {agent.modes.map((mode) => {
+                          const isSelected = selectedMode === `${agent.id}:${mode.slug}`;
+                          const isDefault = mode.slug === agent.defaultMode;
+                          return (
+                            <div
+                              key={mode.slug}
+                              onClick={() => setSelectedMode(isSelected ? null : `${agent.id}:${mode.slug}`)}
+                              className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                                isSelected
+                                  ? 'border-blue-400 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/20 ring-1 ring-blue-400/30'
+                                  : isDefault
+                                  ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50/30 dark:bg-emerald-900/10'
+                                  : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className="font-medium text-sm">{mode.name}</span>
+                                {isDefault && (
+                                  <span className="text-[9px] bg-emerald-100 dark:bg-emerald-800/50 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5 rounded-full font-semibold">
+                                    DEFAULT
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 mb-2">
+                                {mode.description}
+                              </p>
+
+                              {/* Tool groups */}
+                              {mode.tool_groups.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mb-1.5">
+                                  {mode.tool_groups.map((tg) => (
+                                    <span key={tg} className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${toolGroupColor(tg)}`}>
+                                      <Wrench className="w-2.5 h-2.5 inline mr-0.5" />
+                                      {tg}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* Recommended extensions */}
+                              {mode.recommended_extensions.length > 0 && (
+                                <div className="flex flex-wrap gap-1">
+                                  {mode.recommended_extensions.map((ext) => (
+                                    <span key={ext} className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700/50 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-600">
+                                      <Puzzle className="w-2.5 h-2.5 inline mr-0.5" />
+                                      {ext}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
-      </section>
+      </div>
     </div>
   );
 }

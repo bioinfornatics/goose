@@ -26,7 +26,7 @@ impl RegistryManager {
 
     pub async fn search(
         &self,
-        query: &str,
+        query: Option<&str>,
         kind: Option<RegistryEntryKind>,
     ) -> Result<Vec<RegistryEntry>> {
         let mut results: Vec<RegistryEntry> = Vec::new();
@@ -37,8 +37,6 @@ impl RegistryManager {
             for entry in entries {
                 let key = (entry.kind, entry.name.clone());
                 if let Some(&idx) = seen.get(&key) {
-                    // Later sources with same name+kind are treated as lower priority
-                    // Keep first occurrence (local > remote precedence)
                     results[idx].merge_metadata(&entry);
                 } else {
                     seen.insert(key, results.len());
@@ -51,10 +49,14 @@ impl RegistryManager {
     }
 
     pub async fn list(&self, kind: Option<RegistryEntryKind>) -> Result<Vec<RegistryEntry>> {
-        self.search("", kind).await
+        self.search(None, kind).await
     }
 
-    pub async fn get(&self, name: &str, kind: RegistryEntryKind) -> Result<Option<RegistryEntry>> {
+    pub async fn get(
+        &self,
+        name: &str,
+        kind: Option<RegistryEntryKind>,
+    ) -> Result<Option<RegistryEntry>> {
         for source in &self.sources {
             if let Some(entry) = source.get(name, kind).await? {
                 return Ok(Some(entry));

@@ -59,31 +59,33 @@ impl RegistrySource for LocalRegistrySource {
 
     async fn search(
         &self,
-        query: &str,
+        query: Option<&str>,
         kind: Option<RegistryEntryKind>,
     ) -> Result<Vec<RegistryEntry>> {
-        let query_lower = query.to_lowercase();
         let entries = self.scan_all();
 
         Ok(entries
             .into_iter()
             .filter(|e| kind.is_none() || kind == Some(e.kind))
             .filter(|e| {
-                query.is_empty()
-                    || e.name.to_lowercase().contains(&query_lower)
-                    || e.description.to_lowercase().contains(&query_lower)
-                    || e.tags
-                        .iter()
-                        .any(|t| t.to_lowercase().contains(&query_lower))
+                let Some(q) = query else { return true };
+                let q_lower = q.to_lowercase();
+                e.name.to_lowercase().contains(&q_lower)
+                    || e.description.to_lowercase().contains(&q_lower)
+                    || e.tags.iter().any(|t| t.to_lowercase().contains(&q_lower))
             })
             .collect())
     }
 
-    async fn get(&self, name: &str, kind: RegistryEntryKind) -> Result<Option<RegistryEntry>> {
+    async fn get(
+        &self,
+        name: &str,
+        kind: Option<RegistryEntryKind>,
+    ) -> Result<Option<RegistryEntry>> {
         let entries = self.scan_all();
         Ok(entries
             .into_iter()
-            .find(|e| e.kind == kind && e.name == name))
+            .find(|e| kind.is_none_or(|k| e.kind == k) && e.name == name))
     }
 }
 
@@ -430,7 +432,7 @@ Do the thing.
 
         let source = LocalRegistrySource::new(vec![tmp.path().to_path_buf()]);
         let results = source
-            .search("", Some(RegistryEntryKind::Skill))
+            .search(None, Some(RegistryEntryKind::Skill))
             .await
             .unwrap();
         assert_eq!(results.len(), 1);
@@ -457,7 +459,7 @@ You review code.
 
         let source = LocalRegistrySource::new(vec![tmp.path().to_path_buf()]);
         let results = source
-            .search("", Some(RegistryEntryKind::Agent))
+            .search(None, Some(RegistryEntryKind::Agent))
             .await
             .unwrap();
         assert_eq!(results.len(), 1);
@@ -477,7 +479,7 @@ You review code.
 
         let source = LocalRegistrySource::new(vec![tmp.path().to_path_buf()]);
         let results = source
-            .search("", Some(RegistryEntryKind::Recipe))
+            .search(None, Some(RegistryEntryKind::Recipe))
             .await
             .unwrap();
         assert_eq!(results.len(), 1);
@@ -513,7 +515,7 @@ Beta body.
         .unwrap();
 
         let source = LocalRegistrySource::new(vec![tmp.path().to_path_buf()]);
-        let results = source.search("alpha", None).await.unwrap();
+        let results = source.search(Some("alpha"), None).await.unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].name, "alpha-skill");
     }
@@ -536,14 +538,14 @@ Target body.
 
         let source = LocalRegistrySource::new(vec![tmp.path().to_path_buf()]);
         let result = source
-            .get("target", RegistryEntryKind::Skill)
+            .get("target", Some(RegistryEntryKind::Skill))
             .await
             .unwrap();
         assert!(result.is_some());
         assert_eq!(result.unwrap().name, "target");
 
         let result = source
-            .get("nonexistent", RegistryEntryKind::Skill)
+            .get("nonexistent", Some(RegistryEntryKind::Skill))
             .await
             .unwrap();
         assert!(result.is_none());

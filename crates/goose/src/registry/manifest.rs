@@ -8,9 +8,10 @@ use utoipa::ToSchema;
 ///
 /// Aligns with the existing `SourceKind` enum in summon_extension.rs
 /// but adds Tool (which is managed separately by ExtensionManager today).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum RegistryEntryKind {
+    #[default]
     Tool,
     Skill,
     Agent,
@@ -32,7 +33,7 @@ impl std::fmt::Display for RegistryEntryKind {
 ///
 /// Designed to be the common currency across all registry sources (local, GitHub, HTTP).
 /// Inspired by ACP Agent Manifest and A2A Agent Cards but adapted for Goose's needs.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
 pub struct RegistryEntry {
     pub name: String,
     pub kind: RegistryEntryKind,
@@ -96,10 +97,16 @@ pub enum RegistryEntryDetail {
     Recipe(RecipeDetail),
 }
 
+impl Default for RegistryEntryDetail {
+    fn default() -> Self {
+        Self::Tool(ToolDetail::default())
+    }
+}
+
 /// Detail for a Tool (MCP extension).
 ///
 /// Mirrors the fields from ExtensionConfig that matter for registry display.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
 pub struct ToolDetail {
     pub transport: ToolTransport,
 
@@ -110,7 +117,7 @@ pub struct ToolDetail {
     pub env_keys: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ToolTransport {
     Stdio {
@@ -121,6 +128,7 @@ pub enum ToolTransport {
     StreamableHttp {
         uri: String,
     },
+    #[default]
     Builtin,
 }
 

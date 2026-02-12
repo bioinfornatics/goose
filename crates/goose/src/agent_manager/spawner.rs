@@ -66,7 +66,7 @@ fn resolve_binary_target(binaries: &HashMap<String, BinaryTarget>) -> Option<&Bi
     binaries.get(&platform_key)
 }
 
-fn current_platform_key() -> String {
+pub fn current_platform_key() -> String {
     let os = match std::env::consts::OS {
         "macos" => "darwin",
         other => other,

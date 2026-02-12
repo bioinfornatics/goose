@@ -13,6 +13,7 @@ use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::task::LocalSet;
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
+use crate::agent_manager::health::{AgentHealth, AgentState, AgentStatus};
 use crate::agent_manager::spawner::{spawn_agent, SpawnedAgent};
 use crate::registry::manifest::{AgentDistribution, RegistryEntry, RegistryEntryDetail};
 
@@ -21,6 +22,7 @@ pub struct AgentHandle {
     pub info: InitializeResponse,
     pub agent_id: String,
     collected_text: Arc<Mutex<Vec<String>>>,
+    health: Arc<AgentHealth>,
 }
 
 impl AgentHandle {
@@ -33,7 +35,12 @@ impl AgentHandle {
             })
             .await
             .map_err(|_| anyhow::anyhow!("agent connection closed"))?;
-        reply_rx.await?
+        let result = reply_rx.await?;
+        match &result {
+            Ok(_) => self.health.record_success().await,
+            Err(_) => self.health.record_failure().await,
+        }
+        result
     }
 
     pub async fn prompt(&self, req: PromptRequest) -> Result<PromptResponse> {
@@ -46,11 +53,29 @@ impl AgentHandle {
             })
             .await
             .map_err(|_| anyhow::anyhow!("agent connection closed"))?;
-        reply_rx.await?
+        let result = reply_rx.await?;
+        match &result {
+            Ok(_) => self.health.record_success().await,
+            Err(_) => self.health.record_failure().await,
+        }
+        result
     }
 
     pub async fn drain_text(&self) -> Vec<String> {
         std::mem::take(&mut *self.collected_text.lock().await)
+    }
+
+    pub async fn health_status(&self) -> AgentStatus {
+        AgentStatus {
+            agent_id: self.agent_id.clone(),
+            state: self.health.state().await,
+            consecutive_failures: self.health.consecutive_failures(),
+            last_activity_secs_ago: self.health.last_activity().await.elapsed().as_secs(),
+        }
+    }
+
+    pub fn is_channel_alive(&self) -> bool {
+        !self.tx.is_closed()
     }
 
     pub async fn set_mode(&self, req: SetSessionModeRequest) -> Result<SetSessionModeResponse> {
@@ -184,6 +209,7 @@ impl AgentClientManager {
                             info,
                             agent_id: id,
                             collected_text,
+                            health: Arc::new(AgentHealth::default()),
                         }));
                         let _ = io_task.await;
                     }
@@ -271,6 +297,52 @@ impl AgentClientManager {
         for (_, handle) in handles {
             let _ = handle.shutdown().await;
         }
+    }
+
+    pub async fn agent_health(&self, agent_id: &str) -> Result<AgentStatus> {
+        let agents = self.agents.lock().await;
+        let handle = agents
+            .get(agent_id)
+            .ok_or_else(|| anyhow::anyhow!("agent '{agent_id}' not connected"))?;
+
+        if !handle.is_channel_alive() {
+            return Ok(AgentStatus {
+                agent_id: agent_id.to_string(),
+                state: AgentState::Dead,
+                consecutive_failures: handle.health.consecutive_failures(),
+                last_activity_secs_ago: handle.health.last_activity().await.elapsed().as_secs(),
+            });
+        }
+
+        Ok(handle.health_status().await)
+    }
+
+    pub async fn all_agent_health(&self) -> Vec<AgentStatus> {
+        let agents = self.agents.lock().await;
+        let mut statuses = Vec::with_capacity(agents.len());
+        for handle in agents.values() {
+            statuses.push(handle.health_status().await);
+        }
+        statuses
+    }
+
+    pub async fn prune_dead_agents(&self) -> Vec<String> {
+        let mut agents = self.agents.lock().await;
+        let mut dead = Vec::new();
+        let mut to_remove = Vec::new();
+        for (id, handle) in agents.iter() {
+            let state = handle.health.state().await;
+            if state == AgentState::Dead || !handle.is_channel_alive() {
+                dead.push(id.clone());
+                to_remove.push(id.clone());
+            }
+        }
+        for id in &to_remove {
+            if let Some(handle) = agents.remove(id) {
+                let _ = handle.shutdown().await;
+            }
+        }
+        dead
     }
 }
 

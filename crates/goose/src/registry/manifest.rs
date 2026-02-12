@@ -211,7 +211,7 @@ fn default_true() -> bool {
 /// - dependencies for install resolution
 /// - required_extensions for MCP server setup
 /// - recommended_models for model flexibility
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
 pub struct AgentDetail {
     pub instructions: String,
 

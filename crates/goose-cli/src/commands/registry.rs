@@ -179,3 +179,129 @@ pub async fn handle_sources() -> Result<()> {
 
     Ok(())
 }
+
+pub async fn handle_add(name: &str, kind_str: Option<&str>) -> Result<()> {
+    use goose::registry::install::{install_entry, is_installed};
+
+    let kind = kind_str.and_then(kind_from_str);
+    let manager = default_manager()?;
+
+    // Search for the entry
+    let entries = manager.search(Some(name), kind).await?;
+    let entry = entries.into_iter().find(|e| e.name == name);
+
+    match entry {
+        Some(entry) => {
+            if is_installed(&entry.name, entry.kind) {
+                println!(
+                    "{} {} is already installed",
+                    style("✓").green(),
+                    style(&entry.name).cyan()
+                );
+                return Ok(());
+            }
+
+            let path = install_entry(&entry)?;
+            println!(
+                "{} Installed {} ({}) to {}",
+                style("✓").green(),
+                style(&entry.name).cyan(),
+                style(format!("{}", entry.kind)).dim(),
+                style(path.display()).dim()
+            );
+            Ok(())
+        }
+        None => {
+            println!("{} No entry found matching '{}'", style("✗").red(), name);
+            if kind_str.is_some() {
+                println!("  Try without --kind to search across all types");
+            }
+            Ok(())
+        }
+    }
+}
+
+pub async fn handle_remove(name: &str, kind_str: &str) -> Result<()> {
+    use goose::registry::install::{is_installed, remove_entry};
+
+    let kind = kind_from_str(kind_str).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Unknown kind '{}'. Use: tool, skill, agent, or recipe",
+            kind_str
+        )
+    })?;
+
+    if !is_installed(name, kind) {
+        println!(
+            "{} {} ({}) is not installed",
+            style("✗").yellow(),
+            style(name).cyan(),
+            kind_str,
+        );
+        return Ok(());
+    }
+
+    remove_entry(name, kind)?;
+    println!(
+        "{} Removed {} ({})",
+        style("✓").green(),
+        style(name).cyan(),
+        kind_str,
+    );
+    Ok(())
+}
+
+pub async fn handle_validate(path: &str) -> Result<()> {
+    use goose::registry::publish::validate_for_publish;
+    use std::path::Path;
+
+    let manifest_path = Path::new(path);
+    if !manifest_path.exists() {
+        anyhow::bail!("File not found: {}", path);
+    }
+
+    match validate_for_publish(manifest_path) {
+        Ok(issues) => {
+            if issues.is_empty() {
+                println!("{} Manifest is valid for publishing!", style("✓").green());
+            } else {
+                println!("{} Manifest has issues:", style("⚠").yellow());
+                for issue in &issues {
+                    println!("  {} {}", style("•").yellow(), issue);
+                }
+            }
+            Ok(())
+        }
+        Err(e) => {
+            println!("{} Failed to validate manifest: {}", style("✗").red(), e);
+            Ok(())
+        }
+    }
+}
+
+pub async fn handle_init(name: Option<String>, description: Option<String>) -> Result<()> {
+    use goose::registry::publish::init_manifest;
+
+    let agent_name = name.unwrap_or_else(|| {
+        std::env::current_dir()
+            .ok()
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+            .unwrap_or_else(|| "my-agent".to_string())
+    });
+
+    let desc = description.unwrap_or_else(|| format!("A goose agent: {}", agent_name));
+
+    let dir = std::env::current_dir()?;
+    let path = init_manifest(&dir, &agent_name, &desc)?;
+
+    println!(
+        "{} Created manifest: {}",
+        style("✓").green(),
+        style(path.display()).cyan()
+    );
+    println!();
+    println!("  Edit the manifest to configure your agent, then validate with:");
+    println!("  {}", style("goose registry validate agent.yaml").dim());
+
+    Ok(())
+}

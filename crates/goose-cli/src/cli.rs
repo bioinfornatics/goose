@@ -723,6 +723,136 @@ enum RegistryCommand {
     /// List configured registry sources
     #[command(about = "List configured registry sources")]
     Sources,
+
+    /// Install an entry from the registry
+    #[command(about = "Install a tool, skill, agent, or recipe from the registry")]
+    Add {
+        /// Entry name
+        #[arg(help = "Name of the entry to install")]
+        name: String,
+
+        /// Entry kind (tool, skill, agent, recipe)
+        #[arg(short, long, help = "Entry kind (tool, skill, agent, recipe)")]
+        kind: Option<String>,
+    },
+
+    /// Remove an installed entry
+    #[command(about = "Remove an installed tool, skill, agent, or recipe")]
+    Remove {
+        /// Entry name
+        #[arg(help = "Name of the entry to remove")]
+        name: String,
+
+        /// Entry kind (tool, skill, agent, recipe)
+        #[arg(short, long, help = "Entry kind (tool, skill, agent, recipe)")]
+        kind: String,
+    },
+
+    /// Validate a manifest for publishing
+    #[command(about = "Validate a registry manifest for publishing")]
+    Validate {
+        /// Path to manifest file (agent.yaml or agent.json)
+        #[arg(help = "Path to manifest file")]
+        path: String,
+    },
+
+    /// Initialize a new agent manifest
+    #[command(about = "Initialize a new agent.yaml manifest in the current directory")]
+    Init {
+        /// Agent name
+        #[arg(help = "Agent name")]
+        name: Option<String>,
+
+        /// Agent description
+        #[arg(short, long, help = "Agent description")]
+        description: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum AgentCommand {
+    /// List available agents
+    #[command(about = "List available agents")]
+    List {
+        /// Output format (text, json)
+        #[arg(long, default_value = "text")]
+        format: String,
+    },
+
+    /// Install an agent
+    #[command(about = "Install an agent from the registry")]
+    Add {
+        /// Agent name
+        #[arg(help = "Agent name to install")]
+        name: String,
+    },
+
+    /// Remove an installed agent
+    #[command(about = "Remove an installed agent")]
+    Remove {
+        /// Agent name
+        #[arg(help = "Agent name to remove")]
+        name: String,
+    },
+
+    /// Show agent details
+    #[command(about = "Show detailed information about an agent")]
+    Show {
+        /// Agent name
+        #[arg(help = "Agent name")]
+        name: String,
+    },
+
+    /// Search for agents
+    #[command(about = "Search for agents in the registry")]
+    Search {
+        /// Search query
+        #[arg(help = "Search query")]
+        query: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum SkillCommand {
+    /// List available skills
+    #[command(about = "List available skills")]
+    List {
+        /// Output format (text, json)
+        #[arg(long, default_value = "text")]
+        format: String,
+    },
+
+    /// Install a skill
+    #[command(about = "Install a skill from the registry")]
+    Add {
+        /// Skill name
+        #[arg(help = "Skill name to install")]
+        name: String,
+    },
+
+    /// Remove an installed skill
+    #[command(about = "Remove an installed skill")]
+    Remove {
+        /// Skill name
+        #[arg(help = "Skill name to remove")]
+        name: String,
+    },
+
+    /// Show skill details
+    #[command(about = "Show detailed information about a skill")]
+    Show {
+        /// Skill name
+        #[arg(help = "Skill name")]
+        name: String,
+    },
+
+    /// Search for skills
+    #[command(about = "Search for skills in the registry")]
+    Search {
+        /// Search query
+        #[arg(help = "Search query")]
+        query: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -850,6 +980,20 @@ enum Command {
     Registry {
         #[command(subcommand)]
         command: RegistryCommand,
+    },
+
+    /// Manage agents (list, add, remove, show, search)
+    #[command(about = "Manage agents")]
+    Agent {
+        #[command(subcommand)]
+        command: AgentCommand,
+    },
+
+    /// Manage skills (list, add, remove, show, search)
+    #[command(about = "Manage skills")]
+    Skill {
+        #[command(subcommand)]
+        command: SkillCommand,
     },
 
     /// Manage scheduled jobs
@@ -1027,6 +1171,8 @@ fn get_command_name(command: &Option<Command>) -> &'static str {
         Some(Command::Update { .. }) => "update",
         Some(Command::Recipe { .. }) => "recipe",
         Some(Command::Registry { .. }) => "registry",
+        Some(Command::Agent { .. }) => "agent",
+        Some(Command::Skill { .. }) => "skill",
         Some(Command::Web { .. }) => "web",
         Some(Command::Term { .. }) => "term",
         Some(Command::Completion { .. }) => "completion",
@@ -1453,7 +1599,8 @@ fn handle_recipe_subcommand(command: RecipeCommand) -> Result<()> {
 
 async fn handle_registry_subcommand(command: RegistryCommand) -> Result<()> {
     use crate::commands::registry::{
-        handle_info, handle_list as handle_registry_list, handle_search, handle_sources,
+        handle_add, handle_info, handle_init, handle_list as handle_registry_list, handle_remove,
+        handle_search, handle_sources, handle_validate,
     };
 
     match command {
@@ -1470,6 +1617,38 @@ async fn handle_registry_subcommand(command: RegistryCommand) -> Result<()> {
         } => handle_registry_list(kind.as_deref(), &format, verbose).await,
         RegistryCommand::Info { name, kind } => handle_info(&name, kind.as_deref()).await,
         RegistryCommand::Sources => handle_sources().await,
+        RegistryCommand::Add { name, kind } => handle_add(&name, kind.as_deref()).await,
+        RegistryCommand::Remove { name, kind } => handle_remove(&name, &kind).await,
+        RegistryCommand::Validate { path } => handle_validate(&path).await,
+        RegistryCommand::Init { name, description } => handle_init(name, description).await,
+    }
+}
+
+async fn handle_agent_subcommand(command: AgentCommand) -> Result<()> {
+    use crate::commands::registry::{
+        handle_add, handle_info, handle_list as handle_registry_list, handle_remove, handle_search,
+    };
+
+    match command {
+        AgentCommand::List { format } => handle_registry_list(Some("agent"), &format, false).await,
+        AgentCommand::Add { name } => handle_add(&name, Some("agent")).await,
+        AgentCommand::Remove { name } => handle_remove(&name, "agent").await,
+        AgentCommand::Show { name } => handle_info(&name, Some("agent")).await,
+        AgentCommand::Search { query } => handle_search(&query, Some("agent"), "text", false).await,
+    }
+}
+
+async fn handle_skill_subcommand(command: SkillCommand) -> Result<()> {
+    use crate::commands::registry::{
+        handle_add, handle_info, handle_list as handle_registry_list, handle_remove, handle_search,
+    };
+
+    match command {
+        SkillCommand::List { format } => handle_registry_list(Some("skill"), &format, false).await,
+        SkillCommand::Add { name } => handle_add(&name, Some("skill")).await,
+        SkillCommand::Remove { name } => handle_remove(&name, "skill").await,
+        SkillCommand::Show { name } => handle_info(&name, Some("skill")).await,
+        SkillCommand::Search { query } => handle_search(&query, Some("skill"), "text", false).await,
     }
 }
 
@@ -1609,6 +1788,8 @@ pub async fn cli() -> anyhow::Result<()> {
         }
         Some(Command::Recipe { command }) => handle_recipe_subcommand(command),
         Some(Command::Registry { command }) => handle_registry_subcommand(command).await,
+        Some(Command::Agent { command }) => handle_agent_subcommand(command).await,
+        Some(Command::Skill { command }) => handle_skill_subcommand(command).await,
         Some(Command::Web {
             port,
             host,

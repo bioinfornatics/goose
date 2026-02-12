@@ -1,4 +1,5 @@
 pub mod action_required_manager;
+pub mod agent_manager;
 pub mod agents;
 pub mod builtin_extension;
 pub mod config;

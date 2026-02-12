@@ -4129,6 +4129,8 @@ dependencies = [
 name = "goose"
 version = "1.23.0"
 dependencies = [
+ "agent-client-protocol",
+ "agent-client-protocol-schema",
  "ahash",
  "anyhow",
  "async-stream",

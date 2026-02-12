@@ -1,4 +1,5 @@
 pub mod manifest;
+pub mod publish;
 pub mod source;
 pub mod sources;
 

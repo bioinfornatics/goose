@@ -110,6 +110,8 @@ pub struct DelegateParams {
     pub provider: Option<String>,
     pub model: Option<String>,
     pub temperature: Option<f32>,
+    /// Agent mode to use (e.g., "code", "review", "architect")
+    pub mode: Option<String>,
     #[serde(default)]
     pub r#async: bool,
 }
@@ -145,6 +147,29 @@ struct AgentMetadata {
     description: Option<String>,
     #[serde(default)]
     model: Option<String>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    default_mode: Option<String>,
+    #[serde(default)]
+    modes: Vec<AgentModeEntry>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    required_extensions: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct AgentModeEntry {
+    slug: String,
+    name: String,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    instructions: Option<String>,
+    #[serde(default)]
+    instructions_file: Option<String>,
+    #[serde(default)]
+    tool_groups: Vec<String>,
 }
 
 fn parse_frontmatter<T: for<'de> Deserialize<'de>>(content: &str) -> Option<(T, String)> {
@@ -345,6 +370,10 @@ impl SummonClient {
                 "model": {
                     "type": "string",
                     "description": "Override model."
+                },
+                "mode": {
+                    "type": "string",
+                    "description": "Agent mode to use (e.g., 'code', 'review', 'architect'). Only valid with agent sources that define modes."
                 },
                 "temperature": {
                     "type": "number",
@@ -720,6 +749,18 @@ impl SummonClient {
 
         for entry in entries.flatten() {
             let path = entry.path();
+
+            if path.is_dir() {
+                // Directory-based agent: look for agent.yaml or agent.md
+                if let Some(source) = self.try_load_agent_dir(&path) {
+                    if !seen.contains(&source.name) {
+                        seen.insert(source.name.clone());
+                        sources.push(source);
+                    }
+                }
+                continue;
+            }
+
             if !path.is_file() {
                 continue;
             }
@@ -744,6 +785,92 @@ impl SummonClient {
                 }
             }
         }
+    }
+
+    fn try_load_agent_dir(&self, dir: &Path) -> Option<Source> {
+        // Check for agent.yaml first (full manifest with modes)
+        let yaml_path = dir.join("agent.yaml");
+        if yaml_path.is_file() {
+            return self.load_agent_from_yaml(&yaml_path, dir);
+        }
+
+        // Fallback: check for agent.md in the directory
+        let md_path = dir.join("agent.md");
+        if md_path.is_file() {
+            let content = std::fs::read_to_string(&md_path).ok()?;
+            return parse_agent_content(&content, md_path);
+        }
+
+        None
+    }
+
+    fn load_agent_from_yaml(&self, yaml_path: &Path, agent_dir: &Path) -> Option<Source> {
+        let yaml_content = std::fs::read_to_string(yaml_path).ok()?;
+        let metadata: AgentMetadata = serde_yaml::from_str(&yaml_content).ok()?;
+
+        let description = metadata.description.clone().unwrap_or_else(|| {
+            let model_info = metadata
+                .model
+                .as_ref()
+                .map(|m| format!(" ({})", m))
+                .unwrap_or_default();
+            format!("Agent{}", model_info)
+        });
+
+        // Build the content (instructions) from the agent.yaml
+        // If modes exist, include mode listing in the content
+        let mut content = String::new();
+
+        // Look for a README.md or instructions.md in the agent directory
+        for instructions_file in &["README.md", "instructions.md", "agent.md"] {
+            let path = agent_dir.join(instructions_file);
+            if path.is_file() {
+                if let Ok(c) = std::fs::read_to_string(&path) {
+                    content = c;
+                    break;
+                }
+            }
+        }
+
+        if content.is_empty() {
+            // Use description as fallback content
+            content = description.clone();
+        }
+
+        // Add mode listing if modes are defined
+        if !metadata.modes.is_empty() {
+            content.push_str(
+                "
+
+## Available Modes
+
+",
+            );
+            for mode in &metadata.modes {
+                let desc = mode.description.as_deref().unwrap_or("");
+                content.push_str(&format!(
+                    "- **{}** ({}): {}
+",
+                    mode.name, mode.slug, desc
+                ));
+            }
+            if let Some(default) = &metadata.default_mode {
+                content.push_str(&format!(
+                    "
+Default mode: {}
+",
+                    default
+                ));
+            }
+        }
+
+        Some(Source {
+            name: metadata.name,
+            kind: SourceKind::Agent,
+            description,
+            path: yaml_path.to_path_buf(),
+            content,
+        })
     }
 
     async fn handle_load(
@@ -1003,6 +1130,7 @@ impl SummonClient {
                 provider: None,
                 model: None,
                 temperature: None,
+                mode: None,
                 r#async: false,
             });
 
@@ -1252,8 +1380,12 @@ impl SummonClient {
                 .map_err(|e| format!("Failed to read agent file: {}", e))?
         };
 
-        let (metadata, _): (AgentMetadata, String) =
+        let (metadata, body): (AgentMetadata, String) =
             parse_frontmatter(&agent_content).ok_or("Failed to parse agent frontmatter")?;
+
+        // Resolve mode instructions
+        let instructions =
+            self.resolve_mode_instructions(&metadata, &body, &source.path, params.mode.as_deref())?;
 
         let model = metadata.model;
 
@@ -1268,7 +1400,7 @@ impl SummonClient {
             .version("1.0.0")
             .title(format!("Agent: {}", source.name))
             .description(source.description.clone())
-            .instructions(&source.content);
+            .instructions(&instructions);
 
         if let Some(settings) = settings {
             builder = builder.settings(settings);
@@ -1281,6 +1413,80 @@ impl SummonClient {
         builder
             .build()
             .map_err(|e| format!("Failed to build recipe from agent: {}", e))
+    }
+
+    fn resolve_mode_instructions(
+        &self,
+        metadata: &AgentMetadata,
+        base_body: &str,
+        agent_path: &Path,
+        requested_mode: Option<&str>,
+    ) -> Result<String, String> {
+        if metadata.modes.is_empty() {
+            // No modes defined — use base body as instructions (backward compatible)
+            return Ok(base_body.to_string());
+        }
+
+        let mode_slug = requested_mode
+            .or(metadata.default_mode.as_deref())
+            .unwrap_or_else(|| {
+                metadata
+                    .modes
+                    .first()
+                    .map(|m| m.slug.as_str())
+                    .unwrap_or("")
+            });
+
+        if mode_slug.is_empty() {
+            return Ok(base_body.to_string());
+        }
+
+        let mode = metadata
+            .modes
+            .iter()
+            .find(|m| m.slug == mode_slug)
+            .ok_or_else(|| {
+                let available: Vec<&str> = metadata.modes.iter().map(|m| m.slug.as_str()).collect();
+                format!(
+                    "Mode '{}' not found. Available modes: {}",
+                    mode_slug,
+                    available.join(", ")
+                )
+            })?;
+
+        // Priority: inline instructions > instructions_file > base body
+        if let Some(inline) = &mode.instructions {
+            // Combine base body as context + mode-specific instructions
+            Ok(format!(
+                "{}
+
+## Active Mode: {} ({})
+
+{}",
+                base_body, mode.name, mode.slug, inline
+            ))
+        } else if let Some(file) = &mode.instructions_file {
+            let agent_dir = agent_path.parent().unwrap_or(Path::new("."));
+            let mode_path = agent_dir.join(file);
+            let mode_content = std::fs::read_to_string(&mode_path).map_err(|e| {
+                format!(
+                    "Failed to read mode instructions file '{}': {}",
+                    mode_path.display(),
+                    e
+                )
+            })?;
+            Ok(format!(
+                "{}
+
+## Active Mode: {} ({})
+
+{}",
+                base_body, mode.name, mode.slug, mode_content
+            ))
+        } else {
+            // Mode defined but no specific instructions — use base body
+            Ok(base_body.to_string())
+        }
     }
 
     async fn build_task_config(
@@ -1778,6 +1984,7 @@ You review code."#;
             provider: None,
             model: None,
             temperature: None,
+            mode: None,
             r#async: false,
         };
 

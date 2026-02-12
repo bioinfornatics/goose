@@ -1,15 +1,13 @@
 use agent_client_protocol_schema::{
-    AgentCapabilities, AuthMethod, AuthenticateRequest, AuthenticateResponse, BlobResourceContents,
-    CancelNotification, Content, ContentBlock, ContentChunk, EmbeddedResource,
-    EmbeddedResourceResource, ImageContent, InitializeRequest, InitializeResponse,
-    LoadSessionRequest, LoadSessionResponse, McpCapabilities, McpServer, ModelId, ModelInfo,
-    NewSessionRequest, NewSessionResponse, PermissionOption, PermissionOptionKind,
-    PromptCapabilities, PromptRequest, PromptResponse, RequestPermissionOutcome,
-    RequestPermissionRequest, RequestPermissionResponse, ResourceLink, SessionId,
-    SessionModelState, SessionNotification, SessionUpdate, SetSessionModelRequest,
-    SetSessionModelResponse, StopReason, TextContent, TextResourceContents, ToolCall,
-    ToolCallContent, ToolCallId, ToolCallLocation, ToolCallStatus, ToolCallUpdate,
-    ToolCallUpdateFields, ToolKind,
+    AgentCapabilities, AuthMethod, BlobResourceContents, CancelNotification, Content, ContentBlock,
+    ContentChunk, EmbeddedResource, EmbeddedResourceResource, ImageContent, InitializeRequest,
+    InitializeResponse, LoadSessionRequest, LoadSessionResponse, McpCapabilities, McpServer,
+    ModelId, ModelInfo, NewSessionRequest, NewSessionResponse, PermissionOption,
+    PermissionOptionKind, PromptCapabilities, PromptRequest, PromptResponse,
+    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse, ResourceLink,
+    SessionId, SessionModelState, SessionNotification, SessionUpdate, SetSessionModelResponse,
+    StopReason, TextContent, TextResourceContents, ToolCall, ToolCallContent, ToolCallId,
+    ToolCallLocation, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, ToolKind,
 };
 use anyhow::Result;
 use fs_err as fs;
@@ -31,7 +29,6 @@ use goose::providers::provider_registry::ProviderConstructor;
 use goose::session::session_manager::SessionType;
 use goose::session::{Session, SessionManager};
 use rmcp::model::{CallToolResult, RawContent, ResourceContents, Role};
-use sacp::{AgentToClient, ByteStreams, Handled, JrConnectionCx, JrMessageHandler, MessageCx};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -40,8 +37,6 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 use url::Url;
 
-// Agent binds provider, extensions, and permission channels to a single session.
-// ACP has no session/close, so sessions accumulate until transport closes.
 struct GooseAcpSession {
     agent: Arc<Agent>,
     messages: Conversation,
@@ -58,8 +53,6 @@ pub struct GooseAcpAgent {
     goose_mode: goose::config::GooseMode,
     disable_session_naming: bool,
     builtins: Vec<String>,
-    /// Abstraction for sending notifications/requests back to the client.
-    /// Set after connection is established. Uses Arc for sharing across async tasks.
     notification_sender:
         Arc<tokio::sync::RwLock<Option<Arc<dyn crate::notification::NotificationSender>>>>,
 }
@@ -349,7 +342,6 @@ impl GooseAcpAgent {
         self.sessions.lock().await.contains_key(session_id)
     }
 
-    /// Set the notification sender after the connection is established.
     pub async fn set_notification_sender(
         &self,
         sender: Arc<dyn crate::notification::NotificationSender>,
@@ -357,8 +349,6 @@ impl GooseAcpAgent {
         *self.notification_sender.write().await = Some(sender);
     }
 
-    /// Send a session notification through the stored sender.
-    #[allow(dead_code)]
     async fn notify(
         &self,
         notification: SessionNotification,
@@ -370,8 +360,6 @@ impl GooseAcpAgent {
         }
     }
 
-    /// Request permission through the stored sender.
-    #[allow(dead_code)]
     async fn request_permission(
         &self,
         request: RequestPermissionRequest,
@@ -1018,124 +1006,79 @@ impl GooseAcpAgent {
     }
 }
 
-pub struct GooseAcpHandler {
-    pub agent: Arc<GooseAcpAgent>,
-}
-
-impl JrMessageHandler for GooseAcpHandler {
-    type Link = AgentToClient;
-
-    fn describe_chain(&self) -> impl std::fmt::Debug {
-        "goose-acp"
-    }
-
-    async fn handle_message(
-        &mut self,
-        message: MessageCx,
-        cx: JrConnectionCx<AgentToClient>,
-    ) -> Result<Handled<MessageCx>, agent_client_protocol_schema::Error> {
-        use sacp::util::MatchMessageFrom;
-        use sacp::JrRequestCx;
-
-        MatchMessageFrom::new(message, &cx)
-            .if_request(
-                |req: InitializeRequest, req_cx: JrRequestCx<InitializeResponse>| async {
-                    req_cx.respond(self.agent.on_initialize(req).await?)
-                },
-            )
-            .await
-            .if_request(
-                |_req: AuthenticateRequest, req_cx: JrRequestCx<AuthenticateResponse>| async {
-                    req_cx.respond(AuthenticateResponse::new())
-                },
-            )
-            .await
-            .if_request(
-                |req: NewSessionRequest, req_cx: JrRequestCx<NewSessionResponse>| async {
-                    req_cx.respond(self.agent.on_new_session(req).await?)
-                },
-            )
-            .await
-            .if_request(
-                |req: LoadSessionRequest, req_cx: JrRequestCx<LoadSessionResponse>| async {
-                    // Set notification sender before calling load_session
-                    let sender =
-                        Arc::new(crate::notification::SacpNotificationSender::new(cx.clone()));
-                    self.agent.set_notification_sender(sender).await;
-                    req_cx.respond(self.agent.on_load_session(req).await?)
-                },
-            )
-            .await
-            .if_request(
-                |req: PromptRequest, req_cx: JrRequestCx<PromptResponse>| async {
-                    // Set notification sender before calling prompt
-                    let sender =
-                        Arc::new(crate::notification::SacpNotificationSender::new(cx.clone()));
-                    self.agent.set_notification_sender(sender).await;
-                    let agent = self.agent.clone();
-                    cx.spawn(async move {
-                        match agent.on_prompt(req).await {
-                            Ok(response) => {
-                                req_cx.respond(response)?;
-                            }
-                            Err(e) => {
-                                req_cx.respond_with_error(e)?;
-                            }
-                        }
-                        Ok(())
-                    })?;
-                    Ok(())
-                },
-            )
-            .await
-            .if_notification(|notif: CancelNotification| async {
-                self.agent.on_cancel(notif).await
-            })
-            .await
-            // HACK: sacp doesn't support session/set_model yet, so we handle it as untyped JSON.
-            .otherwise({
-                let agent = self.agent.clone();
-                |message: MessageCx| async move {
-                    match message {
-                        MessageCx::Request(req, request_cx)
-                            if req.method == "session/set_model" =>
-                        {
-                            let params: SetSessionModelRequest = serde_json::from_value(req.params)
-                                .map_err(|e| {
-                                    agent_client_protocol_schema::Error::invalid_params()
-                                        .data(e.to_string())
-                                })?;
-                            let resp = agent
-                                .on_set_model(&params.session_id.0, &params.model_id.0)
-                                .await?;
-                            let json = serde_json::to_value(resp).map_err(|e| {
-                                agent_client_protocol_schema::Error::internal_error()
-                                    .data(e.to_string())
-                            })?;
-                            request_cx.respond(json)?;
-                            Ok(())
-                        }
-                        _ => Err(agent_client_protocol_schema::Error::method_not_found()),
-                    }
-                }
-            })
-            .await
-            .map(|()| Handled::Yes)
-    }
-}
-
+/// Serve an ACP agent over the given byte streams using agent-client-protocol.
+///
+/// Spawns a dedicated OS thread with a tokio LocalSet because
+/// AgentSideConnection uses `!Send` futures internally. The returned future
+/// is Send-safe and simply waits for the thread to finish.
+///
+/// A channel bridges the Send world (GooseAcpAgent notifications) to the
+/// !Send world (AgentSideConnection's Client trait methods).
 pub async fn serve<R, W>(agent: Arc<GooseAcpAgent>, read: R, write: W) -> Result<()>
 where
     R: futures::AsyncRead + Unpin + Send + 'static,
     W: futures::AsyncWrite + Unpin + Send + 'static,
 {
-    let handler = GooseAcpHandler { agent };
+    use crate::notification::{AcpNotificationSender, ClientCommand};
+    use agent_client_protocol::Client;
 
-    AgentToClient::builder()
-        .name("goose-acp")
-        .with_handler(handler)
-        .serve(ByteStreams::new(write, read))
-        .await?;
+    let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::unbounded_channel::<ClientCommand>();
+
+    // Install the channel-based notification sender on the agent so that
+    // on_prompt / on_load_session can send notifications back to the client.
+    agent
+        .set_notification_sender(Arc::new(AcpNotificationSender::new(cmd_tx)))
+        .await;
+
+    let handle = std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("failed to build tokio runtime for ACP serve thread");
+
+        let local = tokio::task::LocalSet::new();
+
+        local.block_on(&rt, async move {
+            let bridge = std::rc::Rc::new(crate::bridge::AcpBridge::new(agent));
+
+            let (conn, io_task) =
+                agent_client_protocol::AgentSideConnection::new(bridge, write, read, |fut| {
+                    tokio::task::spawn_local(fut);
+                });
+
+            // Pump commands from the Send world to the !Send AgentSideConnection.
+            let conn = std::rc::Rc::new(conn);
+            let pump_conn = conn.clone();
+            tokio::task::spawn_local(async move {
+                while let Some(cmd) = cmd_rx.recv().await {
+                    match cmd {
+                        ClientCommand::Notify {
+                            notification,
+                            reply,
+                        } => {
+                            let result = pump_conn.session_notification(notification).await;
+                            let _ = reply.send(result);
+                        }
+                        ClientCommand::RequestPermission { request, reply } => {
+                            let result = pump_conn.request_permission(request).await;
+                            let _ = reply.send(result);
+                        }
+                    }
+                }
+            });
+
+            if let Err(e) = io_task.await {
+                tracing::error!("ACP io_task error: {e}");
+            }
+        });
+    });
+
+    tokio::task::spawn_blocking(move || {
+        handle
+            .join()
+            .map_err(|_| anyhow::anyhow!("ACP serve thread panicked"))
+    })
+    .await??;
 
     Ok(())
 }

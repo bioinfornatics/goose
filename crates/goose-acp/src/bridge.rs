@@ -1,11 +1,11 @@
-//! Bridge module: implements the agent-client-protocol Agent trait
+//! Bridge: implements the agent-client-protocol Agent trait
 //! by delegating to GooseAcpAgent methods.
+//!
+//! This lives on a !Send LocalSet. Notifications and permission requests
+//! are forwarded through channels set up in serve().
 
-use std::cell::OnceCell;
-use std::rc::Rc;
 use std::sync::Arc;
 
-// Import Result type alias from schema (Result<T> = std::result::Result<T, Error>)
 use agent_client_protocol_schema::{
     AuthenticateRequest, AuthenticateResponse, CancelNotification, Error, InitializeRequest,
     InitializeResponse, LoadSessionRequest, LoadSessionResponse, NewSessionRequest,
@@ -15,31 +15,20 @@ use agent_client_protocol_schema::{
 
 use crate::server::GooseAcpAgent;
 
-/// Bridge that implements the Agent trait from agent-client-protocol.
+/// Bridge that implements the `agent_client_protocol::Agent` trait.
+///
+/// Lives on a LocalSet (not Send). Dispatches incoming ACP requests
+/// to the Send-safe GooseAcpAgent.
 pub struct AcpBridge {
     pub agent: Arc<GooseAcpAgent>,
-    client: OnceCell<Rc<agent_client_protocol::AgentSideConnection>>,
 }
 
 impl AcpBridge {
     pub fn new(agent: Arc<GooseAcpAgent>) -> Self {
-        Self {
-            agent,
-            client: OnceCell::new(),
-        }
-    }
-
-    pub fn set_client(&self, client: Rc<agent_client_protocol::AgentSideConnection>) {
-        let _ = self.client.set(client);
-    }
-
-    #[allow(dead_code)]
-    pub fn client(&self) -> &agent_client_protocol::AgentSideConnection {
-        self.client.get().expect("AcpBridge: client not set")
+        Self { agent }
     }
 }
 
-// Use the EXACT same async_trait attribute as the Agent trait definition
 #[async_trait::async_trait(?Send)]
 impl agent_client_protocol::Agent for AcpBridge {
     async fn initialize(&self, args: InitializeRequest) -> Result<InitializeResponse> {
@@ -54,14 +43,12 @@ impl agent_client_protocol::Agent for AcpBridge {
         self.agent.on_new_session(args).await
     }
 
-    async fn load_session(&self, _args: LoadSessionRequest) -> Result<LoadSessionResponse> {
-        // TODO: Refactor on_load_session to accept &dyn Client
-        Err(Error::method_not_found())
+    async fn load_session(&self, args: LoadSessionRequest) -> Result<LoadSessionResponse> {
+        self.agent.on_load_session(args).await
     }
 
-    async fn prompt(&self, _args: PromptRequest) -> Result<PromptResponse> {
-        // TODO: Refactor on_prompt to accept &dyn Client
-        Err(Error::method_not_found())
+    async fn prompt(&self, args: PromptRequest) -> Result<PromptResponse> {
+        self.agent.on_prompt(args).await
     }
 
     async fn cancel(&self, args: CancelNotification) -> Result<()> {

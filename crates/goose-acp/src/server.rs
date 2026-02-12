@@ -420,32 +420,33 @@ impl GooseAcpAgent {
         content_item: &MessageContent,
         session_id: &SessionId,
         session: &mut GooseAcpSession,
-        cx: &JrConnectionCx<AgentToClient>,
     ) -> Result<(), agent_client_protocol_schema::Error> {
         match content_item {
             MessageContent::Text(text) => {
-                cx.send_notification(SessionNotification::new(
+                self.notify(SessionNotification::new(
                     session_id.clone(),
                     SessionUpdate::AgentMessageChunk(ContentChunk::new(ContentBlock::Text(
                         TextContent::new(text.text.clone()),
                     ))),
-                ))?;
+                ))
+                .await?;
             }
             MessageContent::ToolRequest(tool_request) => {
-                self.handle_tool_request(tool_request, session_id, session, cx)
+                self.handle_tool_request(tool_request, session_id, session)
                     .await?;
             }
             MessageContent::ToolResponse(tool_response) => {
-                self.handle_tool_response(tool_response, session_id, session, cx)
+                self.handle_tool_response(tool_response, session_id, session)
                     .await?;
             }
             MessageContent::Thinking(thinking) => {
-                cx.send_notification(SessionNotification::new(
+                self.notify(SessionNotification::new(
                     session_id.clone(),
                     SessionUpdate::AgentThoughtChunk(ContentChunk::new(ContentBlock::Text(
                         TextContent::new(thinking.thinking.clone()),
                     ))),
-                ))?;
+                ))
+                .await?;
             }
             MessageContent::ActionRequired(action_required) => {
                 if let ActionRequiredData::ToolConfirmation {
@@ -456,14 +457,14 @@ impl GooseAcpAgent {
                 } = &action_required.data
                 {
                     self.handle_tool_permission_request(
-                        cx,
                         &session.agent,
                         session_id,
                         id.clone(),
                         tool_name.clone(),
                         arguments.clone(),
                         prompt.clone(),
-                    )?;
+                    )
+                    .await?;
                 }
             }
             _ => {}
@@ -476,7 +477,6 @@ impl GooseAcpAgent {
         tool_request: &goose::conversation::message::ToolRequest,
         session_id: &SessionId,
         session: &mut GooseAcpSession,
-        cx: &JrConnectionCx<AgentToClient>,
     ) -> Result<(), agent_client_protocol_schema::Error> {
         session
             .tool_requests
@@ -487,7 +487,7 @@ impl GooseAcpAgent {
             Err(_) => "error".to_string(),
         };
 
-        cx.send_notification(SessionNotification::new(
+        self.notify(SessionNotification::new(
             session_id.clone(),
             SessionUpdate::ToolCall(
                 ToolCall::new(
@@ -496,7 +496,8 @@ impl GooseAcpAgent {
                 )
                 .status(ToolCallStatus::Pending),
             ),
-        ))?;
+        ))
+        .await?;
 
         Ok(())
     }
@@ -506,7 +507,6 @@ impl GooseAcpAgent {
         tool_response: &goose::conversation::message::ToolResponse,
         session_id: &SessionId,
         session: &mut GooseAcpSession,
-        cx: &JrConnectionCx<AgentToClient>,
     ) -> Result<(), agent_client_protocol_schema::Error> {
         let status = match &tool_response.tool_result {
             Ok(result) if result.is_error == Some(true) => ToolCallStatus::Failed,
@@ -526,21 +526,21 @@ impl GooseAcpAgent {
         if !locations.is_empty() {
             fields = fields.locations(locations);
         }
-        cx.send_notification(SessionNotification::new(
+        self.notify(SessionNotification::new(
             session_id.clone(),
             SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
                 ToolCallId::new(tool_response.id.clone()),
                 fields,
             )),
-        ))?;
+        ))
+        .await?;
 
         Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn handle_tool_permission_request(
+    async fn handle_tool_permission_request(
         &self,
-        cx: &JrConnectionCx<AgentToClient>,
         agent: &Arc<Agent>,
         session_id: &SessionId,
         request_id: String,
@@ -548,7 +548,6 @@ impl GooseAcpAgent {
         arguments: serde_json::Map<String, serde_json::Value>,
         prompt: Option<String>,
     ) -> Result<(), agent_client_protocol_schema::Error> {
-        let cx = cx.clone();
         let agent = agent.clone();
         let session_id = session_id.clone();
 
@@ -584,34 +583,25 @@ impl GooseAcpAgent {
         let permission_request =
             RequestPermissionRequest::new(session_id, tool_call_update, options);
 
-        cx.send_request(permission_request)
-            .on_receiving_result(move |result| async move {
-                match result {
-                    Ok(response) => {
-                        agent
-                            .handle_confirmation(
-                                request_id,
-                                outcome_to_confirmation(&response.outcome),
-                            )
-                            .await;
-                        Ok(())
-                    }
-                    Err(e) => {
-                        error!(error = ?e, "permission request failed");
-                        agent
-                            .handle_confirmation(
-                                request_id,
-                                PermissionConfirmation {
-                                    principal_type: PrincipalType::Tool,
-                                    permission: Permission::Cancel,
-                                },
-                            )
-                            .await;
-                        Ok(())
-                    }
-                }
-            })?;
-
+        match self.request_permission(permission_request).await {
+            Ok(response) => {
+                agent
+                    .handle_confirmation(request_id, outcome_to_confirmation(&response.outcome))
+                    .await;
+            }
+            Err(e) => {
+                error!(error = ?e, "permission request failed");
+                agent
+                    .handle_confirmation(
+                        request_id,
+                        PermissionConfirmation {
+                            principal_type: PrincipalType::Tool,
+                            permission: Permission::Cancel,
+                        },
+                    )
+                    .await;
+            }
+        }
         Ok(())
     }
 }
@@ -788,10 +778,9 @@ impl GooseAcpAgent {
         Ok(provider)
     }
 
-    async fn on_load_session(
+    pub async fn on_load_session(
         &self,
         args: LoadSessionRequest,
-        cx: &JrConnectionCx<AgentToClient>,
     ) -> Result<LoadSessionResponse, agent_client_protocol_schema::Error> {
         debug!(?args, "load session request");
 
@@ -852,31 +841,25 @@ impl GooseAcpAgent {
                             Role::User => SessionUpdate::UserMessageChunk(chunk),
                             Role::Assistant => SessionUpdate::AgentMessageChunk(chunk),
                         };
-                        cx.send_notification(SessionNotification::new(
-                            args.session_id.clone(),
-                            update,
-                        ))?;
+                        self.notify(SessionNotification::new(args.session_id.clone(), update))
+                            .await?;
                     }
                     MessageContent::ToolRequest(tool_request) => {
-                        self.handle_tool_request(tool_request, &args.session_id, &mut session, cx)
+                        self.handle_tool_request(tool_request, &args.session_id, &mut session)
                             .await?;
                     }
                     MessageContent::ToolResponse(tool_response) => {
-                        self.handle_tool_response(
-                            tool_response,
-                            &args.session_id,
-                            &mut session,
-                            cx,
-                        )
-                        .await?;
+                        self.handle_tool_response(tool_response, &args.session_id, &mut session)
+                            .await?;
                     }
                     MessageContent::Thinking(thinking) => {
-                        cx.send_notification(SessionNotification::new(
+                        self.notify(SessionNotification::new(
                             args.session_id.clone(),
                             SessionUpdate::AgentThoughtChunk(ContentChunk::new(
                                 ContentBlock::Text(TextContent::new(thinking.thinking.clone())),
                             )),
-                        ))?;
+                        ))
+                        .await?;
                     }
                     _ => {}
                 }
@@ -898,10 +881,9 @@ impl GooseAcpAgent {
         Ok(LoadSessionResponse::new().models(model_state))
     }
 
-    async fn on_prompt(
+    pub async fn on_prompt(
         &self,
         args: PromptRequest,
-        cx: &JrConnectionCx<AgentToClient>,
     ) -> Result<PromptResponse, agent_client_protocol_schema::Error> {
         let session_id = args.session_id.0.to_string();
         let cancel_token = CancellationToken::new();
@@ -954,7 +936,7 @@ impl GooseAcpAgent {
                     session.messages.push(message.clone());
 
                     for content_item in &message.content {
-                        self.handle_message_content(content_item, &args.session_id, session, cx)
+                        self.handle_message_content(content_item, &args.session_id, session)
                             .await?;
                     }
                 }
@@ -1076,16 +1058,23 @@ impl JrMessageHandler for GooseAcpHandler {
             .await
             .if_request(
                 |req: LoadSessionRequest, req_cx: JrRequestCx<LoadSessionResponse>| async {
-                    req_cx.respond(self.agent.on_load_session(req, &cx).await?)
+                    // Set notification sender before calling load_session
+                    let sender =
+                        Arc::new(crate::notification::SacpNotificationSender::new(cx.clone()));
+                    self.agent.set_notification_sender(sender).await;
+                    req_cx.respond(self.agent.on_load_session(req).await?)
                 },
             )
             .await
             .if_request(
                 |req: PromptRequest, req_cx: JrRequestCx<PromptResponse>| async {
+                    // Set notification sender before calling prompt
+                    let sender =
+                        Arc::new(crate::notification::SacpNotificationSender::new(cx.clone()));
+                    self.agent.set_notification_sender(sender).await;
                     let agent = self.agent.clone();
-                    let cx_clone = cx.clone();
                     cx.spawn(async move {
-                        match agent.on_prompt(req, &cx_clone).await {
+                        match agent.on_prompt(req).await {
                             Ok(response) => {
                                 req_cx.respond(response)?;
                             }

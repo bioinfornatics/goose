@@ -698,6 +698,214 @@
         }
       }
     },
+    "/agents/external": {
+      "get": {
+        "tags": [
+          "External Agents"
+        ],
+        "operationId": "list_agents",
+        "responses": {
+          "200": {
+            "description": "List of connected agents",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/external/connect": {
+      "post": {
+        "tags": [
+          "External Agents"
+        ],
+        "operationId": "connect_agent",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectAgentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Agent connected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectAgentResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent not found"
+          },
+          "422": {
+            "description": "Agent has no distribution"
+          }
+        }
+      }
+    },
+    "/agents/external/{agent_id}": {
+      "delete": {
+        "tags": [
+          "External Agents"
+        ],
+        "operationId": "disconnect_agent",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Agent disconnected"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/agents/external/{agent_id}/mode": {
+      "post": {
+        "tags": [
+          "External Agents"
+        ],
+        "operationId": "set_mode",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetModeAgentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Mode set"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/agents/external/{agent_id}/prompt": {
+      "post": {
+        "tags": [
+          "External Agents"
+        ],
+        "operationId": "prompt_agent",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromptAgentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Prompt response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptAgentResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/agents/external/{agent_id}/session": {
+      "post": {
+        "tags": [
+          "External Agents"
+        ],
+        "operationId": "create_session",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Session created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateSessionResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/config": {
       "get": {
         "tags": [
@@ -3432,6 +3640,20 @@
           }
         }
       },
+      "AgentListResponse": {
+        "type": "object",
+        "required": [
+          "agents"
+        ],
+        "properties": {
+          "agents": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "Annotations": {
         "type": "object",
         "properties": {
@@ -3647,6 +3869,32 @@
           }
         }
       },
+      "ConnectAgentRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "ConnectAgentResponse": {
+        "type": "object",
+        "required": [
+          "agent_id",
+          "connected"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "connected": {
+            "type": "boolean"
+          }
+        }
+      },
       "Content": {
         "oneOf": [
           {
@@ -3744,6 +3992,26 @@
           },
           "recipe": {
             "$ref": "#/components/schemas/Recipe"
+          }
+        }
+      },
+      "CreateSessionRequest": {
+        "type": "object",
+        "properties": {
+          "working_dir": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "CreateSessionResponse": {
+        "type": "object",
+        "required": [
+          "session_id"
+        ],
+        "properties": {
+          "session_id": {
+            "type": "string"
           }
         }
       },
@@ -5435,6 +5703,32 @@
           "Tool"
         ]
       },
+      "PromptAgentRequest": {
+        "type": "object",
+        "required": [
+          "session_id",
+          "text"
+        ],
+        "properties": {
+          "session_id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "PromptAgentResponse": {
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        }
+      },
       "PromptContentResponse": {
         "type": "object",
         "required": [
@@ -6486,6 +6780,21 @@
           "limit": {
             "type": "integer",
             "minimum": 0
+          }
+        }
+      },
+      "SetModeAgentRequest": {
+        "type": "object",
+        "required": [
+          "session_id",
+          "mode_id"
+        ],
+        "properties": {
+          "mode_id": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
           }
         }
       },

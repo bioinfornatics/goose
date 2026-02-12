@@ -423,6 +423,12 @@ derive_utoipa!(Icon as IconSchema);
         super::routes::dictation::get_download_progress,
         super::routes::dictation::cancel_download,
         super::routes::dictation::delete_model,
+        super::routes::agent_management::connect_agent,
+        super::routes::agent_management::create_session,
+        super::routes::agent_management::prompt_agent,
+        super::routes::agent_management::set_mode,
+        super::routes::agent_management::list_agents,
+        super::routes::agent_management::disconnect_agent,
     ),
     components(schemas(
         super::routes::config_management::UpsertConfigQuery,
@@ -592,6 +598,14 @@ derive_utoipa!(Icon as IconSchema);
         super::routes::dictation::WhisperModelResponse,
         DownloadProgress,
         DownloadStatus,
+        super::routes::agent_management::ConnectAgentRequest,
+        super::routes::agent_management::ConnectAgentResponse,
+        super::routes::agent_management::CreateSessionRequest,
+        super::routes::agent_management::CreateSessionResponse,
+        super::routes::agent_management::PromptAgentRequest,
+        super::routes::agent_management::PromptAgentResponse,
+        super::routes::agent_management::SetModeAgentRequest,
+        super::routes::agent_management::AgentListResponse,
     ))
 )]
 pub struct ApiDoc;

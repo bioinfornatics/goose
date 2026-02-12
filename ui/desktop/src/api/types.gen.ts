@@ -30,6 +30,10 @@ export type AddExtensionRequest = {
     session_id: string;
 };
 
+export type AgentListResponse = {
+    agents: Array<string>;
+};
+
 export type Annotations = {
     audience?: Array<Role>;
     lastModified?: string;
@@ -118,6 +122,15 @@ export type ConfirmToolActionRequest = {
     sessionId: string;
 };
 
+export type ConnectAgentRequest = {
+    name: string;
+};
+
+export type ConnectAgentResponse = {
+    agent_id: string;
+    connected: boolean;
+};
+
 export type Content = RawTextContent | RawImageContent | RawEmbeddedResource | RawAudioContent | RawResource;
 
 export type Conversation = Array<Message>;
@@ -136,6 +149,14 @@ export type CreateScheduleRequest = {
     cron: string;
     id: string;
     recipe: Recipe;
+};
+
+export type CreateSessionRequest = {
+    working_dir?: string | null;
+};
+
+export type CreateSessionResponse = {
+    session_id: string;
 };
 
 /**
@@ -714,6 +735,15 @@ export type PricingResponse = {
 
 export type PrincipalType = 'Extension' | 'Tool';
 
+export type PromptAgentRequest = {
+    session_id: string;
+    text: string;
+};
+
+export type PromptAgentResponse = {
+    text: string;
+};
+
 export type PromptContentResponse = {
     content: string;
     default_content: string;
@@ -1063,6 +1093,11 @@ export type SessionType = 'user' | 'scheduled' | 'sub_agent' | 'hidden' | 'termi
 
 export type SessionsQuery = {
     limit: number;
+};
+
+export type SetModeAgentRequest = {
+    mode_id: string;
+    session_id: string;
 };
 
 export type SetProviderRequest = {
@@ -1918,6 +1953,157 @@ export type UpdateWorkingDirResponses = {
      */
     200: unknown;
 };
+
+export type ListAgentsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/agents/external';
+};
+
+export type ListAgentsResponses = {
+    /**
+     * List of connected agents
+     */
+    200: AgentListResponse;
+};
+
+export type ListAgentsResponse = ListAgentsResponses[keyof ListAgentsResponses];
+
+export type ConnectAgentData = {
+    body: ConnectAgentRequest;
+    path?: never;
+    query?: never;
+    url: '/agents/external/connect';
+};
+
+export type ConnectAgentErrors = {
+    /**
+     * Agent not found
+     */
+    404: unknown;
+    /**
+     * Agent has no distribution
+     */
+    422: unknown;
+};
+
+export type ConnectAgentResponses = {
+    /**
+     * Agent connected
+     */
+    200: ConnectAgentResponse;
+};
+
+export type ConnectAgentResponse2 = ConnectAgentResponses[keyof ConnectAgentResponses];
+
+export type DisconnectAgentData = {
+    body?: never;
+    path: {
+        /**
+         * Agent identifier
+         */
+        agent_id: string;
+    };
+    query?: never;
+    url: '/agents/external/{agent_id}';
+};
+
+export type DisconnectAgentErrors = {
+    /**
+     * Internal server error
+     */
+    500: unknown;
+};
+
+export type DisconnectAgentResponses = {
+    /**
+     * Agent disconnected
+     */
+    200: unknown;
+};
+
+export type SetModeData = {
+    body: SetModeAgentRequest;
+    path: {
+        /**
+         * Agent identifier
+         */
+        agent_id: string;
+    };
+    query?: never;
+    url: '/agents/external/{agent_id}/mode';
+};
+
+export type SetModeErrors = {
+    /**
+     * Internal server error
+     */
+    500: unknown;
+};
+
+export type SetModeResponses = {
+    /**
+     * Mode set
+     */
+    200: unknown;
+};
+
+export type PromptAgentData = {
+    body: PromptAgentRequest;
+    path: {
+        /**
+         * Agent identifier
+         */
+        agent_id: string;
+    };
+    query?: never;
+    url: '/agents/external/{agent_id}/prompt';
+};
+
+export type PromptAgentErrors = {
+    /**
+     * Internal server error
+     */
+    500: unknown;
+};
+
+export type PromptAgentResponses = {
+    /**
+     * Prompt response
+     */
+    200: PromptAgentResponse;
+};
+
+export type PromptAgentResponse2 = PromptAgentResponses[keyof PromptAgentResponses];
+
+export type CreateSessionData = {
+    body: CreateSessionRequest;
+    path: {
+        /**
+         * Agent identifier
+         */
+        agent_id: string;
+    };
+    query?: never;
+    url: '/agents/external/{agent_id}/session';
+};
+
+export type CreateSessionErrors = {
+    /**
+     * Internal server error
+     */
+    500: unknown;
+};
+
+export type CreateSessionResponses = {
+    /**
+     * Session created
+     */
+    200: CreateSessionResponse;
+};
+
+export type CreateSessionResponse2 = CreateSessionResponses[keyof CreateSessionResponses];
 
 export type ReadAllConfigData = {
     body?: never;

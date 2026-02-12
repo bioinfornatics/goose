@@ -1,4 +1,5 @@
 use anyhow::Result;
+use goose::agents::builtin_agent::BuiltinAgent;
 use goose::providers::provider_registry::ProviderConstructor;
 use std::sync::Arc;
 use tracing::info;
@@ -45,7 +46,7 @@ impl AcpServer {
             })
         });
 
-        let agent = GooseAcpAgent::new(
+        let mut agent = GooseAcpAgent::new(
             provider_factory,
             self.config.builtins.clone(),
             self.config.data_dir.clone(),
@@ -54,7 +55,18 @@ impl AcpServer {
             disable_session_naming,
         )
         .await?;
-        info!("Created new ACP agent");
+
+        // Populate ACP modes from the built-in agent definition
+        let builtin = BuiltinAgent::new();
+        agent.set_modes(
+            builtin.to_agent_modes(),
+            Some(builtin.default_mode_slug().to_string()),
+        );
+        info!(
+            "Created new ACP agent with {} modes (default: {})",
+            builtin.list_modes().len(),
+            builtin.default_mode_slug()
+        );
 
         Ok(Arc::new(agent))
     }

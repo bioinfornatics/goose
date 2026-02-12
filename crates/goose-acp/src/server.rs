@@ -758,9 +758,9 @@ impl GooseAcpAgent {
 
         if let Some(ref mode_id) = default_mode_id {
             if let Some(mode) = self.modes.iter().find(|m| m.slug == *mode_id) {
-                if let Some(ref instructions) = mode.instructions {
+                if let Some(instructions) = resolve_mode_instructions(mode) {
                     agent
-                        .extend_system_prompt("agent_mode".to_string(), instructions.clone())
+                        .extend_system_prompt("agent_mode".to_string(), instructions)
                         .await;
                 }
             }
@@ -857,9 +857,9 @@ impl GooseAcpAgent {
 
         if let Some(ref mode_id) = default_mode_id {
             if let Some(mode) = self.modes.iter().find(|m| m.slug == *mode_id) {
-                if let Some(ref instructions) = mode.instructions {
+                if let Some(instructions) = resolve_mode_instructions(mode) {
                     agent
-                        .extend_system_prompt("agent_mode".to_string(), instructions.clone())
+                        .extend_system_prompt("agent_mode".to_string(), instructions)
                         .await;
                 }
             }
@@ -946,7 +946,7 @@ impl GooseAcpAgent {
                     .data(format!("Unknown mode: {}", mode_id))
             })?;
 
-        let instructions = mode.instructions.clone();
+        let instructions = resolve_mode_instructions(mode);
 
         let mut sessions = self.sessions.lock().await;
         let session = sessions.get_mut(session_id).ok_or_else(|| {
@@ -1201,6 +1201,25 @@ pub async fn run(builtins: Vec<String>) -> Result<()> {
         });
     let agent = server.create_agent().await?;
     serve(agent, incoming, outgoing).await
+}
+
+/// Resolve instructions for a mode — tries inline first, then renders template file
+fn resolve_mode_instructions(mode: &AgentMode) -> Option<String> {
+    if let Some(ref instructions) = mode.instructions {
+        return Some(instructions.clone());
+    }
+    if let Some(ref file) = mode.instructions_file {
+        match goose::prompt_template::render_template(
+            file,
+            &std::collections::HashMap::<String, String>::new(),
+        ) {
+            Ok(rendered) => return Some(rendered),
+            Err(e) => {
+                tracing::warn!(mode = %mode.slug, file = %file, error = %e, "Failed to render mode instructions_file");
+            }
+        }
+    }
+    None
 }
 
 fn build_mode_state(modes: &[AgentMode], default_mode: Option<&str>) -> Option<SessionModeState> {

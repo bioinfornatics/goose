@@ -1,6 +1,7 @@
 pub mod action_required;
 pub mod agent;
 pub mod agent_card;
+pub mod agent_management;
 pub mod config_management;
 pub mod dictation;
 pub mod errors;
@@ -35,6 +36,7 @@ pub fn configure(state: Arc<crate::state::AppState>, secret_key: String) -> Rout
         .merge(prompts::routes())
         .merge(registry::routes())
         .merge(agent_card::routes())
+        .merge(agent_management::routes())
         .merge(recipe::routes(state.clone()))
         .merge(session::routes(state.clone()))
         .merge(schedule::routes(state.clone()))

@@ -886,7 +886,7 @@ mod tests {
             name: "".into(),
             kind: RegistryEntryKind::Agent,
             description: "".into(),
-            detail: RegistryEntryDetail::Agent(Box::new(AgentDetail::default())),
+            detail: RegistryEntryDetail::Agent(Box::default()),
             ..Default::default()
         };
 

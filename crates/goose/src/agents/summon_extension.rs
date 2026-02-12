@@ -6,6 +6,7 @@
 
 use crate::agent_manager::client::AgentClientManager;
 use crate::agents::builtin_skills;
+use crate::agents::delegation::DelegationStrategy;
 use crate::agents::extension::PlatformExtensionContext;
 use crate::agents::mcp_client::{Error, McpClientTrait};
 use crate::agents::subagent_handler::{
@@ -1215,17 +1216,28 @@ Default mode: {}
             return self.handle_async_delegate(session_id, params).await;
         }
 
-        // Check if this is an ACP agent with distribution — delegate via ACP protocol
+        // Route via DelegationStrategy when source is an Agent
         if let Some(source_name) = &params.source {
             let working_dir = session.working_dir.clone();
             if let Some(source) = self
                 .resolve_source(session_id, source_name, &working_dir)
                 .await
             {
-                if source.kind == SourceKind::Agent && source.distribution.is_some() {
-                    return self
-                        .handle_acp_delegate(&source, &params, cancellation_token)
-                        .await;
+                if source.kind == SourceKind::Agent {
+                    let strategy = DelegationStrategy::choose(
+                        source.distribution.as_ref(),
+                        false, // TODO: detect custom extensions from agent frontmatter
+                        false, // TODO: detect model override from agent frontmatter
+                        false, // TODO: detect modes from agent frontmatter
+                    );
+                    tracing::info!("Delegation strategy for '{}': {}", source_name, strategy);
+
+                    if strategy.is_external() {
+                        return self
+                            .handle_acp_delegate(&source, &params, cancellation_token)
+                            .await;
+                    }
+                    // InProcessSubAgent falls through to the existing recipe-based path
                 }
             }
         }

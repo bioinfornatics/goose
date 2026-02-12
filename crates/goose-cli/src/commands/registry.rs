@@ -415,12 +415,10 @@ pub async fn handle_agent_info(name: &str, mode: Option<&str>) -> Result<()> {
                             if let Some(ref instructions) = m.instructions {
                                 println!("  {}", style("Instructions:").underlined());
                                 // Show first 500 chars
-                                let preview = if instructions.len() > 500 {
-                                    let end = instructions
-                                        .char_indices()
-                                        .nth(500)
-                                        .map_or(instructions.len(), |(i, _)| i);
-                                    format!("{}...", &instructions[..end])
+                                let preview = if instructions.chars().count() > 500 {
+                                    let truncated: String =
+                                        instructions.chars().take(500).collect();
+                                    format!("{truncated}...")
                                 } else {
                                     instructions.clone()
                                 };

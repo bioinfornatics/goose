@@ -1,3 +1,4 @@
+pub mod formats;
 pub mod install;
 pub mod manifest;
 pub mod publish;

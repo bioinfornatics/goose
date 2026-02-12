@@ -128,6 +128,8 @@ pub struct Agent {
 
     pub(super) retry_manager: RetryManager,
     pub(super) tool_inspection_manager: ToolInspectionManager,
+    /// Active tool groups from current mode — empty means all tools available
+    pub active_tool_groups: tokio::sync::RwLock<Vec<crate::registry::manifest::ToolGroupAccess>>,
     container: Mutex<Option<Container>>,
 }
 
@@ -215,6 +217,7 @@ impl Agent {
             tool_result_rx: Arc::new(Mutex::new(tool_rx)),
             retry_manager: RetryManager::new(),
             tool_inspection_manager: Self::create_tool_inspection_manager(permission_manager),
+            active_tool_groups: tokio::sync::RwLock::new(Vec::new()),
             container: Mutex::new(None),
         }
     }
@@ -420,6 +423,15 @@ impl Agent {
     }
 
     /// When set, all stdio extensions will be started via `docker exec` in the specified container.
+    /// Set the active tool groups for the current mode.
+    /// When non-empty, only tools matching these groups are available to the LLM.
+    pub async fn set_active_tool_groups(
+        &self,
+        groups: Vec<crate::registry::manifest::ToolGroupAccess>,
+    ) {
+        *self.active_tool_groups.write().await = groups;
+    }
+
     pub async fn set_container(&self, container: Option<Container>) {
         *self.container.lock().await = container.clone();
     }

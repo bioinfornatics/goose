@@ -158,6 +158,13 @@ impl Agent {
             });
         }
 
+        // Apply mode-based tool filtering
+        let active_groups = self.active_tool_groups.read().await;
+        if !active_groups.is_empty() {
+            tools = super::tool_filter::filter_tools(tools, &active_groups);
+        }
+        drop(active_groups);
+
         // Stable tool ordering is important for multi session prompt caching.
         tools.sort_by(|a, b| a.name.cmp(&b.name));
 

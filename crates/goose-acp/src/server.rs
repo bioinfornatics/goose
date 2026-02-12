@@ -763,6 +763,7 @@ impl GooseAcpAgent {
                         .extend_system_prompt("agent_mode".to_string(), instructions)
                         .await;
                 }
+                agent.set_active_tool_groups(mode.tool_groups.clone()).await;
             }
         }
 
@@ -862,6 +863,7 @@ impl GooseAcpAgent {
                         .extend_system_prompt("agent_mode".to_string(), instructions)
                         .await;
                 }
+                agent.set_active_tool_groups(mode.tool_groups.clone()).await;
             }
         }
 
@@ -955,6 +957,12 @@ impl GooseAcpAgent {
         })?;
 
         session.current_mode_id = Some(mode_id.to_string());
+
+        // Apply mode's tool groups to the agent for tool filtering
+        session
+            .agent
+            .set_active_tool_groups(mode.tool_groups.clone())
+            .await;
 
         if let Some(instructions) = instructions {
             session

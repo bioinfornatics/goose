@@ -515,3 +515,95 @@ pub async fn handle_agent_modes(name: &str) -> Result<()> {
         }
     }
 }
+
+pub async fn handle_agent_run(name: &str, prompt: &str, mode: Option<&str>) -> Result<()> {
+    use goose::agent_manager::client::AgentClientManager;
+    use goose::registry::manifest::RegistryEntryDetail;
+
+    let manager = default_manager()?;
+    let entry = manager
+        .get(
+            name,
+            Some(goose::registry::manifest::RegistryEntryKind::Agent),
+        )
+        .await?;
+
+    let entry = match entry {
+        Some(e) => e,
+        None => {
+            println!(
+                "{} Agent '{}' not found in registry",
+                style("✗").red(),
+                name
+            );
+            return Ok(());
+        }
+    };
+
+    let distribution = match &entry.detail {
+        RegistryEntryDetail::Agent(detail) => match &detail.distribution {
+            Some(dist) => dist.clone(),
+            None => {
+                println!(
+                    "{} Agent '{}' has no distribution info",
+                    style("✗").red(),
+                    name
+                );
+                return Ok(());
+            }
+        },
+        _ => {
+            println!("{} '{}' is not an agent", style("✗").red(), name);
+            return Ok(());
+        }
+    };
+
+    let agent_manager = AgentClientManager::default();
+
+    println!(
+        "{} Connecting to agent '{}'...",
+        style("⟳").cyan(),
+        style(name).bold()
+    );
+
+    agent_manager
+        .connect_with_distribution(name.to_string(), &distribution)
+        .await?;
+
+    println!("{} Connected", style("✓").green());
+
+    // Create a session
+    use goose::agent_manager::{NewSessionRequest, SessionModeId};
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let session_resp = agent_manager
+        .new_session(name, NewSessionRequest::new(cwd))
+        .await?;
+    let session_id = session_resp.session_id;
+
+    // Set mode if requested
+    if let Some(mode_id) = mode {
+        use goose::agent_manager::SetSessionModeRequest;
+        let mode_req = SetSessionModeRequest::new(
+            session_id.clone(),
+            SessionModeId::from(mode_id.to_string()),
+        );
+        agent_manager.set_mode(name, mode_req).await?;
+        println!(
+            "{} Mode '{}' set",
+            style("✓").green(),
+            style(mode_id).bold()
+        );
+    }
+
+    let result = agent_manager
+        .prompt_agent_text(name, &session_id, prompt)
+        .await?;
+
+    println!();
+    println!("{}", style("Agent Response:").bold().green());
+    println!("{}", result);
+
+    agent_manager.shutdown_all().await;
+
+    Ok(())
+}

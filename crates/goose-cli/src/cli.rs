@@ -821,6 +821,34 @@ enum AgentCommand {
         #[arg(help = "Agent name")]
         name: String,
     },
+
+    /// Run an agent with a prompt
+    #[command(about = "Spawn an external agent and send it a prompt")]
+    Run {
+        /// Agent name from registry
+        #[arg(help = "Agent name to run")]
+        name: String,
+        /// Prompt text to send
+        #[arg(help = "Prompt text")]
+        prompt: String,
+        /// Mode to use
+        #[arg(long, help = "Agent mode to activate")]
+        mode: Option<String>,
+    },
+
+    /// Delegate a task to an agent
+    #[command(about = "Delegate a task to a registered agent")]
+    Delegate {
+        /// Agent name from registry
+        #[arg(help = "Agent name to delegate to")]
+        name: String,
+        /// Task instructions
+        #[arg(help = "Task instructions")]
+        instructions: String,
+        /// Mode to use
+        #[arg(long, help = "Agent mode to activate")]
+        mode: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1637,8 +1665,8 @@ async fn handle_registry_subcommand(command: RegistryCommand) -> Result<()> {
 
 async fn handle_agent_subcommand(command: AgentCommand) -> Result<()> {
     use crate::commands::registry::{
-        handle_add, handle_agent_info, handle_agent_modes, handle_list as handle_registry_list,
-        handle_remove, handle_search,
+        handle_add, handle_agent_info, handle_agent_modes, handle_agent_run,
+        handle_list as handle_registry_list, handle_remove, handle_search,
     };
 
     match command {
@@ -1648,6 +1676,14 @@ async fn handle_agent_subcommand(command: AgentCommand) -> Result<()> {
         AgentCommand::Show { name, mode } => handle_agent_info(&name, mode.as_deref()).await,
         AgentCommand::Search { query } => handle_search(&query, Some("agent"), "text", false).await,
         AgentCommand::Modes { name } => handle_agent_modes(&name).await,
+        AgentCommand::Run { name, prompt, mode } => {
+            handle_agent_run(&name, &prompt, mode.as_deref()).await
+        }
+        AgentCommand::Delegate {
+            name,
+            instructions,
+            mode,
+        } => handle_agent_run(&name, &instructions, mode.as_deref()).await,
     }
 }
 

@@ -481,7 +481,7 @@ pub struct RecipeDetail {
 // Author types
 // ──────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
 pub struct AuthorInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,

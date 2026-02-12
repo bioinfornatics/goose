@@ -207,24 +207,25 @@ fn parse_agent_file(path: &Path) -> Option<RegistryEntry> {
         name: meta.name,
         kind: RegistryEntryKind::Agent,
         description,
-        version: None,
-        author: None,
-        license: None,
-        repository: None,
-        icon: None,
+        version: meta.version,
+        author: meta.author.map(|name| AuthorInfo {
+            name: Some(name),
+            ..Default::default()
+        }),
+        license: meta.license,
+        repository: meta.repository,
+        icon: meta.icon,
         source_uri: None,
         local_path: Some(path.to_path_buf()),
         tags: meta.tags.unwrap_or_default(),
         detail: RegistryEntryDetail::Agent(Box::new(AgentDetail {
             instructions: body,
             model: meta.model,
-            recommended_models: Vec::new(),
-            capabilities: Vec::new(),
-            domains: Vec::new(),
+            capabilities: meta.capabilities.unwrap_or_default(),
+            domains: meta.domains.unwrap_or_default(),
+            required_extensions: meta.required_extensions.unwrap_or_default(),
             input_content_types: vec!["text/plain".into()],
             output_content_types: vec!["text/markdown".into()],
-            required_extensions: Vec::new(),
-            dependencies: Vec::new(),
             ..Default::default()
         })),
         metadata: HashMap::new(),
@@ -363,6 +364,22 @@ struct AgentFrontmatter {
     model: Option<String>,
     #[serde(default)]
     tags: Option<Vec<String>>,
+    #[serde(default)]
+    license: Option<String>,
+    #[serde(default)]
+    version: Option<String>,
+    #[serde(default)]
+    capabilities: Option<Vec<String>>,
+    #[serde(default)]
+    domains: Option<Vec<String>>,
+    #[serde(default)]
+    required_extensions: Option<Vec<String>>,
+    #[serde(default)]
+    repository: Option<String>,
+    #[serde(default)]
+    icon: Option<String>,
+    #[serde(default)]
+    author: Option<String>,
 }
 
 /// Parse YAML frontmatter delimited by `---` from a markdown file.

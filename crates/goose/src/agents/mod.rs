@@ -4,6 +4,7 @@ pub mod builtin_agent;
 pub(crate) mod builtin_skills;
 pub(crate) mod chatrecall_extension;
 pub(crate) mod code_execution_extension;
+pub mod coding_assistant;
 pub mod container;
 pub mod delegation;
 pub mod execute_commands;

@@ -39,6 +39,38 @@ static TEMPLATE_REGISTRY: &[(&str, &str)] = &[
         "plan.md",
         "Prompt used when goose creates step-by-step plans. CLI only",
     ),
+    (
+        "coding_assistant/pm.md",
+        "Product Manager — requirements, user stories, and prioritization",
+    ),
+    (
+        "coding_assistant/architect.md",
+        "Software Architect — system design, C4 diagrams, and ADRs",
+    ),
+    (
+        "coding_assistant/backend.md",
+        "Backend Engineer — APIs, data models, and server-side logic",
+    ),
+    (
+        "coding_assistant/frontend.md",
+        "Frontend Engineer — UI components, state management, and accessibility",
+    ),
+    (
+        "coding_assistant/qa.md",
+        "Quality Assurance — test planning, automated testing, and bug reporting",
+    ),
+    (
+        "coding_assistant/security.md",
+        "Security Champion — OWASP analysis, threat modeling, and code review",
+    ),
+    (
+        "coding_assistant/sre.md",
+        "SRE — reliability engineering, SLOs, monitoring, and incident response",
+    ),
+    (
+        "coding_assistant/devsecops.md",
+        "DevSecOps — CI/CD security, infrastructure as code, and supply chain",
+    ),
 ];
 
 /// Information about a template including its content and customization status

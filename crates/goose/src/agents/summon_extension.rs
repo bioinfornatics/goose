@@ -18,6 +18,9 @@ use crate::providers;
 use crate::recipe::build_recipe::build_recipe_from_template;
 use crate::recipe::local_recipes::load_local_recipe_file;
 use crate::recipe::{Recipe, Settings, RECIPE_FILE_EXTENSIONS};
+use crate::registry::manifest::RegistryEntryKind;
+use crate::registry::sources::local::LocalRegistrySource;
+use crate::registry::RegistryManager;
 use crate::session::extension_data::EnabledExtensionsState;
 use crate::session::SessionType;
 use anyhow::Result;
@@ -432,6 +435,9 @@ impl SummonClient {
             }
         }
 
+        // Add registry sources (agents, skills, recipes from registry)
+        self.add_registry_sources(&mut sources, &mut seen).await;
+
         sources.sort_by(|a, b| (&a.kind, &a.name).cmp(&(&b.kind, &b.name)));
         sources
     }
@@ -581,6 +587,51 @@ impl SummonClient {
         }
 
         sources
+    }
+
+    /// Discover agents, skills, and recipes from the registry
+    async fn add_registry_sources(
+        &self,
+        sources: &mut Vec<Source>,
+        seen: &mut std::collections::HashSet<String>,
+    ) {
+        let mut manager = RegistryManager::new();
+        if let Ok(local_source) = LocalRegistrySource::from_default_paths() {
+            manager.add_source(Box::new(local_source));
+        }
+
+        // Search for all entry types from the registry
+        if let Ok(entries) = manager.search(None, None).await {
+            for entry in entries {
+                if seen.contains(&entry.name) {
+                    continue;
+                }
+                seen.insert(entry.name.clone());
+
+                let kind = match entry.kind {
+                    RegistryEntryKind::Agent => SourceKind::Agent,
+                    RegistryEntryKind::Skill => SourceKind::Skill,
+                    RegistryEntryKind::Recipe => SourceKind::Recipe,
+                    RegistryEntryKind::Tool => continue, // tools are extensions, not sources
+                };
+
+                let content = match &entry.detail {
+                    crate::registry::manifest::RegistryEntryDetail::Skill(s) => s.content.clone(),
+                    crate::registry::manifest::RegistryEntryDetail::Agent(a) => {
+                        a.instructions.clone()
+                    }
+                    _ => String::new(),
+                };
+
+                sources.push(Source {
+                    name: entry.name.clone(),
+                    kind,
+                    description: entry.description.clone(),
+                    path: entry.local_path.clone().unwrap_or_default(),
+                    content,
+                });
+            }
+        }
     }
 
     async fn add_subrecipes(

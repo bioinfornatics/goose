@@ -5,7 +5,8 @@ use agent_client_protocol_schema::{
     ModelId, ModelInfo, NewSessionRequest, NewSessionResponse, PermissionOption,
     PermissionOptionKind, PromptCapabilities, PromptRequest, PromptResponse,
     RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse, ResourceLink,
-    SessionId, SessionModelState, SessionNotification, SessionUpdate, SetSessionModelResponse,
+    SessionId, SessionMode, SessionModeId, SessionModeState, SessionModelState,
+    SessionNotification, SessionUpdate, SetSessionModeResponse, SetSessionModelResponse,
     StopReason, TextContent, TextResourceContents, ToolCall, ToolCallContent, ToolCallId,
     ToolCallLocation, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, ToolKind,
 };
@@ -26,6 +27,7 @@ use goose::permission::permission_confirmation::PrincipalType;
 use goose::permission::{Permission, PermissionConfirmation};
 use goose::providers::base::Provider;
 use goose::providers::provider_registry::ProviderConstructor;
+use goose::registry::manifest::AgentMode;
 use goose::session::session_manager::SessionType;
 use goose::session::{Session, SessionManager};
 use rmcp::model::{CallToolResult, RawContent, ResourceContents, Role};
@@ -42,6 +44,7 @@ struct GooseAcpSession {
     messages: Conversation,
     tool_requests: HashMap<String, goose::conversation::message::ToolRequest>,
     cancel_token: Option<CancellationToken>,
+    current_mode_id: Option<String>,
 }
 
 pub struct GooseAcpAgent {
@@ -53,6 +56,8 @@ pub struct GooseAcpAgent {
     goose_mode: goose::config::GooseMode,
     disable_session_naming: bool,
     builtins: Vec<String>,
+    modes: Vec<AgentMode>,
+    default_mode: Option<String>,
     notification_sender:
         Arc<tokio::sync::RwLock<Option<Arc<dyn crate::notification::NotificationSender>>>>,
 }
@@ -314,8 +319,19 @@ impl GooseAcpAgent {
             goose_mode,
             disable_session_naming,
             builtins,
+            modes: Vec::new(),
+            default_mode: None,
             notification_sender: Arc::new(tokio::sync::RwLock::new(None)),
         })
+    }
+
+    pub fn set_modes(&mut self, modes: Vec<AgentMode>, default_mode: Option<String>) {
+        self.default_mode = default_mode;
+        self.modes = modes;
+    }
+
+    fn build_mode_state(&self) -> Option<SessionModeState> {
+        build_mode_state(&self.modes, self.default_mode.as_deref())
     }
 
     async fn create_agent_for_session(&self) -> Arc<Agent> {
@@ -735,11 +751,27 @@ impl GooseAcpAgent {
             }
         }
 
+        let default_mode_id = self
+            .default_mode
+            .clone()
+            .or_else(|| self.modes.first().map(|m| m.slug.clone()));
+
+        if let Some(ref mode_id) = default_mode_id {
+            if let Some(mode) = self.modes.iter().find(|m| m.slug == *mode_id) {
+                if let Some(ref instructions) = mode.instructions {
+                    agent
+                        .extend_system_prompt("agent_mode".to_string(), instructions.clone())
+                        .await;
+                }
+            }
+        }
+
         let session = GooseAcpSession {
             agent,
             messages: Conversation::new_unvalidated(Vec::new()),
             tool_requests: HashMap::new(),
             cancel_token: None,
+            current_mode_id: default_mode_id,
         };
 
         let mut sessions = self.sessions.lock().await;
@@ -754,7 +786,12 @@ impl GooseAcpAgent {
         let model_state =
             build_model_state(&*provider, &provider.get_model_config().model_name).await?;
 
-        Ok(NewSessionResponse::new(SessionId::new(goose_session.id)).models(model_state))
+        let mut response =
+            NewSessionResponse::new(SessionId::new(goose_session.id)).models(model_state);
+        if let Some(mode_state) = self.build_mode_state() {
+            response = response.modes(mode_state);
+        }
+        Ok(response)
     }
 
     async fn init_provider(&self, agent: &Agent, session: &Session) -> Result<Arc<dyn Provider>> {
@@ -813,11 +850,27 @@ impl GooseAcpAgent {
                     .data(format!("Failed to update session working directory: {}", e))
             })?;
 
+        let default_mode_id = self
+            .default_mode
+            .clone()
+            .or_else(|| self.modes.first().map(|m| m.slug.clone()));
+
+        if let Some(ref mode_id) = default_mode_id {
+            if let Some(mode) = self.modes.iter().find(|m| m.slug == *mode_id) {
+                if let Some(ref instructions) = mode.instructions {
+                    agent
+                        .extend_system_prompt("agent_mode".to_string(), instructions.clone())
+                        .await;
+                }
+            }
+        }
+
         let mut session = GooseAcpSession {
             agent,
             messages: conversation.clone(),
             tool_requests: HashMap::new(),
             cancel_token: None,
+            current_mode_id: default_mode_id,
         };
 
         for message in conversation.messages() {
@@ -872,7 +925,51 @@ impl GooseAcpAgent {
         let model_state =
             build_model_state(&*provider, &provider.get_model_config().model_name).await?;
 
-        Ok(LoadSessionResponse::new().models(model_state))
+        let mut response = LoadSessionResponse::new().models(model_state);
+        if let Some(mode_state) = self.build_mode_state() {
+            response = response.modes(mode_state);
+        }
+        Ok(response)
+    }
+
+    pub async fn on_set_mode(
+        &self,
+        session_id: &str,
+        mode_id: &str,
+    ) -> Result<SetSessionModeResponse, agent_client_protocol_schema::Error> {
+        let mode = self
+            .modes
+            .iter()
+            .find(|m| m.slug == mode_id)
+            .ok_or_else(|| {
+                agent_client_protocol_schema::Error::invalid_params()
+                    .data(format!("Unknown mode: {}", mode_id))
+            })?;
+
+        let instructions = mode.instructions.clone();
+
+        let mut sessions = self.sessions.lock().await;
+        let session = sessions.get_mut(session_id).ok_or_else(|| {
+            agent_client_protocol_schema::Error::invalid_params()
+                .data(format!("Session not found: {}", session_id))
+        })?;
+
+        session.current_mode_id = Some(mode_id.to_string());
+
+        if let Some(instructions) = instructions {
+            session
+                .agent
+                .extend_system_prompt("agent_mode".to_string(), instructions)
+                .await;
+        } else {
+            session
+                .agent
+                .extend_system_prompt("agent_mode".to_string(), String::new())
+                .await;
+        }
+
+        info!(session_id = %session_id, mode_id = %mode_id, "Session mode changed");
+        Ok(SetSessionModeResponse::new())
     }
 
     pub async fn on_prompt(
@@ -1106,6 +1203,27 @@ pub async fn run(builtins: Vec<String>) -> Result<()> {
     serve(agent, incoming, outgoing).await
 }
 
+fn build_mode_state(modes: &[AgentMode], default_mode: Option<&str>) -> Option<SessionModeState> {
+    if modes.is_empty() {
+        return None;
+    }
+
+    let available: Vec<SessionMode> = modes
+        .iter()
+        .map(|m| {
+            SessionMode::new(SessionModeId::new(&*m.slug), &m.name)
+                .description(m.description.clone())
+        })
+        .collect();
+
+    let current = default_mode.unwrap_or(&modes[0].slug);
+
+    Some(SessionModeState::new(
+        SessionModeId::new(current),
+        available,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1335,5 +1453,64 @@ print(\"hello, world\")
     ) -> Result<SessionModelState, agent_client_protocol_schema::Error> {
         let provider = MockModelProvider { models };
         build_model_state(&provider, current_model).await
+    }
+
+    mod test_build_mode_state {
+        use super::*;
+        use goose::registry::manifest::AgentMode;
+
+        fn mode(slug: &str, name: &str, description: &str) -> AgentMode {
+            AgentMode {
+                slug: slug.into(),
+                name: name.into(),
+                description: description.into(),
+                instructions: None,
+                instructions_file: None,
+                tool_groups: vec![],
+                when_to_use: None,
+            }
+        }
+
+        #[test]
+        fn no_modes_returns_none() {
+            assert!(build_mode_state(&[], None).is_none());
+        }
+
+        #[test]
+        fn single_mode_defaults_to_first() {
+            let modes = vec![mode("code", "Code", "Write code")];
+            let state = build_mode_state(&modes, None).unwrap();
+            assert_eq!(state.current_mode_id.0.as_ref(), "code");
+            assert_eq!(state.available_modes.len(), 1);
+            assert_eq!(state.available_modes[0].id.0.as_ref(), "code");
+        }
+
+        #[test]
+        fn explicit_default_mode() {
+            let modes = vec![
+                mode("ask", "Ask", "Ask questions"),
+                mode("code", "Code", "Write code"),
+            ];
+            let state = build_mode_state(&modes, Some("code")).unwrap();
+            assert_eq!(state.current_mode_id.0.as_ref(), "code");
+            assert_eq!(state.available_modes.len(), 2);
+        }
+
+        #[test]
+        fn description_is_set() {
+            let modes = vec![mode("code", "Code", "Write and debug code")];
+            let state = build_mode_state(&modes, None).unwrap();
+            assert_eq!(
+                state.available_modes[0].description.as_deref(),
+                Some("Write and debug code")
+            );
+        }
+
+        #[test]
+        fn fallback_default_is_first_mode() {
+            let modes = vec![mode("ask", "Ask", ""), mode("code", "Code", "")];
+            let state = build_mode_state(&modes, None).unwrap();
+            assert_eq!(state.current_mode_id.0.as_ref(), "ask");
+        }
     }
 }

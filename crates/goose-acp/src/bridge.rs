@@ -9,8 +9,8 @@ use std::sync::Arc;
 use agent_client_protocol_schema::{
     AuthenticateRequest, AuthenticateResponse, CancelNotification, Error, InitializeRequest,
     InitializeResponse, LoadSessionRequest, LoadSessionResponse, NewSessionRequest,
-    NewSessionResponse, PromptRequest, PromptResponse, Result, SetSessionModelRequest,
-    SetSessionModelResponse,
+    NewSessionResponse, PromptRequest, PromptResponse, Result, SetSessionModeRequest,
+    SetSessionModeResponse, SetSessionModelRequest, SetSessionModelResponse,
 };
 
 use crate::server::GooseAcpAgent;
@@ -54,6 +54,15 @@ impl agent_client_protocol::Agent for AcpBridge {
     async fn cancel(&self, args: CancelNotification) -> Result<()> {
         let _ = self.agent.on_cancel(args).await;
         Ok(())
+    }
+
+    async fn set_session_mode(
+        &self,
+        args: SetSessionModeRequest,
+    ) -> Result<SetSessionModeResponse> {
+        self.agent
+            .on_set_mode(&args.session_id.0, &args.mode_id.0)
+            .await
     }
 
     async fn set_session_model(

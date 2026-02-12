@@ -247,7 +247,7 @@ impl GitHubRegistrySource {
                     kind: RegistryEntryKind::Agent,
                     description: description.unwrap_or_default(),
                     source_uri: Some(self.source_uri(&format!("/agents/{}", name))),
-                    detail: RegistryEntryDetail::Agent(AgentDetail {
+                    detail: RegistryEntryDetail::Agent(Box::new(AgentDetail {
                         instructions: body,
                         model: None,
                         recommended_models: Vec::new(),
@@ -257,7 +257,8 @@ impl GitHubRegistrySource {
                         output_content_types: Vec::new(),
                         required_extensions: Vec::new(),
                         dependencies: Vec::new(),
-                    }),
+                        ..Default::default()
+                    })),
                     ..Default::default()
                 })
             })

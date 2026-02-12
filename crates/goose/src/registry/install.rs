@@ -331,11 +331,11 @@ mod tests {
             name: "test-agent".into(),
             kind: RegistryEntryKind::Agent,
             description: "A test agent".into(),
-            detail: RegistryEntryDetail::Agent(AgentDetail {
+            detail: RegistryEntryDetail::Agent(Box::new(AgentDetail {
                 instructions: "You are a helpful agent".into(),
                 model: Some("gpt-4o".into()),
                 ..Default::default()
-            }),
+            })),
             ..Default::default()
         };
 

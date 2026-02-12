@@ -178,6 +178,8 @@ fn parse_skill_file(path: &Path) -> Option<RegistryEntry> {
         version: None,
         author: None,
         license: None,
+        repository: None,
+        icon: None,
         source_uri: None,
         local_path: Some(path.to_path_buf()),
         tags: meta.tags.unwrap_or_default(),
@@ -208,10 +210,12 @@ fn parse_agent_file(path: &Path) -> Option<RegistryEntry> {
         version: None,
         author: None,
         license: None,
+        repository: None,
+        icon: None,
         source_uri: None,
         local_path: Some(path.to_path_buf()),
         tags: meta.tags.unwrap_or_default(),
-        detail: RegistryEntryDetail::Agent(AgentDetail {
+        detail: RegistryEntryDetail::Agent(Box::new(AgentDetail {
             instructions: body,
             model: meta.model,
             recommended_models: Vec::new(),
@@ -221,7 +225,8 @@ fn parse_agent_file(path: &Path) -> Option<RegistryEntry> {
             output_content_types: vec!["text/markdown".into()],
             required_extensions: Vec::new(),
             dependencies: Vec::new(),
-        }),
+            ..Default::default()
+        })),
         metadata: HashMap::new(),
     })
 }
@@ -325,6 +330,8 @@ fn parse_recipe_file(path: &Path) -> Option<RegistryEntry> {
         version,
         author,
         license: None,
+        repository: None,
+        icon: None,
         source_uri: None,
         local_path: Some(path.to_path_buf()),
         tags: Vec::new(),

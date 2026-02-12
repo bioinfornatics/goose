@@ -71,7 +71,7 @@ pub fn generate_agent_manifest(
         kind: RegistryEntryKind::Agent,
         description: description.to_string(),
         version: Some("0.1.0".to_string()),
-        detail: RegistryEntryDetail::Agent(AgentDetail {
+        detail: RegistryEntryDetail::Agent(Box::new(AgentDetail {
             instructions: instructions.to_string(),
             model: model.map(String::from),
             recommended_models: model.into_iter().map(String::from).collect(),
@@ -81,7 +81,8 @@ pub fn generate_agent_manifest(
             output_content_types: vec!["text/markdown".into()],
             required_extensions: required_extensions.clone(),
             dependencies,
-        }),
+            ..Default::default()
+        })),
         ..Default::default()
     }
 }
@@ -126,7 +127,7 @@ pub fn recipe_to_agent_manifest(recipe: &Recipe) -> RegistryEntry {
         version: Some(recipe.version.clone()),
         author,
         tags: Vec::new(),
-        detail: RegistryEntryDetail::Agent(AgentDetail {
+        detail: RegistryEntryDetail::Agent(Box::new(AgentDetail {
             instructions: recipe.instructions.clone().unwrap_or_default(),
             model,
             recommended_models: Vec::new(),
@@ -136,7 +137,8 @@ pub fn recipe_to_agent_manifest(recipe: &Recipe) -> RegistryEntry {
             output_content_types: vec!["text/markdown".into()],
             required_extensions: extension_names,
             dependencies,
-        }),
+            ..Default::default()
+        })),
         ..Default::default()
     }
 }
@@ -351,7 +353,7 @@ mod tests {
         let entry = RegistryEntry {
             name: "bare-agent".into(),
             kind: RegistryEntryKind::Agent,
-            detail: RegistryEntryDetail::Agent(AgentDetail {
+            detail: RegistryEntryDetail::Agent(Box::new(AgentDetail {
                 instructions: String::new(),
                 model: None,
                 recommended_models: vec![],
@@ -361,7 +363,8 @@ mod tests {
                 output_content_types: vec![],
                 required_extensions: vec![],
                 dependencies: vec![],
-            }),
+                ..Default::default()
+            })),
             ..Default::default()
         };
 

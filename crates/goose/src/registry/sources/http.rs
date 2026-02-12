@@ -171,7 +171,7 @@ impl HttpRegistrySource {
                     .and_then(|v| v.as_str())
                     .map(String::from);
 
-                RegistryEntryDetail::Agent(AgentDetail {
+                RegistryEntryDetail::Agent(Box::new(AgentDetail {
                     instructions,
                     model,
                     recommended_models: Vec::new(),
@@ -181,7 +181,8 @@ impl HttpRegistrySource {
                     output_content_types: Vec::new(),
                     required_extensions: Vec::new(),
                     dependencies: Vec::new(),
-                })
+                    ..Default::default()
+                }))
             }
             RegistryEntryKind::Recipe => {
                 let prompt = idx

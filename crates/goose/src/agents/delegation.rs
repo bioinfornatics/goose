@@ -4,10 +4,10 @@
 //!
 //! In Goose's architecture, there are three ways to delegate work:
 //!
-//! 1. **InProcessSubAgent** — Creates a temporary in-process Agent with custom
+//! 1. **InProcessSpecialist** — Creates a temporary in-process Agent with custom
 //!    instructions and extensions. This is conceptually equivalent to an "ephemeral
 //!    mode" — the agent file's frontmatter defines instructions (system prompt),
-//!    tool groups (extensions), and optionally a model override. The subagent runs
+//!    tool groups (extensions), and optionally a model override. The specialist runs
 //!    in the same process, sharing the parent's provider (unless overridden).
 //!
 //! 2. **ExternalAcpAgent** — Spawns a separate process and connects via the
@@ -34,11 +34,11 @@
 //!
 //! # Migration Path
 //!
-//! To fully unify subagents with modes:
+//! To fully unify specialists with modes:
 //! 1. Move delegation out of the MCP extension layer into the Agent core
 //! 2. Add `delegate_with_mode(mode_id, instructions)` to Agent
 //! 3. For simple delegations: temporarily activate mode on parent agent
-//! 4. For complex delegations: spawn subagent (current behavior)
+//! 4. For complex delegations: spawn specialist (current behavior)
 //! 5. For external agents: use AgentClientManager (current behavior)
 
 use crate::registry::manifest::AgentDistribution;
@@ -48,7 +48,7 @@ use crate::registry::manifest::AgentDistribution;
 pub enum DelegationStrategy {
     /// Create a temporary in-process Agent with custom instructions and extensions.
     /// Conceptually equivalent to an "ephemeral mode" generated on the fly.
-    InProcessSubAgent {
+    InProcessSpecialist {
         /// Whether the agent defines custom extensions beyond the parent's
         has_custom_extensions: bool,
         /// Whether the agent overrides the model
@@ -77,7 +77,7 @@ impl DelegationStrategy {
                 distribution: Box::new(dist.clone()),
             }
         } else {
-            DelegationStrategy::InProcessSubAgent {
+            DelegationStrategy::InProcessSpecialist {
                 has_custom_extensions,
                 has_model_override,
                 has_modes,
@@ -90,19 +90,19 @@ impl DelegationStrategy {
     }
 
     pub fn is_in_process(&self) -> bool {
-        matches!(self, DelegationStrategy::InProcessSubAgent { .. })
+        matches!(self, DelegationStrategy::InProcessSpecialist { .. })
     }
 }
 
 impl std::fmt::Display for DelegationStrategy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DelegationStrategy::InProcessSubAgent {
+            DelegationStrategy::InProcessSpecialist {
                 has_custom_extensions,
                 has_model_override,
                 has_modes,
             } => {
-                write!(f, "InProcessSubAgent(")?;
+                write!(f, "InProcessSpecialist(")?;
                 let mut parts = Vec::new();
                 if *has_custom_extensions {
                     parts.push("custom_extensions");
@@ -150,14 +150,14 @@ mod tests {
         assert!(strategy.is_in_process());
         assert_eq!(
             strategy.to_string(),
-            "InProcessSubAgent(custom_extensions, model_override, multi_mode)"
+            "InProcessSpecialist(custom_extensions, model_override, multi_mode)"
         );
     }
 
     #[test]
-    fn simple_subagent_display() {
+    fn simple_specialist_display() {
         let strategy = DelegationStrategy::choose(None, false, false, false);
-        assert_eq!(strategy.to_string(), "InProcessSubAgent(simple)");
+        assert_eq!(strategy.to_string(), "InProcessSpecialist(simple)");
     }
 
     #[test]

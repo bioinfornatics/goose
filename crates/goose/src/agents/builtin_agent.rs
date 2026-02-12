@@ -8,7 +8,7 @@
 //!
 //! 1. **Session modes** — affect the main agent's system prompt
 //!    - `assistant` (system.md) — default personality
-//!    - `subagent` (subagent_system.md) — bounded task execution
+//!    - `specialist` (specialist.md) — bounded task execution
 //!
 //! 2. **LLM-only modes** — direct provider.complete() with specialized prompt
 //!    - `judge` (permission_judge.md) — read-only detection
@@ -80,10 +80,10 @@ impl BuiltinAgent {
                 tool_groups: vec![],
             },
             BuiltinMode {
-                slug: "subagent".into(),
-                name: "🔧 Subagent".into(),
+                slug: "specialist".into(),
+                name: "🔧 Specialist".into(),
                 description: "Focused task execution with bounded turns".into(),
-                template_name: "subagent_system.md".into(),
+                template_name: "specialist.md".into(),
                 category: ModeCategory::Session,
                 tool_groups: vec![],
             },
@@ -243,11 +243,11 @@ mod tests {
     }
 
     #[test]
-    fn test_subagent_is_session_mode() {
+    fn test_specialist_is_session_mode() {
         let agent = BuiltinAgent::new();
-        let subagent = agent.mode("subagent").unwrap();
-        assert!(subagent.is_session_mode());
-        assert_eq!(subagent.template_name, "subagent_system.md");
+        let specialist = agent.mode("specialist").unwrap();
+        assert!(specialist.is_session_mode());
+        assert_eq!(specialist.template_name, "specialist.md");
     }
 
     #[test]

@@ -1089,7 +1089,7 @@ export type SessionListResponse = {
     sessions: Array<Session>;
 };
 
-export type SessionType = 'user' | 'scheduled' | 'sub_agent' | 'hidden' | 'terminal';
+export type SessionType = 'user' | 'scheduled' | 'specialist' | 'hidden' | 'terminal';
 
 export type SessionsQuery = {
     limit: number;

@@ -1565,8 +1565,8 @@ fn handle_mcp_notification(
         ServerNotification::LoggingMessageNotification(log_notif) => {
             if let Some(obj) = log_notif.params.data.as_object() {
                 if obj.get("type").and_then(|v| v.as_str()) == Some(SUBAGENT_TOOL_REQUEST_TYPE) {
-                    if let (Some(subagent_id), Some(tool_call)) = (
-                        obj.get("subagent_id").and_then(|v| v.as_str()),
+                    if let (Some(specialist_id), Some(tool_call)) = (
+                        obj.get("specialist_id").and_then(|v| v.as_str()),
                         obj.get("tool_call").and_then(|v| v.as_object()),
                     ) {
                         let tool_name = tool_call
@@ -1585,8 +1585,8 @@ fn handle_mcp_notification(
                             emit_stream_event(&StreamEvent::Notification {
                                 extension_id: extension_id.to_string(),
                                 data: NotificationData::Log {
-                                    message: output::format_subagent_tool_call_message(
-                                        subagent_id,
+                                    message: output::format_specialist_tool_call_message(
+                                        specialist_id,
                                         tool_name,
                                     ),
                                 },
@@ -1594,8 +1594,8 @@ fn handle_mcp_notification(
                             return;
                         }
                         if !is_json_mode {
-                            output::render_subagent_tool_call(
-                                subagent_id,
+                            output::render_specialist_tool_call(
+                                specialist_id,
                                 tool_name,
                                 arguments.as_ref(),
                                 debug,
@@ -1606,7 +1606,7 @@ fn handle_mcp_notification(
                 }
             }
 
-            let (formatted, subagent_id, notif_type) =
+            let (formatted, specialist_id, notif_type) =
                 format_logging_notification(&log_notif.params.data, debug);
 
             if is_stream_json_mode {
@@ -1619,7 +1619,7 @@ fn handle_mcp_notification(
             } else {
                 display_log_notification(
                     &formatted,
-                    subagent_id.as_deref(),
+                    specialist_id.as_deref(),
                     notif_type.as_deref(),
                     progress_bars,
                     interactive,
@@ -1650,7 +1650,7 @@ fn handle_mcp_notification(
     }
 }
 
-/// Format a logging notification from MCP, returns (formatted_message, subagent_id, notification_type)
+/// Format a logging notification from MCP, returns (formatted_message, specialist_id, notification_type)
 fn format_logging_notification(
     data: &Value,
     debug: bool,
@@ -1659,11 +1659,11 @@ fn format_logging_notification(
         Value::String(s) => (s.clone(), None, None),
         Value::Object(o) => {
             if let Some(Value::String(msg)) = o.get("message") {
-                let subagent_id = o.get("subagent_id").and_then(|v| v.as_str());
+                let specialist_id = o.get("specialist_id").and_then(|v| v.as_str());
                 let notification_type = o.get("type").and_then(|v| v.as_str());
 
                 let formatted = match notification_type {
-                    Some("subagent_created") | Some("completed") | Some("terminated") => {
+                    Some("specialist_created") | Some("completed") | Some("terminated") => {
                         format!("🤖 {}", msg)
                     }
                     Some("tool_usage") | Some("tool_completed") | Some("tool_error") => {
@@ -1693,7 +1693,7 @@ fn format_logging_notification(
                 };
                 (
                     formatted,
-                    subagent_id.map(str::to_string),
+                    specialist_id.map(str::to_string),
                     notification_type.map(str::to_string),
                 )
             } else if let Some(Value::String(output)) = o.get("output") {
@@ -1712,13 +1712,13 @@ fn format_logging_notification(
 /// Display a logging notification based on its type and context
 fn display_log_notification(
     formatted_message: &str,
-    subagent_id: Option<&str>,
+    specialist_id: Option<&str>,
     notification_type: Option<&str>,
     progress_bars: &mut output::McpSpinners,
     interactive: bool,
     is_json_mode: bool,
 ) {
-    if subagent_id.is_some() {
+    if specialist_id.is_some() {
         if interactive {
             let _ = progress_bars.hide();
             if !is_json_mode {

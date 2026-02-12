@@ -1,5 +1,5 @@
 use crate::{
-    agents::{subagent_task_config::TaskConfig, Agent, AgentConfig, AgentEvent, SessionConfig},
+    agents::{specialist_config::TaskConfig, Agent, AgentConfig, AgentEvent, SessionConfig},
     conversation::{
         message::{Message, MessageContent},
         Conversation,
@@ -23,9 +23,9 @@ use tracing::{debug, info};
 pub type OnMessageCallback = Arc<dyn Fn(&Message) + Send + Sync>;
 
 #[derive(Serialize)]
-pub struct SubagentPromptContext {
+pub struct SpecialistPromptContext {
     pub max_turns: usize,
-    pub subagent_id: String,
+    pub specialist_id: String,
     pub task_instructions: String,
     pub tool_count: usize,
     pub available_tools: String,
@@ -34,7 +34,7 @@ pub struct SubagentPromptContext {
 type AgentMessagesFuture =
     Pin<Box<dyn Future<Output = Result<(Conversation, Option<String>)>> + Send>>;
 
-pub async fn run_complete_subagent_task(
+pub async fn run_complete_specialist_task(
     config: AgentConfig,
     recipe: Recipe,
     task_config: TaskConfig,
@@ -42,7 +42,7 @@ pub async fn run_complete_subagent_task(
     session_id: String,
     cancellation_token: Option<CancellationToken>,
 ) -> Result<String, anyhow::Error> {
-    run_complete_subagent_task_with_notifications(
+    run_complete_specialist_task_with_notifications(
         config,
         recipe,
         task_config,
@@ -54,7 +54,7 @@ pub async fn run_complete_subagent_task(
     .await
 }
 
-pub async fn run_subagent_task_with_callback(
+pub async fn run_specialist_task_with_callback(
     config: AgentConfig,
     recipe: Recipe,
     task_config: TaskConfig,
@@ -63,7 +63,7 @@ pub async fn run_subagent_task_with_callback(
     cancellation_token: Option<CancellationToken>,
     on_message: Option<OnMessageCallback>,
 ) -> Result<String, anyhow::Error> {
-    let (messages, final_output) = get_agent_messages_with_callback(
+    let (messages, final_output) = get_specialist_messages_with_callback(
         config,
         recipe,
         task_config,
@@ -87,7 +87,7 @@ pub async fn run_subagent_task_with_callback(
     Ok(extract_response_text(&messages, return_last_only))
 }
 
-pub async fn run_complete_subagent_task_with_notifications(
+pub async fn run_complete_specialist_task_with_notifications(
     config: AgentConfig,
     recipe: Recipe,
     task_config: TaskConfig,
@@ -96,7 +96,7 @@ pub async fn run_complete_subagent_task_with_notifications(
     cancellation_token: Option<CancellationToken>,
     notification_tx: Option<tokio::sync::mpsc::UnboundedSender<rmcp::model::ServerNotification>>,
 ) -> Result<String, anyhow::Error> {
-    let (messages, final_output) = get_agent_messages_with_notifications(
+    let (messages, final_output) = get_specialist_messages_with_notifications(
         config,
         recipe,
         task_config,
@@ -175,9 +175,9 @@ fn extract_response_text(messages: &Conversation, return_last_only: bool) -> Str
     }
 }
 
-pub const SUBAGENT_TOOL_REQUEST_TYPE: &str = "subagent_tool_request";
+pub const SPECIALIST_TOOL_REQUEST_TYPE: &str = "specialist_tool_request";
 
-fn get_agent_messages_with_callback(
+fn get_specialist_messages_with_callback(
     config: AgentConfig,
     recipe: Recipe,
     task_config: TaskConfig,
@@ -202,7 +202,7 @@ fn get_agent_messages_with_callback(
         for extension in &task_config.extensions {
             if let Err(e) = agent.add_extension(extension.clone(), &session_id).await {
                 debug!(
-                    "Failed to add extension '{}' to subagent: {}",
+                    "Failed to add extension '{}' to specialist: {}",
                     extension.name(),
                     e
                 );
@@ -214,9 +214,9 @@ fn get_agent_messages_with_callback(
             .apply_recipe_components(recipe.response.clone(), true)
             .await;
 
-        let subagent_prompt =
-            build_subagent_prompt(&agent, &task_config, &session_id, system_instructions).await?;
-        agent.override_system_prompt(subagent_prompt).await;
+        let specialist_prompt =
+            build_specialist_prompt(&agent, &task_config, &session_id, system_instructions).await?;
+        agent.override_system_prompt(specialist_prompt).await;
 
         let user_message = Message::user().with_text(user_task);
         let mut conversation = Conversation::new_unvalidated(vec![user_message.clone()]);
@@ -255,7 +255,7 @@ fn get_agent_messages_with_callback(
                     conversation = updated_conversation;
                 }
                 Err(e) => {
-                    tracing::error!("Error receiving message from subagent: {}", e);
+                    tracing::error!("Error receiving message from specialist: {}", e);
                     break;
                 }
             }
@@ -267,7 +267,7 @@ fn get_agent_messages_with_callback(
     })
 }
 
-fn get_agent_messages_with_notifications(
+fn get_specialist_messages_with_notifications(
     config: AgentConfig,
     recipe: Recipe,
     task_config: TaskConfig,
@@ -292,7 +292,7 @@ fn get_agent_messages_with_notifications(
         for extension in &task_config.extensions {
             if let Err(e) = agent.add_extension(extension.clone(), &session_id).await {
                 debug!(
-                    "Failed to add extension '{}' to subagent: {}",
+                    "Failed to add extension '{}' to specialist: {}",
                     extension.name(),
                     e
                 );
@@ -304,9 +304,9 @@ fn get_agent_messages_with_notifications(
             .apply_recipe_components(recipe.response.clone(), true)
             .await;
 
-        let subagent_prompt =
-            build_subagent_prompt(&agent, &task_config, &session_id, system_instructions).await?;
-        agent.override_system_prompt(subagent_prompt).await;
+        let specialist_prompt =
+            build_specialist_prompt(&agent, &task_config, &session_id, system_instructions).await?;
+        agent.override_system_prompt(specialist_prompt).await;
 
         let user_message = Message::user().with_text(user_task);
         let mut conversation = Conversation::new_unvalidated(vec![user_message.clone()]);
@@ -323,7 +323,7 @@ fn get_agent_messages_with_notifications(
             retry_config: recipe.retry,
         };
 
-        conversation = run_subagent_stream(
+        conversation = run_specialist_stream(
             agent.clone(),
             user_message,
             session_config,
@@ -340,7 +340,7 @@ fn get_agent_messages_with_notifications(
     })
 }
 
-async fn build_subagent_prompt(
+async fn build_specialist_prompt(
     agent: &Agent,
     task_config: &TaskConfig,
     session_id: &str,
@@ -348,12 +348,12 @@ async fn build_subagent_prompt(
 ) -> Result<String> {
     let tools = agent.list_tools(session_id, None).await;
     render_template(
-        "subagent_system.md",
-        &SubagentPromptContext {
+        "specialist.md",
+        &SpecialistPromptContext {
             max_turns: task_config
                 .max_turns
                 .expect("TaskConfig always sets max_turns"),
-            subagent_id: session_id.to_string(),
+            specialist_id: session_id.to_string(),
             task_instructions: system_instructions,
             tool_count: tools.len(),
             available_tools: tools
@@ -363,10 +363,10 @@ async fn build_subagent_prompt(
                 .join(", "),
         },
     )
-    .map_err(|e| anyhow!("Failed to render subagent system prompt: {}", e))
+    .map_err(|e| anyhow!("Failed to render specialist system prompt: {}", e))
 }
 
-async fn run_subagent_stream(
+async fn run_specialist_stream(
     agent: Arc<Agent>,
     user_message: Message,
     session_config: SessionConfig,
@@ -390,7 +390,10 @@ async fn run_subagent_stream(
                     for content in &msg.content {
                         if let Some(notif) = create_tool_notification(content, session_id) {
                             if tx.send(notif).is_err() {
-                                debug!("Notification receiver dropped for subagent {}", session_id);
+                                debug!(
+                                    "Notification receiver dropped for specialist {}",
+                                    session_id
+                                );
                             }
                         }
                     }
@@ -403,7 +406,7 @@ async fn run_subagent_stream(
                 conversation = updated_conversation;
             }
             Err(e) => {
-                tracing::error!("Error receiving message from subagent: {}", e);
+                tracing::error!("Error receiving message from specialist: {}", e);
                 break;
             }
         }
@@ -427,7 +430,7 @@ async fn get_final_output(agent: &Agent, has_response_schema: bool) -> Option<St
 
 fn create_tool_notification(
     content: &MessageContent,
-    subagent_id: &str,
+    specialist_id: &str,
 ) -> Option<ServerNotification> {
     if let MessageContent::ToolRequest(req) = content {
         let tool_call = req.tool_call.as_ref().ok()?;
@@ -437,10 +440,10 @@ fn create_tool_notification(
                 method: LoggingMessageNotificationMethod,
                 params: LoggingMessageNotificationParam {
                     level: LoggingLevel::Info,
-                    logger: Some(format!("subagent:{}", subagent_id)),
+                    logger: Some(format!("specialist:{}", specialist_id)),
                     data: serde_json::json!({
-                        "type": SUBAGENT_TOOL_REQUEST_TYPE,
-                        "subagent_id": subagent_id,
+                        "type": SPECIALIST_TOOL_REQUEST_TYPE,
+                        "specialist_id": specialist_id,
                         "tool_call": {
                             "name": tool_call.name,
                             "arguments": tool_call.arguments
@@ -457,7 +460,7 @@ fn create_tool_notification(
 
 #[cfg(test)]
 mod tests {
-    use super::{create_tool_notification, SUBAGENT_TOOL_REQUEST_TYPE};
+    use super::{create_tool_notification, SPECIALIST_TOOL_REQUEST_TYPE};
     use crate::conversation::message::MessageContent;
     use rmcp::model::{CallToolRequestParams, ServerNotification};
     use serde_json::json;
@@ -484,10 +487,10 @@ mod tests {
             .expect("expected object data");
         assert_eq!(
             data.get("type").and_then(|v| v.as_str()),
-            Some(SUBAGENT_TOOL_REQUEST_TYPE)
+            Some(SPECIALIST_TOOL_REQUEST_TYPE)
         );
         assert_eq!(
-            data.get("subagent_id").and_then(|v| v.as_str()),
+            data.get("specialist_id").and_then(|v| v.as_str()),
             Some("session_1")
         );
         let tool_call = data

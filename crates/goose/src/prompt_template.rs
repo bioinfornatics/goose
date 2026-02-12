@@ -16,8 +16,8 @@ static TEMPLATE_REGISTRY: &[(&str, &str)] = &[
         "Prompt for summarizing conversation history when context limits are reached",
     ),
     (
-        "subagent_system.md",
-        "System prompt for subagents spawned to handle specific tasks",
+        "specialist.md",
+        "System prompt for specialists spawned to handle specific tasks",
     ),
     (
         "recipe.md",

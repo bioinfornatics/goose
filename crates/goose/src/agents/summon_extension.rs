@@ -1,18 +1,18 @@
-//! Summon Extension - Unified tooling for recipes, skills, and subagents
+//! Summon Extension - Unified tooling for recipes, skills, and specialists
 //!
 //! Provides two tools:
 //! - `load`: Inject knowledge into current context or discover available sources
-//! - `delegate`: Run tasks in isolated subagents (sync or async)
+//! - `delegate`: Run tasks in isolated specialists (sync or async)
 
 use crate::agent_manager::client::AgentClientManager;
 use crate::agents::builtin_skills;
 use crate::agents::delegation::DelegationStrategy;
 use crate::agents::extension::PlatformExtensionContext;
 use crate::agents::mcp_client::{Error, McpClientTrait};
-use crate::agents::subagent_handler::{
-    run_complete_subagent_task, run_subagent_task_with_callback, OnMessageCallback,
+use crate::agents::specialist_config::{TaskConfig, DEFAULT_SUBAGENT_MAX_TURNS};
+use crate::agents::specialist_handler::{
+    run_complete_specialist_task, run_specialist_task_with_callback, OnMessageCallback,
 };
-use crate::agents::subagent_task_config::{TaskConfig, DEFAULT_SUBAGENT_MAX_TURNS};
 use crate::agents::AgentConfig;
 use crate::config::paths::Paths;
 use crate::config::Config;
@@ -307,7 +307,7 @@ impl SummonClient {
                 website_url: None,
             },
             instructions: Some(
-                "Load knowledge and delegate tasks to subagents using the summon extension."
+                "Load knowledge and delegate tasks to specialists using the summon extension."
                     .to_string(),
             ),
         };
@@ -400,7 +400,7 @@ impl SummonClient {
 
         Tool::new(
             "delegate",
-            "Delegate a task to a subagent that runs independently with its own context.\n\n\
+            "Delegate a task to a specialist that runs independently with its own context.\n\n\
              Modes:\n\
              1. Ad-hoc: Provide `instructions` for a custom task\n\
              2. Source-based: Provide `source` name to run a subrecipe, recipe, skill, or agent\n\
@@ -1121,7 +1121,7 @@ Default mode: {}
         }
 
         output.push_str("\nUse load(source: \"name\") to load into context.\n");
-        output.push_str("Use delegate(source: \"name\") to run as subagent.");
+        output.push_str("Use delegate(source: \"name\") to run as specialist.");
 
         Ok(vec![Content::text(output)])
     }
@@ -1208,7 +1208,7 @@ Default mode: {}
             .await
             .map_err(|e| format!("Failed to get session: {}", e))?;
 
-        if session.session_type == SessionType::SubAgent {
+        if session.session_type == SessionType::Specialist {
             return Err("Delegated tasks cannot spawn further delegations".to_string());
         }
 
@@ -1237,7 +1237,7 @@ Default mode: {}
                             .handle_acp_delegate(&source, &params, cancellation_token)
                             .await;
                     }
-                    // InProcessSubAgent falls through to the existing recipe-based path
+                    // InProcessSpecialist falls through to the existing recipe-based path
                 }
             }
         }
@@ -1257,26 +1257,26 @@ Default mode: {}
             crate::config::permission::PermissionManager::instance(),
             None,
             crate::config::GooseMode::Auto,
-            true, // disable session naming for subagents
+            true, // disable session naming for specialists
         );
 
-        let subagent_session = self
+        let specialist_session = self
             .context
             .session_manager
             .create_session(
                 working_dir,
                 "Delegated task".to_string(),
-                SessionType::SubAgent,
+                SessionType::Specialist,
             )
             .await
-            .map_err(|e| format!("Failed to create subagent session: {}", e))?;
+            .map_err(|e| format!("Failed to create specialist session: {}", e))?;
 
-        let result = run_complete_subagent_task(
+        let result = run_complete_specialist_task(
             agent_config,
             recipe,
             task_config,
             true,
-            subagent_session.id,
+            specialist_session.id,
             Some(cancellation_token),
         )
         .await
@@ -1829,17 +1829,17 @@ Default mode: {}
             crate::config::permission::PermissionManager::instance(),
             None,
             crate::config::GooseMode::Auto,
-            true, // disable session naming for subagents
+            true, // disable session naming for specialists
         );
 
-        let subagent_session = self
+        let specialist_session = self
             .context
             .session_manager
-            .create_session(working_dir, description.clone(), SessionType::SubAgent)
+            .create_session(working_dir, description.clone(), SessionType::Specialist)
             .await
-            .map_err(|e| format!("Failed to create subagent session: {}", e))?;
+            .map_err(|e| format!("Failed to create specialist session: {}", e))?;
 
-        let task_id = subagent_session.id.clone();
+        let task_id = specialist_session.id.clone();
 
         let turns = Arc::new(AtomicU32::new(0));
         let last_activity = Arc::new(AtomicU64::new(current_epoch_millis()));
@@ -1856,12 +1856,12 @@ Default mode: {}
         let task_token_clone = task_token.clone();
 
         let handle = tokio::spawn(async move {
-            run_subagent_task_with_callback(
+            run_specialist_task_with_callback(
                 agent_config,
                 recipe,
                 task_config,
                 true,
-                subagent_session.id,
+                specialist_session.id,
                 Some(task_token_clone),
                 Some(on_message),
             )
@@ -1900,17 +1900,17 @@ impl McpClientTrait for SummonClient {
     ) -> Result<ListToolsResult, Error> {
         self.cleanup_completed_tasks().await;
 
-        let is_subagent = self
+        let is_specialist = self
             .context
             .session_manager
             .get_session(session_id, false)
             .await
-            .map(|s| s.session_type == SessionType::SubAgent)
+            .map(|s| s.session_type == SessionType::Specialist)
             .unwrap_or(false);
 
         let mut tools = vec![self.create_load_tool()];
 
-        if !is_subagent {
+        if !is_specialist {
             tools.push(self.create_delegate_tool());
         }
 

@@ -355,7 +355,10 @@ impl GooseAcpAgent {
     ) -> Result<(), agent_client_protocol_schema::Error> {
         let sender = self.notification_sender.read().await;
         match sender.as_ref() {
-            Some(s) => s.send_session_notification(notification).await,
+            Some(s) => s
+                .send_notification(notification)
+                .await
+                .map_err(|_| agent_client_protocol_schema::Error::internal_error()),
             None => Err(agent_client_protocol_schema::Error::internal_error()),
         }
     }
@@ -366,7 +369,10 @@ impl GooseAcpAgent {
     ) -> Result<RequestPermissionResponse, agent_client_protocol_schema::Error> {
         let sender = self.notification_sender.read().await;
         match sender.as_ref() {
-            Some(s) => s.send_permission_request(request).await,
+            Some(s) => s
+                .request_permission(request)
+                .await
+                .map_err(|_| agent_client_protocol_schema::Error::internal_error()),
             None => Err(agent_client_protocol_schema::Error::internal_error()),
         }
     }

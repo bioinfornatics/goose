@@ -2,21 +2,50 @@ use super::{
     map_permission_response, spawn_acp_server_in_process, Connection, PermissionDecision,
     PermissionMapping, Session, TestConnectionConfig, TestOutput,
 };
+use agent_client_protocol::ProtocolVersion;
+use agent_client_protocol_schema::{
+    ContentBlock, InitializeRequest, LoadSessionRequest, McpServer, NewSessionRequest,
+    PromptRequest, RequestPermissionRequest, RequestPermissionResponse, SessionModelState,
+    SessionNotification, SessionUpdate, SetSessionModelRequest, StopReason, TextContent,
+    ToolCallStatus,
+};
 use async_trait::async_trait;
 use goose::config::PermissionManager;
-use sacp::schema::{
-    ContentBlock, InitializeRequest, LoadSessionRequest, McpServer, NewSessionRequest,
-    PromptRequest, ProtocolVersion, RequestPermissionRequest, SessionModelState,
-    SessionNotification, SessionUpdate, StopReason, TextContent, ToolCallStatus,
-};
-use sacp::{ClientToAgent, JrConnectionCx};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::Notify;
 
+/// A test Client impl that collects notifications and answers permission requests.
+struct TestClient {
+    updates: Arc<Mutex<Vec<SessionNotification>>>,
+    permission: Arc<Mutex<PermissionDecision>>,
+    notify: Arc<Notify>,
+}
+
+#[async_trait::async_trait(?Send)]
+impl agent_client_protocol::Client for TestClient {
+    async fn session_notification(
+        &self,
+        args: SessionNotification,
+    ) -> agent_client_protocol_schema::Result<()> {
+        self.updates.lock().unwrap().push(args);
+        self.notify.notify_waiters();
+        Ok(())
+    }
+
+    async fn request_permission(
+        &self,
+        args: RequestPermissionRequest,
+    ) -> agent_client_protocol_schema::Result<RequestPermissionResponse> {
+        let decision = *self.permission.lock().unwrap();
+        let mapping = PermissionMapping;
+        Ok(map_permission_response(&mapping, &args, decision))
+    }
+}
+
 pub struct ClientToAgentConnection {
-    cx: JrConnectionCx<ClientToAgent>,
-    // MCP servers from config, consumed by the first new_session call.
+    /// Sends Agent-trait calls to the !Send ClientSideConnection on the LocalSet thread.
+    agent_tx: tokio::sync::mpsc::UnboundedSender<AgentCommand>,
     pending_mcp_servers: Vec<McpServer>,
     updates: Arc<Mutex<Vec<SessionNotification>>>,
     permission: Arc<Mutex<PermissionDecision>>,
@@ -27,11 +56,31 @@ pub struct ClientToAgentConnection {
 }
 
 pub struct ClientToAgentSession {
-    cx: JrConnectionCx<ClientToAgent>,
-    session_id: sacp::schema::SessionId,
+    agent_tx: tokio::sync::mpsc::UnboundedSender<AgentCommand>,
+    session_id: agent_client_protocol_schema::SessionId,
     updates: Arc<Mutex<Vec<SessionNotification>>>,
     permission: Arc<Mutex<PermissionDecision>>,
     notify: Arc<Notify>,
+}
+
+/// Commands sent from the Send test world to the !Send LocalSet.
+enum AgentCommand {
+    NewSession {
+        request: NewSessionRequest,
+        reply: tokio::sync::oneshot::Sender<agent_client_protocol_schema::NewSessionResponse>,
+    },
+    LoadSession {
+        request: LoadSessionRequest,
+        reply: tokio::sync::oneshot::Sender<agent_client_protocol_schema::LoadSessionResponse>,
+    },
+    Prompt {
+        request: PromptRequest,
+        reply: tokio::sync::oneshot::Sender<agent_client_protocol_schema::PromptResponse>,
+    },
+    SetModel {
+        request: SetSessionModelRequest,
+        reply: tokio::sync::oneshot::Sender<agent_client_protocol_schema::SetSessionModelResponse>,
+    },
 }
 
 #[async_trait]
@@ -47,7 +96,7 @@ impl Connection for ClientToAgentConnection {
             false => (config.data_root.clone(), None),
         };
 
-        let (transport, _handle, permission_manager) = spawn_acp_server_in_process(
+        let (client_write, client_read, _handle, permission_manager) = spawn_acp_server_in_process(
             openai.uri(),
             &config.builtins,
             data_root.as_path(),
@@ -60,77 +109,76 @@ impl Connection for ClientToAgentConnection {
         let notify = Arc::new(Notify::new());
         let permission = Arc::new(Mutex::new(PermissionDecision::Cancel));
 
-        let cx = {
-            let updates_clone = updates.clone();
-            let notify_clone = notify.clone();
-            let permission_clone = permission.clone();
-
-            let cx_holder: Arc<Mutex<Option<JrConnectionCx<ClientToAgent>>>> =
-                Arc::new(Mutex::new(None));
-            let cx_holder_clone = cx_holder.clone();
-
-            let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
-
-            tokio::spawn(async move {
-                let permission_mapping = PermissionMapping;
-
-                let result = ClientToAgent::builder()
-                    .on_receive_notification(
-                        {
-                            let updates = updates_clone.clone();
-                            let notify = notify_clone.clone();
-                            async move |notification: SessionNotification, _cx| {
-                                updates.lock().unwrap().push(notification);
-                                notify.notify_waiters();
-                                Ok(())
-                            }
-                        },
-                        sacp::on_receive_notification!(),
-                    )
-                    .on_receive_request(
-                        {
-                            let permission = permission_clone.clone();
-                            async move |req: RequestPermissionRequest,
-                                        request_cx,
-                                        _connection_cx| {
-                                let decision = *permission.lock().unwrap();
-                                let response =
-                                    map_permission_response(&permission_mapping, &req, decision);
-                                request_cx.respond(response)
-                            }
-                        },
-                        sacp::on_receive_request!(),
-                    )
-                    .connect_to(transport)
-                    .unwrap()
-                    .run_until({
-                        let cx_holder = cx_holder_clone;
-                        move |cx: JrConnectionCx<ClientToAgent>| async move {
-                            cx.send_request(InitializeRequest::new(ProtocolVersion::LATEST))
-                                .block_task()
-                                .await
-                                .unwrap();
-
-                            *cx_holder.lock().unwrap() = Some(cx.clone());
-                            let _ = ready_tx.send(());
-
-                            std::future::pending::<Result<(), sacp::Error>>().await
-                        }
-                    })
-                    .await;
-
-                if let Err(e) = result {
-                    tracing::error!("SACP client error: {e}");
-                }
-            });
-
-            ready_rx.await.unwrap();
-            let cx = cx_holder.lock().unwrap().take().unwrap();
-            cx
+        let test_client = TestClient {
+            updates: updates.clone(),
+            permission: permission.clone(),
+            notify: notify.clone(),
         };
 
+        let (agent_tx, mut agent_rx) = tokio::sync::mpsc::unbounded_channel::<AgentCommand>();
+
+        // Spawn a dedicated thread with LocalSet for the !Send ClientSideConnection.
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("test client runtime");
+
+            let local = tokio::task::LocalSet::new();
+
+            local.block_on(&rt, async move {
+                use agent_client_protocol::Agent;
+
+                let (conn, io_task) = agent_client_protocol::ClientSideConnection::new(
+                    test_client,
+                    client_write,
+                    client_read,
+                    |fut| {
+                        tokio::task::spawn_local(fut);
+                    },
+                );
+
+                let conn = std::rc::Rc::new(conn);
+
+                // Spawn io_task first so I/O is being driven when we call initialize.
+                tokio::task::spawn_local(async move {
+                    if let Err(e) = io_task.await {
+                        tracing::error!("test client io error: {e}");
+                    }
+                });
+
+                // Initialize
+                conn.initialize(InitializeRequest::new(ProtocolVersion::LATEST))
+                    .await
+                    .unwrap();
+
+                // Command pump
+                let pump_conn = conn;
+                while let Some(cmd) = agent_rx.recv().await {
+                    match cmd {
+                        AgentCommand::NewSession { request, reply } => {
+                            let result = pump_conn.new_session(request).await.unwrap();
+                            let _ = reply.send(result);
+                        }
+                        AgentCommand::LoadSession { request, reply } => {
+                            let result = pump_conn.load_session(request).await.unwrap();
+                            let _ = reply.send(result);
+                        }
+                        AgentCommand::Prompt { request, reply } => {
+                            let result = pump_conn.prompt(request).await.unwrap();
+                            let _ = reply.send(result);
+                        }
+                        AgentCommand::SetModel { request, reply } => {
+                            let result = pump_conn.set_session_model(request).await.unwrap();
+                            let _ = reply.send(result);
+                        }
+                    }
+                }
+            });
+        });
+
         Self {
-            cx,
+            agent_tx,
             pending_mcp_servers: config.mcp_servers,
             updates,
             permission,
@@ -144,14 +192,16 @@ impl Connection for ClientToAgentConnection {
     async fn new_session(&mut self) -> (ClientToAgentSession, Option<SessionModelState>) {
         let work_dir = tempfile::tempdir().unwrap();
         let mcp_servers = std::mem::take(&mut self.pending_mcp_servers);
-        let response = self
-            .cx
-            .send_request(NewSessionRequest::new(work_dir.path()).mcp_servers(mcp_servers))
-            .block_task()
-            .await
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        self.agent_tx
+            .send(AgentCommand::NewSession {
+                request: NewSessionRequest::new(work_dir.path()).mcp_servers(mcp_servers),
+                reply: reply_tx,
+            })
             .unwrap();
+        let response = reply_rx.await.unwrap();
         let session = ClientToAgentSession {
-            cx: self.cx.clone(),
+            agent_tx: self.agent_tx.clone(),
             session_id: response.session_id.clone(),
             updates: self.updates.clone(),
             permission: self.permission.clone(),
@@ -166,15 +216,17 @@ impl Connection for ClientToAgentConnection {
     ) -> (ClientToAgentSession, Option<SessionModelState>) {
         self.updates.lock().unwrap().clear();
         let work_dir = tempfile::tempdir().unwrap();
-        let session_id = sacp::schema::SessionId::new(session_id.to_string());
-        let response = self
-            .cx
-            .send_request(LoadSessionRequest::new(session_id.clone(), work_dir.path()))
-            .block_task()
-            .await
+        let session_id = agent_client_protocol_schema::SessionId::new(session_id.to_string());
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        self.agent_tx
+            .send(AgentCommand::LoadSession {
+                request: LoadSessionRequest::new(session_id.clone(), work_dir.path()),
+                reply: reply_tx,
+            })
             .unwrap();
+        let response = reply_rx.await.unwrap();
         let session = ClientToAgentSession {
-            cx: self.cx.clone(),
+            agent_tx: self.agent_tx.clone(),
             session_id,
             updates: self.updates.clone(),
             permission: self.permission.clone(),
@@ -194,7 +246,7 @@ impl Connection for ClientToAgentConnection {
 
 #[async_trait]
 impl Session for ClientToAgentSession {
-    fn session_id(&self) -> &sacp::schema::SessionId {
+    fn session_id(&self) -> &agent_client_protocol_schema::SessionId {
         &self.session_id
     }
 
@@ -202,15 +254,17 @@ impl Session for ClientToAgentSession {
         *self.permission.lock().unwrap() = decision;
         self.updates.lock().unwrap().clear();
 
-        let response = self
-            .cx
-            .send_request(PromptRequest::new(
-                self.session_id.clone(),
-                vec![ContentBlock::Text(TextContent::new(text))],
-            ))
-            .block_task()
-            .await
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        self.agent_tx
+            .send(AgentCommand::Prompt {
+                request: PromptRequest::new(
+                    self.session_id.clone(),
+                    vec![ContentBlock::Text(TextContent::new(text))],
+                ),
+                reply: reply_tx,
+            })
             .unwrap();
+        let response = reply_rx.await.unwrap();
 
         assert_eq!(response.stop_reason, StopReason::EndTurn);
 
@@ -231,17 +285,18 @@ impl Session for ClientToAgentSession {
         TestOutput { text, tool_status }
     }
 
-    // HACK: sacp doesn't support session/set_model yet, so we send it as untyped JSON.
     async fn set_model(&self, model_id: &str) {
-        let msg = sacp::UntypedMessage::new(
-            "session/set_model",
-            serde_json::json!({
-                "sessionId": self.session_id.0,
-                "modelId": model_id
-            }),
-        )
-        .unwrap();
-        self.cx.send_request(msg).block_task().await.unwrap();
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        self.agent_tx
+            .send(AgentCommand::SetModel {
+                request: SetSessionModelRequest::new(
+                    self.session_id.clone(),
+                    agent_client_protocol_schema::ModelId::new(model_id),
+                ),
+                reply: reply_tx,
+            })
+            .unwrap();
+        reply_rx.await.unwrap();
     }
 }
 

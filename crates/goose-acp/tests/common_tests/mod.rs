@@ -4,6 +4,9 @@
 
 #[path = "../fixtures/mod.rs"]
 pub mod fixtures;
+use agent_client_protocol_schema::{
+    McpServer, McpServerHttp, ModelId, ModelInfo, SessionModelState, ToolCallStatus,
+};
 use fixtures::{
     initialize_agent, Connection, OpenAiFixture, PermissionDecision, Session, TestConnectionConfig,
 };
@@ -13,9 +16,6 @@ use goose::config::GooseMode;
 use goose::providers::provider_registry::ProviderConstructor;
 use goose_acp::server::GooseAcpAgent;
 use goose_test_support::{ExpectedSessionId, McpFixture, FAKE_CODE, TEST_MODEL};
-use sacp::schema::{
-    McpServer, McpServerHttp, ModelId, ModelInfo, SessionModelState, ToolCallStatus,
-};
 use std::sync::Arc;
 
 pub async fn run_config_mcp<C: Connection>() {

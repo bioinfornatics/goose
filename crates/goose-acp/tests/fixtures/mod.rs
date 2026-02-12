@@ -1,6 +1,11 @@
 #![recursion_limit = "256"]
 #![allow(unused_attributes)]
 
+use agent_client_protocol_schema::{
+    McpServer, PermissionOptionKind, RequestPermissionOutcome, RequestPermissionRequest,
+    RequestPermissionResponse, SelectedPermissionOutcome, SessionModelState, SessionNotification,
+    ToolCallStatus,
+};
 use async_trait::async_trait;
 use fs_err as fs;
 use goose::builtin_extension::register_builtin_extensions;
@@ -12,10 +17,6 @@ use goose::providers::provider_registry::ProviderConstructor;
 use goose::session_context::SESSION_ID_HEADER;
 use goose_acp::server::{serve, GooseAcpAgent};
 use goose_test_support::{ExpectedSessionId, TEST_MODEL};
-use sacp::schema::{
-    McpServer, PermissionOptionKind, RequestPermissionOutcome, RequestPermissionRequest,
-    RequestPermissionResponse, SelectedPermissionOutcome, SessionModelState, ToolCallStatus,
-};
 use std::collections::VecDeque;
 use std::future::Future;
 use std::path::Path;
@@ -164,17 +165,16 @@ impl OpenAiFixture {
     }
 }
 
-pub type DuplexTransport = sacp::ByteStreams<
-    tokio_util::compat::Compat<tokio::io::DuplexStream>,
-    tokio_util::compat::Compat<tokio::io::DuplexStream>,
->;
-
 /// Wires up duplex streams, spawns `serve` for the given agent, and returns
-/// a ready-to-use sacp transport plus the server handle.
+/// the client-side read/write streams plus the server handle.
 #[allow(dead_code)]
 pub async fn serve_agent_in_process(
     agent: Arc<GooseAcpAgent>,
-) -> (DuplexTransport, JoinHandle<()>) {
+) -> (
+    tokio_util::compat::Compat<tokio::io::DuplexStream>,
+    tokio_util::compat::Compat<tokio::io::DuplexStream>,
+    JoinHandle<()>,
+) {
     let (client_read, server_write) = tokio::io::duplex(64 * 1024);
     let (server_read, client_write) = tokio::io::duplex(64 * 1024);
 
@@ -184,8 +184,7 @@ pub async fn serve_agent_in_process(
         }
     });
 
-    let transport = sacp::ByteStreams::new(client_write.compat_write(), client_read.compat());
-    (transport, handle)
+    (client_write.compat_write(), client_read.compat(), handle)
 }
 
 #[allow(dead_code)]
@@ -195,7 +194,12 @@ pub async fn spawn_acp_server_in_process(
     data_root: &Path,
     goose_mode: GooseMode,
     provider_factory: Option<ProviderConstructor>,
-) -> (DuplexTransport, JoinHandle<()>, Arc<PermissionManager>) {
+) -> (
+    tokio_util::compat::Compat<tokio::io::DuplexStream>,
+    tokio_util::compat::Compat<tokio::io::DuplexStream>,
+    JoinHandle<()>,
+    Arc<PermissionManager>,
+) {
     fs::create_dir_all(data_root).unwrap();
     let config_path = data_root.join(goose::config::base::CONFIG_YAML_NAME);
     if !config_path.exists() {
@@ -229,9 +233,9 @@ pub async fn spawn_acp_server_in_process(
         .unwrap(),
     );
     let permission_manager = agent.permission_manager();
-    let (transport, handle) = serve_agent_in_process(agent).await;
+    let (client_write, client_read, handle) = serve_agent_in_process(agent).await;
 
-    (transport, handle, permission_manager)
+    (client_write, client_read, handle, permission_manager)
 }
 
 pub struct TestOutput {
@@ -275,7 +279,7 @@ pub trait Connection: Sized {
 
 #[async_trait]
 pub trait Session {
-    fn session_id(&self) -> &sacp::schema::SessionId;
+    fn session_id(&self) -> &agent_client_protocol_schema::SessionId;
     async fn prompt(&mut self, text: &str, decision: PermissionDecision) -> TestOutput;
     async fn set_model(&self, model_id: &str);
 }
@@ -309,23 +313,66 @@ where
 /// Connects to the given agent via in-process duplex streams, sends an
 /// `InitializeRequest`, and returns the response.
 #[allow(dead_code)]
-pub async fn initialize_agent(agent: Arc<GooseAcpAgent>) -> sacp::schema::InitializeResponse {
-    let (transport, _handle) = serve_agent_in_process(agent).await;
-    sacp::ClientToAgent::builder()
-        .connect_to(transport)
-        .unwrap()
-        .run_until(|cx: sacp::JrConnectionCx<sacp::ClientToAgent>| async move {
-            let resp = cx
-                .send_request(sacp::schema::InitializeRequest::new(
-                    sacp::schema::ProtocolVersion::LATEST,
-                ))
-                .block_task()
-                .await
+pub async fn initialize_agent(
+    agent: Arc<GooseAcpAgent>,
+) -> agent_client_protocol_schema::InitializeResponse {
+    use agent_client_protocol::{Agent, Client, ClientSideConnection, ProtocolVersion};
+
+    struct NoOpClient;
+
+    #[async_trait::async_trait(?Send)]
+    impl Client for NoOpClient {
+        async fn request_permission(
+            &self,
+            _args: RequestPermissionRequest,
+        ) -> agent_client_protocol_schema::Result<RequestPermissionResponse> {
+            Ok(RequestPermissionResponse::new(
+                RequestPermissionOutcome::Cancelled,
+            ))
+        }
+        async fn session_notification(
+            &self,
+            _args: SessionNotification,
+        ) -> agent_client_protocol_schema::Result<()> {
+            Ok(())
+        }
+    }
+
+    let (client_write, client_read, _handle) = serve_agent_in_process(agent).await;
+
+    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+    std::thread::Builder::new()
+        .name("init-agent".to_string())
+        .spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
                 .unwrap();
-            Ok::<_, sacp::Error>(resp)
+            let local = tokio::task::LocalSet::new();
+            rt.block_on(local.run_until(async move {
+                let (conn, io_task) =
+                    ClientSideConnection::new(NoOpClient, client_write, client_read, |fut| {
+                        tokio::task::spawn_local(fut);
+                    });
+
+                // Spawn io_task first so I/O is driven when we call initialize.
+                tokio::task::spawn_local(async move {
+                    if let Err(e) = io_task.await {
+                        tracing::error!("initialize_agent io error: {e}");
+                    }
+                });
+
+                let resp = conn
+                    .initialize(agent_client_protocol_schema::InitializeRequest::new(
+                        ProtocolVersion::LATEST,
+                    ))
+                    .await
+                    .unwrap();
+                let _ = result_tx.send(resp);
+            }));
         })
-        .await
-        .unwrap()
+        .unwrap();
+    result_rx.await.unwrap()
 }
 
 pub mod server;

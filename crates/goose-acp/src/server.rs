@@ -643,7 +643,7 @@ fn build_tool_call_content(tool_result: &ToolResult<CallToolResult>) -> Vec<Tool
 }
 
 impl GooseAcpAgent {
-    async fn on_initialize(
+    pub async fn on_initialize(
         &self,
         args: InitializeRequest,
     ) -> Result<InitializeResponse, agent_client_protocol_schema::Error> {
@@ -669,7 +669,7 @@ impl GooseAcpAgent {
             )]))
     }
 
-    async fn on_new_session(
+    pub async fn on_new_session(
         &self,
         args: NewSessionRequest,
     ) -> Result<NewSessionResponse, agent_client_protocol_schema::Error> {
@@ -938,7 +938,7 @@ impl GooseAcpAgent {
         }))
     }
 
-    async fn on_cancel(
+    pub async fn on_cancel(
         &self,
         args: CancelNotification,
     ) -> Result<(), agent_client_protocol_schema::Error> {
@@ -959,7 +959,7 @@ impl GooseAcpAgent {
         Ok(())
     }
 
-    async fn on_set_model(
+    pub async fn on_set_model(
         &self,
         session_id: &str,
         model_id: &str,

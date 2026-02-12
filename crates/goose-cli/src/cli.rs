@@ -801,6 +801,9 @@ enum AgentCommand {
         /// Agent name
         #[arg(help = "Agent name")]
         name: String,
+        /// Show specific mode details
+        #[arg(long, help = "Show details for a specific mode")]
+        mode: Option<String>,
     },
 
     /// Search for agents
@@ -809,6 +812,14 @@ enum AgentCommand {
         /// Search query
         #[arg(help = "Search query")]
         query: String,
+    },
+
+    /// List available modes for an agent
+    #[command(about = "List available modes for an agent")]
+    Modes {
+        /// Agent name
+        #[arg(help = "Agent name")]
+        name: String,
     },
 }
 
@@ -1626,15 +1637,17 @@ async fn handle_registry_subcommand(command: RegistryCommand) -> Result<()> {
 
 async fn handle_agent_subcommand(command: AgentCommand) -> Result<()> {
     use crate::commands::registry::{
-        handle_add, handle_info, handle_list as handle_registry_list, handle_remove, handle_search,
+        handle_add, handle_agent_info, handle_agent_modes, handle_list as handle_registry_list,
+        handle_remove, handle_search,
     };
 
     match command {
         AgentCommand::List { format } => handle_registry_list(Some("agent"), &format, false).await,
         AgentCommand::Add { name } => handle_add(&name, Some("agent")).await,
         AgentCommand::Remove { name } => handle_remove(&name, "agent").await,
-        AgentCommand::Show { name } => handle_info(&name, Some("agent")).await,
+        AgentCommand::Show { name, mode } => handle_agent_info(&name, mode.as_deref()).await,
         AgentCommand::Search { query } => handle_search(&query, Some("agent"), "text", false).await,
+        AgentCommand::Modes { name } => handle_agent_modes(&name).await,
     }
 }
 

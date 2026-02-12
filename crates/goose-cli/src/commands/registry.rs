@@ -305,3 +305,215 @@ pub async fn handle_init(name: Option<String>, description: Option<String>) -> R
 
     Ok(())
 }
+
+pub async fn handle_agent_info(name: &str, mode: Option<&str>) -> Result<()> {
+    use goose::registry::manifest::RegistryEntryDetail;
+
+    let manager = default_manager()?;
+    let kind = Some(goose::registry::manifest::RegistryEntryKind::Agent);
+    let entry = manager.get(name, kind).await?;
+
+    match entry {
+        Some(entry) => {
+            println!(
+                "{} {} {}",
+                style("🤖").bold(),
+                style(&entry.name).bold().cyan(),
+                entry
+                    .version
+                    .as_deref()
+                    .map(|v| format!("v{v}"))
+                    .unwrap_or_default()
+            );
+            if !entry.description.is_empty() {
+                println!("  {}", entry.description);
+            }
+            if let Some(author) = &entry.author {
+                if let Some(name) = &author.name {
+                    println!("  Author: {}", style(name).dim());
+                }
+            }
+            if let Some(license) = &entry.license {
+                println!("  License: {}", style(license).dim());
+            }
+            if let Some(uri) = &entry.source_uri {
+                println!("  Source: {}", style(uri).dim());
+            }
+
+            if let RegistryEntryDetail::Agent(ref detail) = entry.detail {
+                if !detail.capabilities.is_empty() {
+                    println!();
+                    println!("  {}", style("Capabilities:").underlined());
+                    for cap in &detail.capabilities {
+                        println!("    • {cap}");
+                    }
+                }
+                if !detail.domains.is_empty() {
+                    println!("  {}", style("Domains:").underlined());
+                    for d in &detail.domains {
+                        println!("    • {d}");
+                    }
+                }
+                if !detail.recommended_models.is_empty() {
+                    println!("  {}", style("Recommended models:").underlined());
+                    for m in &detail.recommended_models {
+                        println!("    • {m}");
+                    }
+                }
+                if !detail.required_extensions.is_empty() {
+                    println!("  {}", style("Required extensions:").underlined());
+                    for ext in &detail.required_extensions {
+                        println!("    • {ext}");
+                    }
+                }
+
+                // Show modes
+                if !detail.modes.is_empty() {
+                    println!();
+                    println!("  {}", style("Modes:").bold().underlined());
+                    let default = detail.default_mode.as_deref();
+                    for m in &detail.modes {
+                        let is_default = default == Some(m.slug.as_str());
+                        let marker = if is_default { " (default)" } else { "" };
+                        println!(
+                            "    {} {}{}",
+                            style(&m.name).bold(),
+                            style(&m.slug).dim(),
+                            style(marker).yellow()
+                        );
+                        if !m.description.is_empty() {
+                            println!("      {}", m.description);
+                        }
+                        if !m.tool_groups.is_empty() {
+                            let groups: Vec<String> = m
+                                .tool_groups
+                                .iter()
+                                .map(|tg| match tg {
+                                    goose::registry::manifest::ToolGroupAccess::Full(g) => {
+                                        g.clone()
+                                    }
+                                    goose::registry::manifest::ToolGroupAccess::Restricted {
+                                        group,
+                                        file_regex,
+                                    } => {
+                                        format!("{group} ({file_regex})")
+                                    }
+                                })
+                                .collect();
+                            println!("      Tools: {}", style(groups.join(", ")).dim());
+                        }
+                    }
+
+                    // Show specific mode details if requested
+                    if let Some(mode_slug) = mode {
+                        if let Some(m) = detail.modes.iter().find(|m| m.slug == mode_slug) {
+                            println!();
+                            println!(
+                                "  {}",
+                                style(format!("Mode: {} ({})", m.name, m.slug)).bold()
+                            );
+                            if let Some(ref instructions) = m.instructions {
+                                println!("  {}", style("Instructions:").underlined());
+                                // Show first 500 chars
+                                let preview = if instructions.len() > 500 {
+                                    let end = instructions
+                                        .char_indices()
+                                        .nth(500)
+                                        .map_or(instructions.len(), |(i, _)| i);
+                                    format!("{}...", &instructions[..end])
+                                } else {
+                                    instructions.clone()
+                                };
+                                for line in preview.lines() {
+                                    println!("    {line}");
+                                }
+                            }
+                            if let Some(ref file) = m.instructions_file {
+                                println!("  Instructions file: {}", style(file).dim());
+                            }
+                        } else {
+                            println!();
+                            println!("  {} Mode '{}' not found", style("⚠").yellow(), mode_slug);
+                        }
+                    }
+                }
+            }
+
+            println!();
+            Ok(())
+        }
+        None => {
+            println!("{} Agent '{}' not found", style("✗").red(), name);
+            Ok(())
+        }
+    }
+}
+
+pub async fn handle_agent_modes(name: &str) -> Result<()> {
+    use goose::registry::manifest::RegistryEntryDetail;
+
+    let manager = default_manager()?;
+    let kind = Some(goose::registry::manifest::RegistryEntryKind::Agent);
+    let entry = manager.get(name, kind).await?;
+
+    match entry {
+        Some(entry) => {
+            if let RegistryEntryDetail::Agent(ref detail) = entry.detail {
+                if detail.modes.is_empty() {
+                    println!(
+                        "{} Agent '{}' has no modes defined",
+                        style("ℹ").blue(),
+                        style(&entry.name).cyan()
+                    );
+                    return Ok(());
+                }
+
+                println!(
+                    "{} Modes for {}:",
+                    style("🤖").bold(),
+                    style(&entry.name).bold().cyan()
+                );
+                let default = detail.default_mode.as_deref();
+                for m in &detail.modes {
+                    let is_default = default == Some(m.slug.as_str());
+                    let marker = if is_default {
+                        format!(" {}", style("(default)").yellow())
+                    } else {
+                        String::new()
+                    };
+                    println!(
+                        "  {} {}{marker}",
+                        style(&m.slug).bold(),
+                        style(&m.name).dim()
+                    );
+                    if !m.description.is_empty() {
+                        println!("    {}", m.description);
+                    }
+                    if !m.tool_groups.is_empty() {
+                        let groups: Vec<String> = m
+                            .tool_groups
+                            .iter()
+                            .map(|tg| match tg {
+                                goose::registry::manifest::ToolGroupAccess::Full(g) => g.clone(),
+                                goose::registry::manifest::ToolGroupAccess::Restricted {
+                                    group,
+                                    file_regex,
+                                } => {
+                                    format!("{group} ({file_regex})")
+                                }
+                            })
+                            .collect();
+                        println!("    Tools: {}", style(groups.join(", ")).dim());
+                    }
+                }
+            } else {
+                println!("{} '{}' is not an agent", style("✗").red(), name);
+            }
+            Ok(())
+        }
+        None => {
+            println!("{} Agent '{}' not found", style("✗").red(), name);
+            Ok(())
+        }
+    }
+}

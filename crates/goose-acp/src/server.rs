@@ -1,3 +1,15 @@
+use agent_client_protocol_schema::{
+    AgentCapabilities, AuthMethod, AuthenticateRequest, AuthenticateResponse, BlobResourceContents,
+    CancelNotification, Content, ContentBlock, ContentChunk, EmbeddedResource,
+    EmbeddedResourceResource, ImageContent, InitializeRequest, InitializeResponse,
+    LoadSessionRequest, LoadSessionResponse, McpCapabilities, McpServer, ModelId, ModelInfo,
+    NewSessionRequest, NewSessionResponse, PermissionOption, PermissionOptionKind,
+    PromptCapabilities, PromptRequest, PromptResponse, RequestPermissionOutcome,
+    RequestPermissionRequest, ResourceLink, SessionId, SessionModelState, SessionNotification,
+    SessionUpdate, SetSessionModelRequest, SetSessionModelResponse, StopReason, TextContent,
+    TextResourceContents, ToolCall, ToolCallContent, ToolCallId, ToolCallLocation, ToolCallStatus,
+    ToolCallUpdate, ToolCallUpdateFields, ToolKind,
+};
 use anyhow::Result;
 use fs_err as fs;
 use goose::agents::extension::{Envs, PLATFORM_EXTENSIONS};
@@ -18,18 +30,6 @@ use goose::providers::provider_registry::ProviderConstructor;
 use goose::session::session_manager::SessionType;
 use goose::session::{Session, SessionManager};
 use rmcp::model::{CallToolResult, RawContent, ResourceContents, Role};
-use sacp::schema::{
-    AgentCapabilities, AuthMethod, AuthenticateRequest, AuthenticateResponse, BlobResourceContents,
-    CancelNotification, Content, ContentBlock, ContentChunk, EmbeddedResource,
-    EmbeddedResourceResource, ImageContent, InitializeRequest, InitializeResponse,
-    LoadSessionRequest, LoadSessionResponse, McpCapabilities, McpServer, ModelId, ModelInfo,
-    NewSessionRequest, NewSessionResponse, PermissionOption, PermissionOptionKind,
-    PromptCapabilities, PromptRequest, PromptResponse, RequestPermissionOutcome,
-    RequestPermissionRequest, ResourceLink, SessionId, SessionModelState, SessionNotification,
-    SessionUpdate, SetSessionModelRequest, SetSessionModelResponse, StopReason, TextContent,
-    TextResourceContents, ToolCall, ToolCallContent, ToolCallId, ToolCallLocation, ToolCallStatus,
-    ToolCallUpdate, ToolCallUpdateFields, ToolKind,
-};
 use sacp::{AgentToClient, ByteStreams, Handled, JrConnectionCx, JrMessageHandler, MessageCx};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -277,9 +277,10 @@ async fn add_extensions(agent: &Agent, extensions: Vec<ExtensionConfig>) {
 async fn build_model_state(
     provider: &dyn Provider,
     current_model: &str,
-) -> Result<SessionModelState, sacp::Error> {
+) -> Result<SessionModelState, agent_client_protocol_schema::Error> {
     let models = provider.fetch_recommended_models().await.map_err(|e| {
-        sacp::Error::internal_error().data(format!("Failed to fetch models: {}", e))
+        agent_client_protocol_schema::Error::internal_error()
+            .data(format!("Failed to fetch models: {}", e))
     })?;
     Ok(SessionModelState::new(
         ModelId::new(current_model),
@@ -380,7 +381,7 @@ impl GooseAcpAgent {
         session_id: &SessionId,
         session: &mut GooseAcpSession,
         cx: &JrConnectionCx<AgentToClient>,
-    ) -> Result<(), sacp::Error> {
+    ) -> Result<(), agent_client_protocol_schema::Error> {
         match content_item {
             MessageContent::Text(text) => {
                 cx.send_notification(SessionNotification::new(
@@ -436,7 +437,7 @@ impl GooseAcpAgent {
         session_id: &SessionId,
         session: &mut GooseAcpSession,
         cx: &JrConnectionCx<AgentToClient>,
-    ) -> Result<(), sacp::Error> {
+    ) -> Result<(), agent_client_protocol_schema::Error> {
         session
             .tool_requests
             .insert(tool_request.id.clone(), tool_request.clone());
@@ -466,7 +467,7 @@ impl GooseAcpAgent {
         session_id: &SessionId,
         session: &mut GooseAcpSession,
         cx: &JrConnectionCx<AgentToClient>,
-    ) -> Result<(), sacp::Error> {
+    ) -> Result<(), agent_client_protocol_schema::Error> {
         let status = match &tool_response.tool_result {
             Ok(result) if result.is_error == Some(true) => ToolCallStatus::Failed,
             Ok(_) => ToolCallStatus::Completed,
@@ -506,7 +507,7 @@ impl GooseAcpAgent {
         tool_name: String,
         arguments: serde_json::Map<String, serde_json::Value>,
         prompt: Option<String>,
-    ) -> Result<(), sacp::Error> {
+    ) -> Result<(), agent_client_protocol_schema::Error> {
         let cx = cx.clone();
         let agent = agent.clone();
         let session_id = session_id.clone();
@@ -645,7 +646,7 @@ impl GooseAcpAgent {
     async fn on_initialize(
         &self,
         args: InitializeRequest,
-    ) -> Result<InitializeResponse, sacp::Error> {
+    ) -> Result<InitializeResponse, agent_client_protocol_schema::Error> {
         debug!(?args, "initialize request");
 
         let capabilities = AgentCapabilities::new()
@@ -671,7 +672,7 @@ impl GooseAcpAgent {
     async fn on_new_session(
         &self,
         args: NewSessionRequest,
-    ) -> Result<NewSessionResponse, sacp::Error> {
+    ) -> Result<NewSessionResponse, agent_client_protocol_schema::Error> {
         debug!(?args, "new session request");
 
         let goose_session = self
@@ -683,7 +684,8 @@ impl GooseAcpAgent {
             )
             .await
             .map_err(|e| {
-                sacp::Error::internal_error().data(format!("Failed to create session: {}", e))
+                agent_client_protocol_schema::Error::internal_error()
+                    .data(format!("Failed to create session: {}", e))
             })?;
 
         let agent = self.create_agent_for_session().await;
@@ -691,19 +693,20 @@ impl GooseAcpAgent {
             .init_provider(&agent, &goose_session)
             .await
             .map_err(|e| {
-                sacp::Error::internal_error().data(format!("Failed to set provider: {}", e))
+                agent_client_protocol_schema::Error::internal_error()
+                    .data(format!("Failed to set provider: {}", e))
             })?;
 
         for mcp_server in args.mcp_servers {
             let config = match mcp_server_to_extension_config(mcp_server) {
                 Ok(c) => c,
                 Err(msg) => {
-                    return Err(sacp::Error::invalid_params().data(msg));
+                    return Err(agent_client_protocol_schema::Error::invalid_params().data(msg));
                 }
             };
             let name = config.name().to_string();
             if let Err(e) = agent.add_extension(config, &goose_session.id).await {
-                return Err(sacp::Error::internal_error()
+                return Err(agent_client_protocol_schema::Error::internal_error()
                     .data(format!("Failed to add MCP server '{}': {}", name, e)));
             }
         }
@@ -749,7 +752,7 @@ impl GooseAcpAgent {
         &self,
         args: LoadSessionRequest,
         cx: &JrConnectionCx<AgentToClient>,
-    ) -> Result<LoadSessionResponse, sacp::Error> {
+    ) -> Result<LoadSessionResponse, agent_client_protocol_schema::Error> {
         debug!(?args, "load session request");
 
         let session_id = args.session_id.0.to_string();
@@ -759,7 +762,7 @@ impl GooseAcpAgent {
             .get_session(&session_id, true)
             .await
             .map_err(|e| {
-                sacp::Error::invalid_params()
+                agent_client_protocol_schema::Error::invalid_params()
                     .data(format!("Failed to load session {}: {}", session_id, e))
             })?;
 
@@ -768,11 +771,12 @@ impl GooseAcpAgent {
             .init_provider(&agent, &goose_session)
             .await
             .map_err(|e| {
-                sacp::Error::internal_error().data(format!("Failed to set provider: {}", e))
+                agent_client_protocol_schema::Error::internal_error()
+                    .data(format!("Failed to set provider: {}", e))
             })?;
 
         let conversation = goose_session.conversation.ok_or_else(|| {
-            sacp::Error::internal_error()
+            agent_client_protocol_schema::Error::internal_error()
                 .data(format!("Session {} has no conversation data", session_id))
         })?;
 
@@ -782,7 +786,7 @@ impl GooseAcpAgent {
             .apply()
             .await
             .map_err(|e| {
-                sacp::Error::internal_error()
+                agent_client_protocol_schema::Error::internal_error()
                     .data(format!("Failed to update session working directory: {}", e))
             })?;
 
@@ -858,14 +862,15 @@ impl GooseAcpAgent {
         &self,
         args: PromptRequest,
         cx: &JrConnectionCx<AgentToClient>,
-    ) -> Result<PromptResponse, sacp::Error> {
+    ) -> Result<PromptResponse, agent_client_protocol_schema::Error> {
         let session_id = args.session_id.0.to_string();
         let cancel_token = CancellationToken::new();
 
         let agent = {
             let mut sessions = self.sessions.lock().await;
             let session = sessions.get_mut(&session_id).ok_or_else(|| {
-                sacp::Error::invalid_params().data(format!("Session not found: {}", session_id))
+                agent_client_protocol_schema::Error::invalid_params()
+                    .data(format!("Session not found: {}", session_id))
             })?;
             session.cancel_token = Some(cancel_token.clone());
             session.agent.clone()
@@ -884,7 +889,8 @@ impl GooseAcpAgent {
             .reply(user_message, session_config, Some(cancel_token.clone()))
             .await
             .map_err(|e| {
-                sacp::Error::internal_error().data(format!("Error getting agent reply: {}", e))
+                agent_client_protocol_schema::Error::internal_error()
+                    .data(format!("Error getting agent reply: {}", e))
             })?;
 
         use futures::StreamExt;
@@ -901,7 +907,7 @@ impl GooseAcpAgent {
                 Ok(goose::agents::AgentEvent::Message(message)) => {
                     let mut sessions = self.sessions.lock().await;
                     let session = sessions.get_mut(&session_id).ok_or_else(|| {
-                        sacp::Error::invalid_params()
+                        agent_client_protocol_schema::Error::invalid_params()
                             .data(format!("Session not found: {}", session_id))
                     })?;
 
@@ -914,7 +920,7 @@ impl GooseAcpAgent {
                 }
                 Ok(_) => {}
                 Err(e) => {
-                    return Err(sacp::Error::internal_error()
+                    return Err(agent_client_protocol_schema::Error::internal_error()
                         .data(format!("Error in agent response stream: {}", e)));
                 }
             }
@@ -932,7 +938,10 @@ impl GooseAcpAgent {
         }))
     }
 
-    async fn on_cancel(&self, args: CancelNotification) -> Result<(), sacp::Error> {
+    async fn on_cancel(
+        &self,
+        args: CancelNotification,
+    ) -> Result<(), agent_client_protocol_schema::Error> {
         debug!(?args, "cancel request");
 
         let session_id = args.session_id.0.to_string();
@@ -954,20 +963,23 @@ impl GooseAcpAgent {
         &self,
         session_id: &str,
         model_id: &str,
-    ) -> Result<SetSessionModelResponse, sacp::Error> {
+    ) -> Result<SetSessionModelResponse, agent_client_protocol_schema::Error> {
         let model_config = goose::model::ModelConfig::new(model_id).map_err(|e| {
-            sacp::Error::invalid_params().data(format!("Invalid model config: {}", e))
+            agent_client_protocol_schema::Error::invalid_params()
+                .data(format!("Invalid model config: {}", e))
         })?;
         let provider = (self.provider_factory)(model_config, Vec::new())
             .await
             .map_err(|e| {
-                sacp::Error::internal_error().data(format!("Failed to create provider: {}", e))
+                agent_client_protocol_schema::Error::internal_error()
+                    .data(format!("Failed to create provider: {}", e))
             })?;
 
         let agent = {
             let sessions = self.sessions.lock().await;
             let session = sessions.get(session_id).ok_or_else(|| {
-                sacp::Error::invalid_params().data(format!("Session not found: {}", session_id))
+                agent_client_protocol_schema::Error::invalid_params()
+                    .data(format!("Session not found: {}", session_id))
             })?;
             session.agent.clone()
         };
@@ -975,7 +987,8 @@ impl GooseAcpAgent {
             .update_provider(provider, session_id)
             .await
             .map_err(|e| {
-                sacp::Error::internal_error().data(format!("Failed to update provider: {}", e))
+                agent_client_protocol_schema::Error::internal_error()
+                    .data(format!("Failed to update provider: {}", e))
             })?;
 
         info!(session_id = %session_id, model_id = %model_id, "Model switched");
@@ -998,7 +1011,7 @@ impl JrMessageHandler for GooseAcpHandler {
         &mut self,
         message: MessageCx,
         cx: JrConnectionCx<AgentToClient>,
-    ) -> Result<Handled<MessageCx>, sacp::Error> {
+    ) -> Result<Handled<MessageCx>, agent_client_protocol_schema::Error> {
         use sacp::util::MatchMessageFrom;
         use sacp::JrRequestCx;
 
@@ -1059,16 +1072,21 @@ impl JrMessageHandler for GooseAcpHandler {
                             if req.method == "session/set_model" =>
                         {
                             let params: SetSessionModelRequest = serde_json::from_value(req.params)
-                                .map_err(|e| sacp::Error::invalid_params().data(e.to_string()))?;
+                                .map_err(|e| {
+                                    agent_client_protocol_schema::Error::invalid_params()
+                                        .data(e.to_string())
+                                })?;
                             let resp = agent
                                 .on_set_model(&params.session_id.0, &params.model_id.0)
                                 .await?;
-                            let json = serde_json::to_value(resp)
-                                .map_err(|e| sacp::Error::internal_error().data(e.to_string()))?;
+                            let json = serde_json::to_value(resp).map_err(|e| {
+                                agent_client_protocol_schema::Error::internal_error()
+                                    .data(e.to_string())
+                            })?;
                             request_cx.respond(json)?;
                             Ok(())
                         }
-                        _ => Err(sacp::Error::method_not_found()),
+                        _ => Err(agent_client_protocol_schema::Error::method_not_found()),
                     }
                 }
             })
@@ -1113,7 +1131,7 @@ pub async fn run(builtins: Vec<String>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sacp::schema::{
+    use agent_client_protocol_schema::{
         EnvVariable, HttpHeader, McpServer, McpServerHttp, McpServerSse, McpServerStdio,
         PermissionOptionId, ResourceLink, SelectedPermissionOutcome,
     };
@@ -1336,7 +1354,7 @@ print(\"hello, world\")
     async fn test_build_model_state(
         current_model: &str,
         models: Result<Vec<String>, ProviderError>,
-    ) -> Result<SessionModelState, sacp::Error> {
+    ) -> Result<SessionModelState, agent_client_protocol_schema::Error> {
         let provider = MockModelProvider { models };
         build_model_state(&provider, current_model).await
     }

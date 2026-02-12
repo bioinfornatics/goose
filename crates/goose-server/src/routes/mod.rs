@@ -8,6 +8,7 @@ pub mod mcp_ui_proxy;
 pub mod prompts;
 pub mod recipe;
 pub mod recipe_utils;
+pub mod registry;
 pub mod reply;
 pub mod schedule;
 pub mod session;
@@ -31,6 +32,7 @@ pub fn configure(state: Arc<crate::state::AppState>, secret_key: String) -> Rout
         .merge(dictation::routes(state.clone()))
         .merge(config_management::routes(state.clone()))
         .merge(prompts::routes())
+        .merge(registry::routes())
         .merge(recipe::routes(state.clone()))
         .merge(session::routes(state.clone()))
         .merge(schedule::routes(state.clone()))

@@ -359,7 +359,7 @@ pub struct AgentDetail {
 // ──────────────────────────────────────────────────────────
 
 /// How an agent can be distributed and installed.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
 pub struct AgentDistribution {
     /// Platform-specific binary downloads.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]

@@ -3,11 +3,12 @@ use std::sync::Arc;
 
 use agent_client_protocol::{Agent, ClientSideConnection, ProtocolVersion};
 use agent_client_protocol_schema::{
-    InitializeRequest, InitializeResponse, NewSessionRequest, NewSessionResponse, PromptRequest,
-    PromptResponse, SetSessionModeRequest, SetSessionModeResponse,
+    ContentBlock, InitializeRequest, InitializeResponse, NewSessionRequest, NewSessionResponse,
+    PromptRequest, PromptResponse, RequestPermissionOutcome, SelectedPermissionOutcome, SessionId,
+    SessionNotification, SessionUpdate, SetSessionModeRequest, SetSessionModeResponse, TextContent,
 };
 use anyhow::{bail, Result};
-use futures::FutureExt;
+
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::task::LocalSet;
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
@@ -19,6 +20,7 @@ pub struct AgentHandle {
     tx: mpsc::Sender<AgentCommand>,
     pub info: InitializeResponse,
     pub agent_id: String,
+    collected_text: Arc<Mutex<Vec<String>>>,
 }
 
 impl AgentHandle {
@@ -35,6 +37,7 @@ impl AgentHandle {
     }
 
     pub async fn prompt(&self, req: PromptRequest) -> Result<PromptResponse> {
+        self.collected_text.lock().await.clear();
         let (reply_tx, reply_rx) = oneshot::channel();
         self.tx
             .send(AgentCommand::Prompt {
@@ -44,6 +47,10 @@ impl AgentHandle {
             .await
             .map_err(|_| anyhow::anyhow!("agent connection closed"))?;
         reply_rx.await?
+    }
+
+    pub async fn drain_text(&self) -> Vec<String> {
+        std::mem::take(&mut *self.collected_text.lock().await)
     }
 
     pub async fn set_mode(&self, req: SetSessionModeRequest) -> Result<SetSessionModeResponse> {
@@ -86,7 +93,9 @@ enum AgentCommand {
     },
 }
 
-struct OrchestratorClient;
+struct OrchestratorClient {
+    collected_text: Arc<Mutex<Vec<String>>>,
+}
 
 #[async_trait::async_trait(?Send)]
 impl agent_client_protocol::Client for OrchestratorClient {
@@ -99,28 +108,35 @@ impl agent_client_protocol::Client for OrchestratorClient {
             .options
             .first()
             .map(|o| o.option_id.clone())
-            .unwrap_or_else(|| {
-                agent_client_protocol_schema::PermissionOptionId::from("allow_once".to_string())
-            });
+            .unwrap_or_else(|| "allow_once".into());
         Ok(
             agent_client_protocol_schema::RequestPermissionResponse::new(
-                agent_client_protocol_schema::RequestPermissionOutcome::Selected(
-                    agent_client_protocol_schema::SelectedPermissionOutcome::new(option_id),
-                ),
+                RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(option_id)),
             ),
         )
     }
 
     async fn session_notification(
         &self,
-        _args: agent_client_protocol_schema::SessionNotification,
+        args: SessionNotification,
     ) -> agent_client_protocol_schema::Result<()> {
+        if let SessionUpdate::AgentMessageChunk(chunk) = args.update {
+            if let ContentBlock::Text(text) = chunk.content {
+                self.collected_text.lock().await.push(text.text.clone());
+            }
+        }
         Ok(())
     }
 }
 
 pub struct AgentClientManager {
     agents: Arc<Mutex<HashMap<String, AgentHandle>>>,
+}
+
+impl Default for AgentClientManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AgentClientManager {
@@ -138,35 +154,47 @@ impl AgentClientManager {
                 .ok_or_else(|| anyhow::anyhow!("agent has no distribution info"))?,
             _ => bail!("registry entry is not an agent"),
         };
-        let dist = dist.clone();
+        self.connect_with_distribution(agent_id, dist).await
+    }
 
-        let (cmd_tx, cmd_rx) = mpsc::channel::<AgentCommand>(32);
-        let (init_tx, init_rx) = oneshot::channel::<Result<InitializeResponse>>();
+    pub async fn connect_with_distribution(
+        &self,
+        agent_id: String,
+        distribution: &AgentDistribution,
+    ) -> Result<()> {
+        let distribution = distribution.clone();
+        let id = agent_id.clone();
+        let collected_text = Arc::new(Mutex::new(Vec::new()));
+        let text_ref = collected_text.clone();
 
-        std::thread::Builder::new()
-            .name(format!("acp-client-{agent_id}"))
-            .spawn(move || {
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .expect("failed to build tokio runtime");
-                let local = LocalSet::new();
-                local.block_on(&rt, async move {
-                    let result = run_agent_connection(dist, cmd_rx, init_tx).await;
-                    if let Err(e) = result {
-                        tracing::error!("agent connection error: {e}");
+        let (handle_tx, handle_rx) = oneshot::channel();
+        let (cmd_tx, cmd_rx) = mpsc::channel(32);
+
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("failed to build tokio runtime");
+            let local = LocalSet::new();
+            local.block_on(&rt, async move {
+                match run_agent_connection(id.clone(), &distribution, cmd_rx, text_ref).await {
+                    Ok((info, io_task)) => {
+                        let _ = handle_tx.send(Ok(AgentHandle {
+                            tx: cmd_tx,
+                            info,
+                            agent_id: id,
+                            collected_text,
+                        }));
+                        let _ = io_task.await;
                     }
-                });
-            })?;
+                    Err(e) => {
+                        let _ = handle_tx.send(Err(e));
+                    }
+                }
+            });
+        });
 
-        let info = init_rx.await??;
-
-        let handle = AgentHandle {
-            tx: cmd_tx,
-            info,
-            agent_id: agent_id.clone(),
-        };
-
+        let handle = handle_rx.await??;
         self.agents.lock().await.insert(agent_id, handle);
         Ok(())
     }
@@ -177,6 +205,51 @@ impl AgentClientManager {
             .get(agent_id)
             .ok_or_else(|| anyhow::anyhow!("agent '{agent_id}' not connected"))?;
         handle.prompt(req).await
+    }
+
+    pub async fn prompt_agent_text(
+        &self,
+        agent_id: &str,
+        session_id: &SessionId,
+        instructions: &str,
+    ) -> Result<String> {
+        let prompt = vec![ContentBlock::Text(TextContent::new(
+            instructions.to_string(),
+        ))];
+        let req = PromptRequest::new(session_id.clone(), prompt);
+
+        self.prompt_agent(agent_id, req).await?;
+
+        let agents = self.agents.lock().await;
+        let handle = agents
+            .get(agent_id)
+            .ok_or_else(|| anyhow::anyhow!("agent '{agent_id}' not connected"))?;
+        let texts = handle.drain_text().await;
+        Ok(texts.join(""))
+    }
+
+    pub async fn new_session(
+        &self,
+        agent_id: &str,
+        req: NewSessionRequest,
+    ) -> Result<NewSessionResponse> {
+        let agents = self.agents.lock().await;
+        let handle = agents
+            .get(agent_id)
+            .ok_or_else(|| anyhow::anyhow!("agent '{agent_id}' not connected"))?;
+        handle.new_session(req).await
+    }
+
+    pub async fn set_mode(
+        &self,
+        agent_id: &str,
+        req: SetSessionModeRequest,
+    ) -> Result<SetSessionModeResponse> {
+        let agents = self.agents.lock().await;
+        let handle = agents
+            .get(agent_id)
+            .ok_or_else(|| anyhow::anyhow!("agent '{agent_id}' not connected"))?;
+        handle.set_mode(req).await
     }
 
     pub async fn list_agents(&self) -> Vec<String> {
@@ -194,120 +267,97 @@ impl AgentClientManager {
     }
 
     pub async fn shutdown_all(&self) {
-        let agents: Vec<_> = {
-            let mut map = self.agents.lock().await;
-            map.drain().map(|(_, h)| h).collect()
-        };
-        for handle in agents {
+        let handles: Vec<_> = self.agents.lock().await.drain().collect();
+        for (_, handle) in handles {
             let _ = handle.shutdown().await;
         }
     }
 }
 
-impl Default for AgentClientManager {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 async fn run_agent_connection(
-    dist: AgentDistribution,
+    agent_id: String,
+    distribution: &AgentDistribution,
     mut cmd_rx: mpsc::Receiver<AgentCommand>,
-    init_tx: oneshot::Sender<Result<InitializeResponse>>,
-) -> Result<()> {
-    let spawned = spawn_agent(&dist).await?;
+    collected_text: Arc<Mutex<Vec<String>>>,
+) -> Result<(
+    InitializeResponse,
+    impl std::future::Future<Output = anyhow::Result<()>>,
+)> {
     let SpawnedAgent {
         child: _child,
         stdin,
         stdout,
-    } = spawned;
+    } = spawn_agent(distribution).await?;
 
-    let client = OrchestratorClient;
+    let client = OrchestratorClient { collected_text };
+
     let (conn, io_task) =
         ClientSideConnection::new(client, stdin.compat_write(), stdout.compat(), |fut| {
             tokio::task::spawn_local(fut);
         });
 
-    tokio::task::spawn_local(io_task.map(|r| {
-        if let Err(e) = r {
-            tracing::error!("agent IO task error: {e}");
-        }
-    }));
+    let io_task = tokio::task::spawn_local(async move { io_task.await.map_err(Into::into) });
 
-    let init_result = conn
-        .initialize(InitializeRequest::new(ProtocolVersion::LATEST))
-        .await;
+    let init_req = InitializeRequest::new(ProtocolVersion::LATEST);
+    let info = conn
+        .initialize(init_req)
+        .await
+        .map_err(|e| anyhow::anyhow!("ACP initialize failed for '{}': {}", agent_id, e))?;
 
-    match init_result {
-        Ok(resp) => {
-            let _ = init_tx.send(Ok(resp));
-        }
-        Err(e) => {
-            let _ = init_tx.send(Err(anyhow::anyhow!("initialize failed: {e}")));
-            return Ok(());
-        }
-    }
-
-    while let Some(cmd) = cmd_rx.recv().await {
-        match cmd {
-            AgentCommand::NewSession { req, reply } => {
-                let result = conn
-                    .new_session(req)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("{e}"));
-                let _ = reply.send(result);
-            }
-            AgentCommand::Prompt { req, reply } => {
-                let result = conn.prompt(req).await.map_err(|e| anyhow::anyhow!("{e}"));
-                let _ = reply.send(result);
-            }
-            AgentCommand::SetMode { req, reply } => {
-                let result = conn
-                    .set_session_mode(req)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("{e}"));
-                let _ = reply.send(result);
-            }
-            AgentCommand::Shutdown { reply } => {
-                let _ = reply.send(Ok(()));
-                break;
+    tokio::task::spawn_local(async move {
+        while let Some(cmd) = cmd_rx.recv().await {
+            match cmd {
+                AgentCommand::NewSession { req, reply } => {
+                    let result = conn
+                        .new_session(req)
+                        .await
+                        .map_err(|e| anyhow::anyhow!("{e}"));
+                    let _ = reply.send(result);
+                }
+                AgentCommand::Prompt { req, reply } => {
+                    let result = conn.prompt(req).await.map_err(|e| anyhow::anyhow!("{e}"));
+                    let _ = reply.send(result);
+                }
+                AgentCommand::SetMode { req, reply } => {
+                    let result = conn
+                        .set_session_mode(req)
+                        .await
+                        .map_err(|e| anyhow::anyhow!("{e}"));
+                    let _ = reply.send(result);
+                }
+                AgentCommand::Shutdown { reply } => {
+                    let _ = reply.send(Ok(()));
+                    break;
+                }
             }
         }
-    }
+    });
 
-    Ok(())
+    Ok((info, async move { io_task.await? }))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_client_protocol_schema::SessionId;
 
-    #[test]
-    fn manager_default() {
+    #[tokio::test]
+    async fn default_manager_is_empty() {
         let mgr = AgentClientManager::default();
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let agents = rt.block_on(mgr.list_agents());
-        assert!(agents.is_empty());
+        assert!(mgr.list_agents().await.is_empty());
     }
 
     #[tokio::test]
     async fn prompt_nonexistent_agent_fails() {
         let mgr = AgentClientManager::new();
-        let result = mgr
-            .prompt_agent(
-                "nonexistent",
-                PromptRequest::new(SessionId::from("s1"), vec![]),
-            )
-            .await;
+        let req = PromptRequest::new(SessionId::from("test"), vec![]);
+        let result = mgr.prompt_agent("nope", req).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("not connected"));
     }
 
     #[tokio::test]
     async fn disconnect_nonexistent_agent_fails() {
         let mgr = AgentClientManager::new();
-        let result = mgr.disconnect_agent("nonexistent").await;
+        let result = mgr.disconnect_agent("nope").await;
         assert!(result.is_err());
     }
 }

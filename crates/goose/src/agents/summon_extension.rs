@@ -4,6 +4,7 @@
 //! - `load`: Inject knowledge into current context or discover available sources
 //! - `delegate`: Run tasks in isolated subagents (sync or async)
 
+use crate::agent_manager::client::AgentClientManager;
 use crate::agents::builtin_skills;
 use crate::agents::extension::PlatformExtensionContext;
 use crate::agents::mcp_client::{Error, McpClientTrait};
@@ -23,6 +24,7 @@ use crate::registry::sources::local::LocalRegistrySource;
 use crate::registry::RegistryManager;
 use crate::session::extension_data::EnabledExtensionsState;
 use crate::session::SessionType;
+use agent_client_protocol_schema::{NewSessionRequest, SessionModeId, SetSessionModeRequest};
 use anyhow::Result;
 use async_trait::async_trait;
 use rmcp::model::{
@@ -50,6 +52,7 @@ pub struct Source {
     pub description: String,
     pub path: PathBuf,
     pub content: String,
+    pub distribution: Option<crate::registry::manifest::AgentDistribution>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -203,6 +206,7 @@ fn parse_skill_content(content: &str, path: PathBuf) -> Option<Source> {
         description: metadata.description,
         path,
         content: body,
+        distribution: None,
     })
 }
 
@@ -224,6 +228,7 @@ fn parse_agent_content(content: &str, path: PathBuf) -> Option<Source> {
         description,
         path,
         content: body,
+        distribution: None,
     })
 }
 
@@ -262,6 +267,7 @@ pub struct SummonClient {
     source_cache: Mutex<Option<(Instant, PathBuf, Vec<Source>)>>,
     background_tasks: Mutex<HashMap<String, BackgroundTask>>,
     completed_tasks: Mutex<HashMap<String, CompletedTask>>,
+    agent_manager: AgentClientManager,
 }
 
 impl Drop for SummonClient {
@@ -311,6 +317,7 @@ impl SummonClient {
             source_cache: Mutex::new(None),
             background_tasks: Mutex::new(HashMap::new()),
             completed_tasks: Mutex::new(HashMap::new()),
+            agent_manager: AgentClientManager::default(),
         })
     }
 
@@ -615,12 +622,14 @@ impl SummonClient {
                     RegistryEntryKind::Tool => continue, // tools are extensions, not sources
                 };
 
-                let content = match &entry.detail {
-                    crate::registry::manifest::RegistryEntryDetail::Skill(s) => s.content.clone(),
-                    crate::registry::manifest::RegistryEntryDetail::Agent(a) => {
-                        a.instructions.clone()
+                let (content, distribution) = match &entry.detail {
+                    crate::registry::manifest::RegistryEntryDetail::Skill(s) => {
+                        (s.content.clone(), None)
                     }
-                    _ => String::new(),
+                    crate::registry::manifest::RegistryEntryDetail::Agent(a) => {
+                        (a.instructions.clone(), a.distribution.clone())
+                    }
+                    _ => (String::new(), None),
                 };
 
                 sources.push(Source {
@@ -629,6 +638,7 @@ impl SummonClient {
                     description: entry.description.clone(),
                     path: entry.local_path.clone().unwrap_or_default(),
                     content,
+                    distribution,
                 });
             }
         }
@@ -669,6 +679,7 @@ impl SummonClient {
                 description,
                 path: PathBuf::from(&sr.path),
                 content: String::new(),
+                distribution: None,
             });
         }
     }
@@ -739,6 +750,7 @@ impl SummonClient {
                         description: recipe.description.clone(),
                         path: path.clone(),
                         content: recipe.instructions.clone().unwrap_or_default(),
+                        distribution: None,
                     });
                 }
                 Err(e) => {
@@ -921,6 +933,7 @@ Default mode: {}
             description,
             path: yaml_path.to_path_buf(),
             content,
+            distribution: None,
         })
     }
 
@@ -1202,6 +1215,21 @@ Default mode: {}
             return self.handle_async_delegate(session_id, params).await;
         }
 
+        // Check if this is an ACP agent with distribution — delegate via ACP protocol
+        if let Some(source_name) = &params.source {
+            let working_dir = session.working_dir.clone();
+            if let Some(source) = self
+                .resolve_source(session_id, source_name, &working_dir)
+                .await
+            {
+                if source.kind == SourceKind::Agent && source.distribution.is_some() {
+                    return self
+                        .handle_acp_delegate(&source, &params, cancellation_token)
+                        .await;
+                }
+            }
+        }
+
         let working_dir = session.working_dir.clone();
         let recipe = self
             .build_delegate_recipe(&params, session_id, &working_dir)
@@ -1241,6 +1269,69 @@ Default mode: {}
         )
         .await
         .map_err(|e| format!("Delegation failed: {}", e))?;
+
+        Ok(vec![Content::text(result)])
+    }
+
+    async fn handle_acp_delegate(
+        &self,
+        source: &Source,
+        params: &DelegateParams,
+        _cancellation_token: CancellationToken,
+    ) -> Result<Vec<Content>, String> {
+        let distribution = source
+            .distribution
+            .as_ref()
+            .ok_or("Agent has no distribution")?;
+
+        let agent_name = &source.name;
+
+        // Connect to the external agent if not already connected
+        let connected = self.agent_manager.list_agents().await;
+        if !connected.contains(&agent_name.to_string()) {
+            self.agent_manager
+                .connect_with_distribution(agent_name.clone(), distribution)
+                .await
+                .map_err(|e| format!("Failed to connect to agent '{}': {}", agent_name, e))?;
+        }
+
+        // Create a session on the external agent
+        let cwd = std::env::current_dir().unwrap_or_default();
+        let session_resp = self
+            .agent_manager
+            .new_session(agent_name, NewSessionRequest::new(cwd))
+            .await
+            .map_err(|e| format!("Failed to create session on agent '{}': {}", agent_name, e))?;
+
+        let session_id = session_resp.session_id;
+
+        // Optionally set mode
+        if let Some(mode) = &params.mode {
+            let mode_req =
+                SetSessionModeRequest::new(session_id.clone(), SessionModeId::from(mode.clone()));
+            let _ = self
+                .agent_manager
+                .set_mode(agent_name, mode_req)
+                .await
+                .map_err(|e| {
+                    format!(
+                        "Failed to set mode '{}' on agent '{}': {}",
+                        mode, agent_name, e
+                    )
+                })?;
+        }
+
+        let instructions = params
+            .instructions
+            .as_ref()
+            .ok_or("Instructions required for ACP delegation")?;
+
+        // Prompt the agent and collect text
+        let result = self
+            .agent_manager
+            .prompt_agent_text(agent_name, &session_id, instructions)
+            .await
+            .map_err(|e| format!("Delegation failed: {}", e))?;
 
         Ok(vec![Content::text(result)])
     }

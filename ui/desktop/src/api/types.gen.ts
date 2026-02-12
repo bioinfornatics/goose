@@ -50,6 +50,26 @@ export type AuthorRequest = {
     metadata?: string | null;
 };
 
+export type BuiltinAgentInfo = {
+    default_mode: string;
+    description: string;
+    modes: Array<BuiltinAgentMode>;
+    name: string;
+    status: string;
+};
+
+export type BuiltinAgentMode = {
+    description: string;
+    name: string;
+    recommended_extensions: Array<string>;
+    slug: string;
+    tool_groups: Array<string>;
+};
+
+export type BuiltinAgentsResponse = {
+    agents: Array<BuiltinAgentInfo>;
+};
+
 export type CallToolRequest = {
     arguments: unknown;
     name: string;
@@ -1953,6 +1973,22 @@ export type UpdateWorkingDirResponses = {
      */
     200: unknown;
 };
+
+export type ListBuiltinAgentsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/agents/builtin';
+};
+
+export type ListBuiltinAgentsResponses = {
+    /**
+     * List builtin agents with their modes
+     */
+    200: BuiltinAgentsResponse;
+};
+
+export type ListBuiltinAgentsResponse = ListBuiltinAgentsResponses[keyof ListBuiltinAgentsResponses];
 
 export type ListAgentsData = {
     body?: never;

@@ -698,6 +698,26 @@
         }
       }
     },
+    "/agents/builtin": {
+      "get": {
+        "tags": [
+          "Builtin Agents"
+        ],
+        "operationId": "list_builtin_agents",
+        "responses": {
+          "200": {
+            "description": "List builtin agents with their modes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BuiltinAgentsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/agents/external": {
       "get": {
         "tags": [
@@ -3695,6 +3715,83 @@
           "metadata": {
             "type": "string",
             "nullable": true
+          }
+        }
+      },
+      "BuiltinAgentInfo": {
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "status",
+          "modes",
+          "default_mode"
+        ],
+        "properties": {
+          "default_mode": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "modes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BuiltinAgentMode"
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "BuiltinAgentMode": {
+        "type": "object",
+        "required": [
+          "slug",
+          "name",
+          "description",
+          "tool_groups",
+          "recommended_extensions"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "recommended_extensions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "slug": {
+            "type": "string"
+          },
+          "tool_groups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "BuiltinAgentsResponse": {
+        "type": "object",
+        "required": [
+          "agents"
+        ],
+        "properties": {
+          "agents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BuiltinAgentInfo"
+            }
           }
         }
       },

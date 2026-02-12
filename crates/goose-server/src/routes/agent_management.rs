@@ -231,8 +231,103 @@ pub async fn disconnect_agent(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct BuiltinAgentMode {
+    pub slug: String,
+    pub name: String,
+    pub description: String,
+    pub tool_groups: Vec<String>,
+    pub recommended_extensions: Vec<String>,
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct BuiltinAgentInfo {
+    pub name: String,
+    pub description: String,
+    pub status: String,
+    pub modes: Vec<BuiltinAgentMode>,
+    pub default_mode: String,
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct BuiltinAgentsResponse {
+    pub agents: Vec<BuiltinAgentInfo>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/agents/builtin",
+    responses(
+        (status = 200, description = "List builtin agents with their modes", body = BuiltinAgentsResponse)
+    ),
+    tag = "Builtin Agents"
+)]
+pub async fn list_builtin_agents() -> Json<BuiltinAgentsResponse> {
+    use goose::agents::coding_agent::CodingAgent;
+    use goose::agents::goose_agent::GooseAgent;
+
+    let goose = GooseAgent::new();
+    let coding = CodingAgent::new();
+
+    fn format_tool_group(tg: &goose::registry::manifest::ToolGroupAccess) -> String {
+        match tg {
+            goose::registry::manifest::ToolGroupAccess::Full(name) => name.clone(),
+            goose::registry::manifest::ToolGroupAccess::Restricted { group, .. } => {
+                format!("{} (restricted)", group)
+            }
+        }
+    }
+
+    let goose_modes: Vec<BuiltinAgentMode> = goose
+        .to_agent_modes()
+        .into_iter()
+        .map(|m| BuiltinAgentMode {
+            slug: m.slug.clone(),
+            name: m.name.clone(),
+            description: m.description.clone(),
+            tool_groups: m.tool_groups.iter().map(format_tool_group).collect(),
+            recommended_extensions: vec![],
+        })
+        .collect();
+
+    let coding_modes: Vec<BuiltinAgentMode> = coding
+        .to_agent_modes()
+        .into_iter()
+        .map(|m| {
+            let rec_ext = coding.recommended_extensions(&m.slug);
+            BuiltinAgentMode {
+                slug: m.slug.clone(),
+                name: m.name.clone(),
+                description: m.description.clone(),
+                tool_groups: m.tool_groups.iter().map(format_tool_group).collect(),
+                recommended_extensions: rec_ext,
+            }
+        })
+        .collect();
+
+    let agents = vec![
+        BuiltinAgentInfo {
+            name: "Goose Agent".into(),
+            description: "Core behavioral modes for the Goose AI assistant".into(),
+            status: "active".into(),
+            modes: goose_modes,
+            default_mode: goose.default_mode_slug().into(),
+        },
+        BuiltinAgentInfo {
+            name: "Coding Agent".into(),
+            description: "SDLC specialist modes for software development lifecycle".into(),
+            status: "active".into(),
+            modes: coding_modes,
+            default_mode: coding.default_mode_slug().into(),
+        },
+    ];
+
+    Json(BuiltinAgentsResponse { agents })
+}
+
 pub fn routes() -> Router {
     Router::new()
+        .route("/agents/builtin", get(list_builtin_agents))
         .route("/agents/external/connect", post(connect_agent))
         .route("/agents/external/{agent_id}/session", post(create_session))
         .route("/agents/external/{agent_id}/prompt", post(prompt_agent))

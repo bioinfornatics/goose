@@ -24,6 +24,10 @@ impl RegistryManager {
         self.sources.push(source);
     }
 
+    pub fn source_names(&self) -> Vec<String> {
+        self.sources.iter().map(|s| s.name().to_string()).collect()
+    }
+
     pub async fn search(
         &self,
         query: Option<&str>,

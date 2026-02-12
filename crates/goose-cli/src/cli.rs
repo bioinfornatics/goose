@@ -659,6 +659,73 @@ enum RecipeCommand {
 }
 
 #[derive(Subcommand)]
+enum RegistryCommand {
+    /// Search the registry for entries
+    #[command(about = "Search the registry for tools, skills, agents, and recipes")]
+    Search {
+        /// Search query
+        #[arg(help = "Search query to filter entries")]
+        query: String,
+
+        /// Filter by kind (tool, skill, agent, recipe)
+        #[arg(
+            short,
+            long,
+            help = "Filter by entry kind (tool, skill, agent, recipe)"
+        )]
+        kind: Option<String>,
+
+        /// Output format (text, json)
+        #[arg(long, default_value = "text", help = "Output format (text, json)")]
+        format: String,
+
+        /// Show verbose information
+        #[arg(short, long, help = "Show verbose entry details")]
+        verbose: bool,
+    },
+
+    /// List all registry entries
+    #[command(about = "List all entries in the registry")]
+    List {
+        /// Filter by kind (tool, skill, agent, recipe)
+        #[arg(
+            short,
+            long,
+            help = "Filter by entry kind (tool, skill, agent, recipe)"
+        )]
+        kind: Option<String>,
+
+        /// Output format (text, json)
+        #[arg(long, default_value = "text", help = "Output format (text, json)")]
+        format: String,
+
+        /// Show verbose information
+        #[arg(short, long, help = "Show verbose entry details")]
+        verbose: bool,
+    },
+
+    /// Show detailed info about a specific entry
+    #[command(about = "Show detailed information about a registry entry")]
+    Info {
+        /// Entry name
+        #[arg(help = "Name of the registry entry")]
+        name: String,
+
+        /// Filter by kind (tool, skill, agent, recipe)
+        #[arg(
+            short,
+            long,
+            help = "Filter by entry kind (tool, skill, agent, recipe)"
+        )]
+        kind: Option<String>,
+    },
+
+    /// List configured registry sources
+    #[command(about = "List configured registry sources")]
+    Sources,
+}
+
+#[derive(Subcommand)]
 enum Command {
     /// Configure goose settings
     #[command(about = "Configure goose settings")]
@@ -776,6 +843,13 @@ enum Command {
     Recipe {
         #[command(subcommand)]
         command: RecipeCommand,
+    },
+
+    /// Browse and search the agent registry
+    #[command(about = "Browse and search tools, skills, agents, and recipes")]
+    Registry {
+        #[command(subcommand)]
+        command: RegistryCommand,
     },
 
     /// Manage scheduled jobs
@@ -952,6 +1026,7 @@ fn get_command_name(command: &Option<Command>) -> &'static str {
         Some(Command::Schedule { .. }) => "schedule",
         Some(Command::Update { .. }) => "update",
         Some(Command::Recipe { .. }) => "recipe",
+        Some(Command::Registry { .. }) => "registry",
         Some(Command::Web { .. }) => "web",
         Some(Command::Term { .. }) => "term",
         Some(Command::Completion { .. }) => "completion",
@@ -1376,6 +1451,28 @@ fn handle_recipe_subcommand(command: RecipeCommand) -> Result<()> {
     }
 }
 
+async fn handle_registry_subcommand(command: RegistryCommand) -> Result<()> {
+    use crate::commands::registry::{
+        handle_info, handle_list as handle_registry_list, handle_search, handle_sources,
+    };
+
+    match command {
+        RegistryCommand::Search {
+            query,
+            kind,
+            format,
+            verbose,
+        } => handle_search(&query, kind.as_deref(), &format, verbose).await,
+        RegistryCommand::List {
+            kind,
+            format,
+            verbose,
+        } => handle_registry_list(kind.as_deref(), &format, verbose).await,
+        RegistryCommand::Info { name, kind } => handle_info(&name, kind.as_deref()).await,
+        RegistryCommand::Sources => handle_sources().await,
+    }
+}
+
 async fn handle_term_subcommand(command: TermCommand) -> Result<()> {
     match command {
         TermCommand::Init {
@@ -1511,6 +1608,7 @@ pub async fn cli() -> anyhow::Result<()> {
             Ok(())
         }
         Some(Command::Recipe { command }) => handle_recipe_subcommand(command),
+        Some(Command::Registry { command }) => handle_registry_subcommand(command).await,
         Some(Command::Web {
             port,
             host,

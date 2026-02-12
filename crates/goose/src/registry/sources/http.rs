@@ -174,10 +174,13 @@ impl HttpRegistrySource {
                 RegistryEntryDetail::Agent(AgentDetail {
                     instructions,
                     model,
+                    recommended_models: Vec::new(),
                     capabilities: Vec::new(),
                     domains: Vec::new(),
                     input_content_types: Vec::new(),
                     output_content_types: Vec::new(),
+                    required_extensions: Vec::new(),
+                    dependencies: Vec::new(),
                 })
             }
             RegistryEntryKind::Recipe => {

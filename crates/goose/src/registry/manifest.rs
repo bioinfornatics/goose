@@ -45,6 +45,9 @@ pub struct RegistryEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub author: Option<AuthorInfo>,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub license: Option<String>,
+
     /// Where this entry was resolved from.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_uri: Option<String>,
@@ -80,6 +83,41 @@ impl RegistryEntry {
         if self.author.is_none() {
             self.author.clone_from(&other.author);
         }
+        if self.license.is_none() {
+            self.license.clone_from(&other.license);
+        }
+    }
+
+    /// Check if this entry has enough metadata to be published to a registry.
+    pub fn validate_for_publish(&self) -> Vec<String> {
+        let mut issues = Vec::new();
+
+        if self.name.is_empty() {
+            issues.push("name is required".into());
+        }
+        if self.description.is_empty() {
+            issues.push("description is required".into());
+        }
+        if self.version.is_none() {
+            issues.push("version is required for publishing".into());
+        }
+        if self.author.is_none() {
+            issues.push("author is recommended for publishing".into());
+        }
+        if self.license.is_none() {
+            issues.push("license is recommended for publishing".into());
+        }
+
+        if let RegistryEntryDetail::Agent(ref agent) = self.detail {
+            if agent.instructions.is_empty() {
+                issues.push("agent instructions are required".into());
+            }
+            if agent.capabilities.is_empty() {
+                issues.push("at least one capability is recommended".into());
+            }
+        }
+
+        issues
     }
 }
 
@@ -141,16 +179,49 @@ pub struct SkillDetail {
     pub builtin: bool,
 }
 
+/// A dependency required by an agent or recipe.
+///
+/// Inspired by ACP Agent Manifest `dependencies` field.
+/// Allows declaring what tools, skills, or other agents are needed.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct AgentDependency {
+    /// Type of dependency: "tool", "skill", "agent", "recipe"
+    #[serde(rename = "type")]
+    pub dep_type: RegistryEntryKind,
+
+    pub name: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+
+    /// Whether this dependency is required or optional
+    #[serde(default = "default_true")]
+    pub required: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
 /// Detail for an Agent definition.
 ///
 /// Agents are markdown files with YAML frontmatter: name, description, model.
-/// Inspired by ACP Agent Manifest capabilities/domains fields.
+/// Schema aligned with ACP Agent Manifest for publishability:
+/// - capabilities/domains for discovery
+/// - dependencies for install resolution
+/// - required_extensions for MCP server setup
+/// - recommended_models for model flexibility
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AgentDetail {
     pub instructions: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+
+    /// Multiple model recommendations (ACP-inspired).
+    /// When non-empty, `model` is the primary and these are alternatives.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recommended_models: Vec<String>,
 
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub capabilities: Vec<String>,
@@ -163,6 +234,16 @@ pub struct AgentDetail {
 
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub output_content_types: Vec<String>,
+
+    /// MCP extension names this agent requires (e.g., "developer", "memory").
+    /// Used by `goose registry add` to auto-install dependencies.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub required_extensions: Vec<String>,
+
+    /// Structured dependencies on other registry artifacts.
+    /// Enables dependency resolution during install.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dependencies: Vec<AgentDependency>,
 }
 
 /// Detail for a Recipe (complete agent config).
@@ -207,25 +288,25 @@ mod tests {
             kind: RegistryEntryKind::Tool,
             description: "Developer tools for code editing and shell".into(),
             version: Some("1.0.0".into()),
-            author: None,
-            source_uri: None,
-            local_path: None,
+            license: Some("Apache-2.0".into()),
             tags: vec!["coding".into(), "shell".into()],
             detail: RegistryEntryDetail::Tool(ToolDetail {
                 transport: ToolTransport::Builtin,
                 capabilities: vec!["text_editor".into(), "shell".into()],
                 env_keys: vec![],
             }),
-            metadata: HashMap::new(),
+            ..Default::default()
         };
 
         let json = serde_json::to_string_pretty(&entry).unwrap();
         assert!(json.contains("developer"));
         assert!(json.contains("tool"));
+        assert!(json.contains("Apache-2.0"));
 
         let roundtrip: RegistryEntry = serde_json::from_str(&json).unwrap();
         assert_eq!(roundtrip.name, "developer");
         assert_eq!(roundtrip.kind, RegistryEntryKind::Tool);
+        assert_eq!(roundtrip.license, Some("Apache-2.0".into()));
     }
 
     #[test]
@@ -234,9 +315,6 @@ mod tests {
             name: "goose-doc-guide".into(),
             kind: RegistryEntryKind::Skill,
             description: "Guide for fetching goose documentation".into(),
-            version: None,
-            author: None,
-            source_uri: None,
             local_path: Some(PathBuf::from(
                 "/home/user/.config/goose/skills/doc-guide/SKILL.md",
             )),
@@ -245,7 +323,7 @@ mod tests {
                 content: "When the user asks about goose...".into(),
                 builtin: true,
             }),
-            metadata: HashMap::new(),
+            ..Default::default()
         };
 
         let json = serde_json::to_string_pretty(&entry).unwrap();
@@ -254,38 +332,68 @@ mod tests {
     }
 
     #[test]
-    fn serialize_agent_entry() {
+    fn serialize_agent_entry_with_deps() {
         let entry = RegistryEntry {
             name: "code-reviewer".into(),
             kind: RegistryEntryKind::Agent,
             description: "Reviews code for quality and security".into(),
             version: Some("0.1.0".into()),
+            license: Some("MIT".into()),
             author: Some(AuthorInfo {
                 name: Some("Block".into()),
                 contact: None,
                 url: Some("https://block.xyz".into()),
             }),
-            source_uri: None,
-            local_path: None,
             tags: vec!["coding".into(), "review".into()],
             detail: RegistryEntryDetail::Agent(AgentDetail {
                 instructions: "You are a code reviewer...".into(),
                 model: Some("claude-sonnet-4".into()),
-                capabilities: vec!["code-review".into()],
+                recommended_models: vec!["claude-sonnet-4".into(), "gpt-4o".into()],
+                capabilities: vec!["code-review".into(), "security-audit".into()],
                 domains: vec!["software-development".into()],
                 input_content_types: vec!["text/plain".into()],
                 output_content_types: vec!["text/markdown".into()],
+                required_extensions: vec!["developer".into(), "memory".into()],
+                dependencies: vec![
+                    AgentDependency {
+                        dep_type: RegistryEntryKind::Tool,
+                        name: "developer".into(),
+                        version: None,
+                        required: true,
+                    },
+                    AgentDependency {
+                        dep_type: RegistryEntryKind::Skill,
+                        name: "goose-doc-guide".into(),
+                        version: None,
+                        required: false,
+                    },
+                ],
             }),
-            metadata: HashMap::new(),
+            ..Default::default()
         };
 
         let json = serde_json::to_string_pretty(&entry).unwrap();
         assert!(json.contains("code-reviewer"));
         assert!(json.contains("agent"));
         assert!(json.contains("Block"));
+        assert!(json.contains("developer"));
+        assert!(json.contains("recommended_models"));
+        assert!(json.contains("required_extensions"));
+        assert!(json.contains("dependencies"));
 
         let roundtrip: RegistryEntry = serde_json::from_str(&json).unwrap();
         assert_eq!(roundtrip.name, "code-reviewer");
+        assert_eq!(roundtrip.license, Some("MIT".into()));
+
+        if let RegistryEntryDetail::Agent(ref detail) = roundtrip.detail {
+            assert_eq!(detail.recommended_models.len(), 2);
+            assert_eq!(detail.required_extensions, vec!["developer", "memory"]);
+            assert_eq!(detail.dependencies.len(), 2);
+            assert!(detail.dependencies[0].required);
+            assert!(!detail.dependencies[1].required);
+        } else {
+            panic!("Expected AgentDetail");
+        }
     }
 
     #[test]
@@ -301,7 +409,6 @@ mod tests {
                 url: None,
             }),
             source_uri: Some("https://github.com/block/goose/recipes/analyze-pr.yaml".into()),
-            local_path: None,
             tags: vec!["github".into(), "code-review".into()],
             detail: RegistryEntryDetail::Recipe(RecipeDetail {
                 instructions: Some("Analyze the given PR...".into()),
@@ -309,7 +416,7 @@ mod tests {
                 extension_names: vec!["developer".into(), "memory".into()],
                 parameters: vec!["pr_number".into(), "repo".into()],
             }),
-            metadata: HashMap::new(),
+            ..Default::default()
         };
 
         let json = serde_json::to_string_pretty(&entry).unwrap();
@@ -323,17 +430,12 @@ mod tests {
             name: "test".into(),
             kind: RegistryEntryKind::Tool,
             description: "test tool".into(),
-            version: None,
-            author: None,
-            source_uri: None,
-            local_path: None,
-            tags: vec![],
             detail: RegistryEntryDetail::Tool(ToolDetail {
                 transport: ToolTransport::Builtin,
                 capabilities: vec![],
                 env_keys: vec![],
             }),
-            metadata: HashMap::new(),
+            ..Default::default()
         };
 
         let entry2 = RegistryEntry {
@@ -341,14 +443,13 @@ mod tests {
             kind: RegistryEntryKind::Tool,
             description: "test tool from remote".into(),
             version: Some("2.0.0".into()),
+            license: Some("MIT".into()),
             author: Some(AuthorInfo {
                 name: Some("Remote".into()),
                 contact: None,
                 url: None,
             }),
             source_uri: Some("https://example.com".into()),
-            local_path: None,
-            tags: vec![],
             detail: RegistryEntryDetail::Tool(ToolDetail {
                 transport: ToolTransport::Builtin,
                 capabilities: vec![],
@@ -359,10 +460,12 @@ mod tests {
                 m.insert("rating".into(), "A".into());
                 m
             },
+            ..Default::default()
         };
 
         entry1.merge_metadata(&entry2);
         assert_eq!(entry1.version, Some("2.0.0".into()));
+        assert_eq!(entry1.license, Some("MIT".into()));
         assert_eq!(entry1.author.unwrap().name, Some("Remote".into()));
         assert_eq!(entry1.metadata.get("rating"), Some(&"A".into()));
     }
@@ -373,5 +476,96 @@ mod tests {
         assert_eq!(RegistryEntryKind::Skill.to_string(), "skill");
         assert_eq!(RegistryEntryKind::Agent.to_string(), "agent");
         assert_eq!(RegistryEntryKind::Recipe.to_string(), "recipe");
+    }
+
+    #[test]
+    fn validate_for_publish_complete_agent() {
+        let entry = RegistryEntry {
+            name: "my-agent".into(),
+            kind: RegistryEntryKind::Agent,
+            description: "A useful agent".into(),
+            version: Some("1.0.0".into()),
+            license: Some("Apache-2.0".into()),
+            author: Some(AuthorInfo {
+                name: Some("Test".into()),
+                contact: None,
+                url: None,
+            }),
+            detail: RegistryEntryDetail::Agent(AgentDetail {
+                instructions: "You are a helpful agent.".into(),
+                model: Some("claude-sonnet-4".into()),
+                recommended_models: vec!["claude-sonnet-4".into()],
+                capabilities: vec!["general".into()],
+                domains: vec![],
+                input_content_types: vec!["text/plain".into()],
+                output_content_types: vec!["text/markdown".into()],
+                required_extensions: vec!["developer".into()],
+                dependencies: vec![AgentDependency {
+                    dep_type: RegistryEntryKind::Tool,
+                    name: "developer".into(),
+                    version: None,
+                    required: true,
+                }],
+            }),
+            ..Default::default()
+        };
+
+        let issues = entry.validate_for_publish();
+        assert!(
+            issues.is_empty(),
+            "Expected no issues but got: {:?}",
+            issues
+        );
+    }
+
+    #[test]
+    fn validate_for_publish_incomplete_agent() {
+        let entry = RegistryEntry {
+            name: String::new(),
+            kind: RegistryEntryKind::Agent,
+            description: String::new(),
+            detail: RegistryEntryDetail::Agent(AgentDetail {
+                instructions: String::new(),
+                model: None,
+                recommended_models: vec![],
+                capabilities: vec![],
+                domains: vec![],
+                input_content_types: vec![],
+                output_content_types: vec![],
+                required_extensions: vec![],
+                dependencies: vec![],
+            }),
+            ..Default::default()
+        };
+
+        let issues = entry.validate_for_publish();
+        assert!(
+            issues.len() >= 4,
+            "Expected at least 4 issues: {:?}",
+            issues
+        );
+        assert!(issues.iter().any(|i| i.contains("name")));
+        assert!(issues.iter().any(|i| i.contains("description")));
+        assert!(issues.iter().any(|i| i.contains("version")));
+        assert!(issues.iter().any(|i| i.contains("instructions")));
+    }
+
+    #[test]
+    fn agent_dependency_serialization() {
+        let dep = AgentDependency {
+            dep_type: RegistryEntryKind::Tool,
+            name: "developer".into(),
+            version: Some("1.0.0".into()),
+            required: true,
+        };
+
+        let json = serde_json::to_string_pretty(&dep).unwrap();
+        assert!(json.contains("\"type\": \"tool\""));
+        assert!(json.contains("developer"));
+
+        let roundtrip: AgentDependency = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip.dep_type, RegistryEntryKind::Tool);
+        assert_eq!(roundtrip.name, "developer");
+        assert!(roundtrip.required);
     }
 }

@@ -24,8 +24,8 @@
 //!
 //! Callers currently use `prompt_template::render_template("foo.md", &ctx)` directly.
 //! The migration path:
-//! 1. `BuiltinAgent::mode("judge").render(&ctx)` — same result, but discoverable
-//! 2. `BuiltinAgent::mode("judge").complete(provider, messages)` — encapsulates the LLM call
+//! 1. `GooseAgent::mode("judge").render(&ctx)` — same result, but discoverable
+//! 2. `GooseAgent::mode("judge").complete(provider, messages)` — encapsulates the LLM call
 //! 3. Eventually, modes become ACP SessionModes advertised to clients
 
 use crate::prompt_template;
@@ -57,18 +57,18 @@ pub enum ModeCategory {
 
 /// The built-in Goose agent definition.
 /// All standard Goose behaviors are modes of this agent.
-pub struct BuiltinAgent {
+pub struct GooseAgent {
     modes: HashMap<String, BuiltinMode>,
     default_mode: String,
 }
 
-impl Default for BuiltinAgent {
+impl Default for GooseAgent {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl BuiltinAgent {
+impl GooseAgent {
     pub fn new() -> Self {
         let modes = vec![
             BuiltinMode {
@@ -222,21 +222,21 @@ mod tests {
 
     #[test]
     fn test_default_agent_has_all_modes() {
-        let agent = BuiltinAgent::new();
+        let agent = GooseAgent::new();
         let modes = agent.list_modes();
         assert_eq!(modes.len(), 8);
     }
 
     #[test]
     fn test_default_mode_is_assistant() {
-        let agent = BuiltinAgent::new();
+        let agent = GooseAgent::new();
         assert_eq!(agent.default_mode_slug(), "assistant");
         assert_eq!(agent.default_mode().template_name, "system.md");
     }
 
     #[test]
     fn test_mode_lookup() {
-        let agent = BuiltinAgent::new();
+        let agent = GooseAgent::new();
         let judge = agent.mode("judge").unwrap();
         assert_eq!(judge.template_name, "permission_judge.md");
         assert!(judge.is_llm_only());
@@ -244,7 +244,7 @@ mod tests {
 
     #[test]
     fn test_specialist_is_session_mode() {
-        let agent = BuiltinAgent::new();
+        let agent = GooseAgent::new();
         let specialist = agent.mode("specialist").unwrap();
         assert!(specialist.is_session_mode());
         assert_eq!(specialist.template_name, "specialist.md");
@@ -252,7 +252,7 @@ mod tests {
 
     #[test]
     fn test_planner_is_prompt_only() {
-        let agent = BuiltinAgent::new();
+        let agent = GooseAgent::new();
         let planner = agent.mode("planner").unwrap();
         assert!(planner.is_prompt_only());
         assert_eq!(planner.template_name, "plan.md");
@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn test_to_agent_modes() {
-        let agent = BuiltinAgent::new();
+        let agent = GooseAgent::new();
         let agent_modes = agent.to_agent_modes();
         assert_eq!(agent_modes.len(), 8);
 
@@ -270,7 +270,7 @@ mod tests {
 
     #[test]
     fn test_render_assistant_mode() {
-        let agent = BuiltinAgent::new();
+        let agent = GooseAgent::new();
         let assistant = agent.mode("assistant").unwrap();
         // system.md requires a template context — use empty HashMap
         // This should render without error (template exists)
@@ -283,7 +283,7 @@ mod tests {
 
     #[test]
     fn test_nonexistent_mode() {
-        let agent = BuiltinAgent::new();
+        let agent = GooseAgent::new();
         assert!(agent.mode("nonexistent").is_none());
     }
 }

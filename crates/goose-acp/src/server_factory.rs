@@ -1,6 +1,6 @@
 use anyhow::Result;
-use goose::agents::builtin_agent::BuiltinAgent;
-use goose::agents::coding_assistant::CodingAssistant;
+use goose::agents::coding_agent::CodingAgent;
+use goose::agents::goose_agent::GooseAgent;
 use goose::providers::provider_registry::ProviderConstructor;
 use std::sync::Arc;
 use tracing::info;
@@ -57,10 +57,10 @@ impl AcpServer {
         )
         .await?;
 
-        // Combine modes from BuiltinAgent (core Goose behaviors)
-        // and CodingAssistant (SDLC specialized roles)
-        let builtin = BuiltinAgent::new();
-        let coding = CodingAssistant::new();
+        // Combine modes from GooseAgent (core Goose behaviors)
+        // and CodingAgent (SDLC specialized roles)
+        let builtin = GooseAgent::new();
+        let coding = CodingAgent::new();
 
         let mut all_modes = builtin.to_agent_modes();
         all_modes.extend(coding.to_agent_modes());

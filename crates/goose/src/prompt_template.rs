@@ -40,35 +40,35 @@ static TEMPLATE_REGISTRY: &[(&str, &str)] = &[
         "Prompt used when goose creates step-by-step plans. CLI only",
     ),
     (
-        "coding_assistant/pm.md",
+        "coding_agent/pm.md",
         "Product Manager — requirements, user stories, and prioritization",
     ),
     (
-        "coding_assistant/architect.md",
+        "coding_agent/architect.md",
         "Software Architect — system design, C4 diagrams, and ADRs",
     ),
     (
-        "coding_assistant/backend.md",
+        "coding_agent/backend.md",
         "Backend Engineer — APIs, data models, and server-side logic",
     ),
     (
-        "coding_assistant/frontend.md",
+        "coding_agent/frontend.md",
         "Frontend Engineer — UI components, state management, and accessibility",
     ),
     (
-        "coding_assistant/qa.md",
+        "coding_agent/qa.md",
         "Quality Assurance — test planning, automated testing, and bug reporting",
     ),
     (
-        "coding_assistant/security.md",
+        "coding_agent/security.md",
         "Security Champion — OWASP analysis, threat modeling, and code review",
     ),
     (
-        "coding_assistant/sre.md",
+        "coding_agent/sre.md",
         "SRE — reliability engineering, SLOs, monitoring, and incident response",
     ),
     (
-        "coding_assistant/devsecops.md",
+        "coding_agent/devsecops.md",
         "DevSecOps — CI/CD security, infrastructure as code, and supply chain",
     ),
 ];

@@ -53,18 +53,18 @@ pub struct CodingMode {
 }
 
 /// The Coding Assistant agent with SDLC-specialized modes.
-pub struct CodingAssistant {
+pub struct CodingAgent {
     modes: HashMap<String, CodingMode>,
     default_mode: String,
 }
 
-impl Default for CodingAssistant {
+impl Default for CodingAgent {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl CodingAssistant {
+impl CodingAgent {
     pub fn new() -> Self {
         let modes = vec![
             CodingMode {
@@ -72,7 +72,7 @@ impl CodingAssistant {
                 name: "📋 Product Manager".into(),
                 description: "Requirements, user stories, prioritization, and roadmap planning"
                     .into(),
-                template_name: "coding_assistant/pm.md".into(),
+                template_name: "coding_agent/pm.md".into(),
                 tool_groups: vec![
                     ToolGroupAccess::Full("memory".into()),
                     ToolGroupAccess::Full("fetch".into()),
@@ -93,7 +93,7 @@ impl CodingAssistant {
                 description:
                     "System design, C4 diagrams, ADRs, API contracts, and technology decisions"
                         .into(),
-                template_name: "coding_assistant/architect.md".into(),
+                template_name: "coding_agent/architect.md".into(),
                 tool_groups: vec![
                     ToolGroupAccess::Full("developer".into()),
                     ToolGroupAccess::Full("memory".into()),
@@ -114,7 +114,7 @@ impl CodingAssistant {
                 name: "⚙️ Backend Engineer".into(),
                 description: "Server-side implementation, APIs, data models, and business logic"
                     .into(),
-                template_name: "coding_assistant/backend.md".into(),
+                template_name: "coding_agent/backend.md".into(),
                 tool_groups: vec![
                     ToolGroupAccess::Full("developer".into()),
                     ToolGroupAccess::Full("edit".into()),
@@ -139,7 +139,7 @@ impl CodingAssistant {
                 name: "🎨 Frontend Engineer".into(),
                 description:
                     "UI components, client-side logic, state management, and accessibility".into(),
-                template_name: "coding_assistant/frontend.md".into(),
+                template_name: "coding_agent/frontend.md".into(),
                 tool_groups: vec![
                     ToolGroupAccess::Full("developer".into()),
                     ToolGroupAccess::Full("edit".into()),
@@ -162,7 +162,7 @@ impl CodingAssistant {
                 description:
                     "Test planning, automated testing, exploratory testing, and bug reporting"
                         .into(),
-                template_name: "coding_assistant/qa.md".into(),
+                template_name: "coding_agent/qa.md".into(),
                 tool_groups: vec![
                     ToolGroupAccess::Full("developer".into()),
                     ToolGroupAccess::Full("command".into()),
@@ -183,7 +183,7 @@ impl CodingAssistant {
                 description:
                     "Security code review, threat modeling, OWASP analysis, and vulnerability assessment"
                         .into(),
-                template_name: "coding_assistant/security.md".into(),
+                template_name: "coding_agent/security.md".into(),
                 tool_groups: vec![
                     ToolGroupAccess::Full("developer".into()),
                     ToolGroupAccess::Full("read".into()),
@@ -204,7 +204,7 @@ impl CodingAssistant {
                 description:
                     "Reliability engineering, SLOs, monitoring, incident response, and observability"
                         .into(),
-                template_name: "coding_assistant/sre.md".into(),
+                template_name: "coding_agent/sre.md".into(),
                 tool_groups: vec![
                     ToolGroupAccess::Full("developer".into()),
                     ToolGroupAccess::Full("command".into()),
@@ -225,7 +225,7 @@ impl CodingAssistant {
                 description:
                     "CI/CD security, infrastructure as code, container security, and supply chain"
                         .into(),
-                template_name: "coding_assistant/devsecops.md".into(),
+                template_name: "coding_agent/devsecops.md".into(),
                 tool_groups: vec![
                     ToolGroupAccess::Full("developer".into()),
                     ToolGroupAccess::Full("edit".into()),
@@ -320,19 +320,19 @@ mod tests {
 
     #[test]
     fn test_all_modes_present() {
-        let ca = CodingAssistant::new();
+        let ca = CodingAgent::new();
         assert_eq!(ca.modes().len(), 8);
     }
 
     #[test]
     fn test_default_mode_is_backend() {
-        let ca = CodingAssistant::new();
+        let ca = CodingAgent::new();
         assert_eq!(ca.default_mode_slug(), "backend");
     }
 
     #[test]
     fn test_mode_lookup() {
-        let ca = CodingAssistant::new();
+        let ca = CodingAgent::new();
         let pm = ca.mode("pm").unwrap();
         assert_eq!(pm.name, "📋 Product Manager");
         assert!(pm.when_to_use.contains("requirements"));
@@ -340,7 +340,7 @@ mod tests {
 
     #[test]
     fn test_sdlc_order() {
-        let ca = CodingAssistant::new();
+        let ca = CodingAgent::new();
         let slugs: Vec<&str> = ca.modes().iter().map(|m| m.slug.as_str()).collect();
         assert_eq!(
             slugs,
@@ -359,7 +359,7 @@ mod tests {
 
     #[test]
     fn test_to_agent_modes() {
-        let ca = CodingAssistant::new();
+        let ca = CodingAgent::new();
         let modes = ca.to_agent_modes();
         assert_eq!(modes.len(), 8);
         assert!(modes.iter().all(|m| m.instructions_file.is_some()));
@@ -368,7 +368,7 @@ mod tests {
 
     #[test]
     fn test_tool_groups_per_mode() {
-        let ca = CodingAssistant::new();
+        let ca = CodingAgent::new();
 
         // PM is read-only + memory + fetch
         let pm = ca.mode("pm").unwrap();
@@ -402,7 +402,7 @@ mod tests {
 
     #[test]
     fn test_recommended_extensions() {
-        let ca = CodingAssistant::new();
+        let ca = CodingAgent::new();
         let recs = ca.recommended_extensions("backend");
         assert!(recs.contains(&"developer".to_string()));
         assert!(recs.contains(&"github".to_string()));
@@ -410,13 +410,13 @@ mod tests {
 
     #[test]
     fn test_unknown_mode_returns_none() {
-        let ca = CodingAssistant::new();
+        let ca = CodingAgent::new();
         assert!(ca.mode("nonexistent").is_none());
     }
 
     #[test]
     fn test_render_mode() {
-        let ca = CodingAssistant::new();
+        let ca = CodingAgent::new();
         let result = ca.render_mode("pm", &HashMap::<String, String>::new());
         assert!(result.is_ok());
         let text = result.unwrap();

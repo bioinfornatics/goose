@@ -5,10 +5,11 @@ use agent_client_protocol_schema::{
     LoadSessionRequest, LoadSessionResponse, McpCapabilities, McpServer, ModelId, ModelInfo,
     NewSessionRequest, NewSessionResponse, PermissionOption, PermissionOptionKind,
     PromptCapabilities, PromptRequest, PromptResponse, RequestPermissionOutcome,
-    RequestPermissionRequest, ResourceLink, SessionId, SessionModelState, SessionNotification,
-    SessionUpdate, SetSessionModelRequest, SetSessionModelResponse, StopReason, TextContent,
-    TextResourceContents, ToolCall, ToolCallContent, ToolCallId, ToolCallLocation, ToolCallStatus,
-    ToolCallUpdate, ToolCallUpdateFields, ToolKind,
+    RequestPermissionRequest, RequestPermissionResponse, ResourceLink, SessionId,
+    SessionModelState, SessionNotification, SessionUpdate, SetSessionModelRequest,
+    SetSessionModelResponse, StopReason, TextContent, TextResourceContents, ToolCall,
+    ToolCallContent, ToolCallId, ToolCallLocation, ToolCallStatus, ToolCallUpdate,
+    ToolCallUpdateFields, ToolKind,
 };
 use anyhow::Result;
 use fs_err as fs;
@@ -57,6 +58,10 @@ pub struct GooseAcpAgent {
     goose_mode: goose::config::GooseMode,
     disable_session_naming: bool,
     builtins: Vec<String>,
+    /// Abstraction for sending notifications/requests back to the client.
+    /// Set after connection is established. Uses Arc for sharing across async tasks.
+    notification_sender:
+        Arc<tokio::sync::RwLock<Option<Arc<dyn crate::notification::NotificationSender>>>>,
 }
 
 fn mcp_server_to_extension_config(mcp_server: McpServer) -> Result<ExtensionConfig, String> {
@@ -316,6 +321,7 @@ impl GooseAcpAgent {
             goose_mode,
             disable_session_naming,
             builtins,
+            notification_sender: Arc::new(tokio::sync::RwLock::new(None)),
         })
     }
 
@@ -341,6 +347,40 @@ impl GooseAcpAgent {
 
     pub async fn has_session(&self, session_id: &str) -> bool {
         self.sessions.lock().await.contains_key(session_id)
+    }
+
+    /// Set the notification sender after the connection is established.
+    pub async fn set_notification_sender(
+        &self,
+        sender: Arc<dyn crate::notification::NotificationSender>,
+    ) {
+        *self.notification_sender.write().await = Some(sender);
+    }
+
+    /// Send a session notification through the stored sender.
+    #[allow(dead_code)]
+    async fn notify(
+        &self,
+        notification: SessionNotification,
+    ) -> Result<(), agent_client_protocol_schema::Error> {
+        let sender = self.notification_sender.read().await;
+        match sender.as_ref() {
+            Some(s) => s.send_session_notification(notification).await,
+            None => Err(agent_client_protocol_schema::Error::internal_error()),
+        }
+    }
+
+    /// Request permission through the stored sender.
+    #[allow(dead_code)]
+    async fn request_permission(
+        &self,
+        request: RequestPermissionRequest,
+    ) -> Result<RequestPermissionResponse, agent_client_protocol_schema::Error> {
+        let sender = self.notification_sender.read().await;
+        match sender.as_ref() {
+            Some(s) => s.send_permission_request(request).await,
+            None => Err(agent_client_protocol_schema::Error::internal_error()),
+        }
     }
 
     fn convert_acp_prompt_to_message(&self, prompt: Vec<ContentBlock>) -> Message {

@@ -19,8 +19,16 @@ export interface ModelAttribution {
   mode: string;
 }
 
+export interface RoutingInfo {
+  agentName: string;
+  modeSlug: string;
+  confidence: number;
+  reasoning: string;
+}
+
 export type MessageWithAttribution = Message & {
   _modelInfo?: ModelAttribution;
+  _routingInfo?: RoutingInfo;
 };
 
 // Compaction response message - must match backend constant

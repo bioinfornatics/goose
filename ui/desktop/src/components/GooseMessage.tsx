@@ -69,6 +69,7 @@ export default function GooseMessage({
 
   const timestamp = useMemo(() => formatMessageTimestamp(message.created), [message.created]);
   const modelInfo = (message as MessageWithAttribution)._modelInfo;
+  const routingInfo = (message as MessageWithAttribution)._routingInfo;
   const toolRequests = getToolRequests(message);
   const messageIndex = messages.findIndex((msg) => msg.id === message.id);
   const toolConfirmationContent = getToolConfirmationContent(message);
@@ -163,12 +164,18 @@ export default function GooseMessage({
                 {!isStreaming && (
                   <div className="text-xs font-mono text-text-muted pt-1 transition-all duration-200 group-hover:-translate-y-4 group-hover:opacity-0">
                     {timestamp}
+                    {routingInfo && (
+                      <>
+                        <span className="mx-1 opacity-50">·</span>
+                        <span className="text-blue-400">{routingInfo.agentName}</span>
+                        <span className="mx-1 opacity-50">›</span>
+                        <span className="text-blue-300">{routingInfo.modeSlug}</span>
+                      </>
+                    )}
                     {modelInfo && (
                       <>
                         <span className="mx-1 opacity-50">·</span>
                         <span>{modelInfo.model}</span>
-                        <span className="mx-1 opacity-50">·</span>
-                        <span>{modelInfo.mode}</span>
                       </>
                     )}
                   </div>

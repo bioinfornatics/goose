@@ -22,6 +22,7 @@ import {
   getThinkingMessage,
   MessageWithAttribution,
   NotificationEvent,
+  RoutingInfo,
   UserInput,
 } from '../types/message';
 import { errorMessage } from '../utils/conversionUtils';
@@ -216,6 +217,7 @@ async function streamFromResponse(
   let lastBatchUpdate = Date.now();
   let hasPendingUpdate = false;
   let currentModelInfo: { model: string; mode: string } | null = null;
+  let currentRoutingInfo: RoutingInfo | null = null;
 
   const flushBatchedUpdates = () => {
     if (reduceMotion && hasPendingUpdate) {
@@ -256,8 +258,13 @@ async function streamFromResponse(
       switch (event.type) {
         case 'Message': {
           const msg = event.message;
-          if (msg.role === 'assistant' && currentModelInfo) {
-            (msg as MessageWithAttribution)._modelInfo = { ...currentModelInfo };
+          if (msg.role === 'assistant') {
+            if (currentModelInfo) {
+              (msg as MessageWithAttribution)._modelInfo = { ...currentModelInfo };
+            }
+            if (currentRoutingInfo) {
+              (msg as MessageWithAttribution)._routingInfo = { ...currentRoutingInfo };
+            }
           }
           currentMessages = pushMessage(currentMessages, msg);
 
@@ -294,6 +301,15 @@ async function streamFromResponse(
         }
         case 'ModelChange': {
           currentModelInfo = { model: event.model, mode: event.mode };
+          break;
+        }
+        case 'RoutingDecision': {
+          currentRoutingInfo = {
+            agentName: event.agent_name,
+            modeSlug: event.mode_slug,
+            confidence: event.confidence,
+            reasoning: event.reasoning,
+          };
           break;
         }
         case 'UpdateConversation': {

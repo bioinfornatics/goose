@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import ImagePreview from './ImagePreview';
 import { formatMessageTimestamp } from '../utils/timeUtils';
 import MarkdownContent from './MarkdownContent';
@@ -22,6 +22,7 @@ import ElicitationRequest from './ElicitationRequest';
 import MessageCopyLink from './MessageCopyLink';
 import { cn } from '../utils';
 import { identifyConsecutiveToolCalls, shouldHideTimestamp } from '../utils/toolCallChaining';
+import { AppEvents } from '../constants/events';
 import { useReasoningDetail } from '../contexts/ReasoningDetailContext';
 
 function ThinkingSection({
@@ -112,6 +113,21 @@ export default function GooseMessage({
   submitElicitationResponse,
 }: GooseMessageProps) {
   const contentRef = useRef<HTMLDivElement | null>(null);
+  const [responseStyle, setResponseStyle] = useState(() => localStorage.getItem('response_style'));
+
+  useEffect(() => {
+    const handleStyleChange = () => {
+      setResponseStyle(localStorage.getItem('response_style'));
+    };
+    window.addEventListener('storage', handleStyleChange);
+    window.addEventListener(AppEvents.RESPONSE_STYLE_CHANGED, handleStyleChange);
+    return () => {
+      window.removeEventListener('storage', handleStyleChange);
+      window.removeEventListener(AppEvents.RESPONSE_STYLE_CHANGED, handleStyleChange);
+    };
+  }, []);
+
+  const hideToolCalls = responseStyle === 'hidden';
 
   let { textContent, imagePaths } = getTextAndImageContent(message);
 
@@ -204,6 +220,21 @@ export default function GooseMessage({
 
   const pendingConfirmationIds = getPendingToolConfirmationIds(messages);
 
+  // In hidden mode, skip rendering messages that would be completely empty
+  // (no text, no images, no thinking, only hidden tool calls)
+  if (
+    hideToolCalls &&
+    !displayText.trim() &&
+    imagePaths.length === 0 &&
+    !cotText &&
+    !hasToolConfirmation &&
+    !hasElicitation &&
+    toolRequests.length > 0 &&
+    toolRequests.every((req) => !pendingConfirmationIds.has(req.id))
+  ) {
+    return null;
+  }
+
   return (
     <div className="goose-message flex w-[90%] justify-start min-w-0">
       <div className="flex flex-col w-full min-w-0">
@@ -272,39 +303,46 @@ export default function GooseMessage({
           </div>
         )}
 
-        {toolRequests.length > 0 && (
-          <div className={cn(displayText && 'mt-2')}>
-            <div className="relative flex flex-col w-full">
-              <div className="flex flex-col gap-3">
-                {toolRequests.map((toolRequest) => {
-                  const hasResponse = toolResponsesMap.has(toolRequest.id);
-                  const isPending = pendingConfirmationIds.has(toolRequest.id);
-                  const confirmationContent = findConfirmationForToolAcrossMessages(toolRequest.id);
-                  const isApprovalClicked = confirmationContent && !isPending && hasResponse;
-                  return (
-                    <div className="goose-message-tool" key={toolRequest.id}>
-                      <ToolCallWithResponse
-                        sessionId={sessionId}
-                        isCancelledMessage={false}
-                        toolRequest={toolRequest}
-                        toolResponse={toolResponsesMap.get(toolRequest.id)}
-                        notifications={toolCallNotifications.get(toolRequest.id)}
-                        isStreamingMessage={isStreaming}
-                        isPendingApproval={isPending}
-                        append={append}
-                        confirmationContent={confirmationContent}
-                        isApprovalClicked={isApprovalClicked}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="text-xs text-text-muted transition-all duration-200 group-hover:-translate-y-4 group-hover:opacity-0 pt-1">
-                {!isStreaming && !hideTimestamp && timestamp}
+        {toolRequests.length > 0 && (() => {
+          // In hidden mode, only show tool calls that need user approval
+          const visibleToolRequests = hideToolCalls
+            ? toolRequests.filter((req) => pendingConfirmationIds.has(req.id))
+            : toolRequests;
+          if (visibleToolRequests.length === 0) return null;
+          return (
+            <div className={cn(displayText && 'mt-2')}>
+              <div className="relative flex flex-col w-full">
+                <div className="flex flex-col gap-3">
+                  {visibleToolRequests.map((toolRequest) => {
+                    const hasResponse = toolResponsesMap.has(toolRequest.id);
+                    const isPending = pendingConfirmationIds.has(toolRequest.id);
+                    const confirmationContent = findConfirmationForToolAcrossMessages(toolRequest.id);
+                    const isApprovalClicked = confirmationContent && !isPending && hasResponse;
+                    return (
+                      <div className="goose-message-tool" key={toolRequest.id}>
+                        <ToolCallWithResponse
+                          sessionId={sessionId}
+                          isCancelledMessage={false}
+                          toolRequest={toolRequest}
+                          toolResponse={toolResponsesMap.get(toolRequest.id)}
+                          notifications={toolCallNotifications.get(toolRequest.id)}
+                          isStreamingMessage={isStreaming}
+                          isPendingApproval={isPending}
+                          append={append}
+                          confirmationContent={confirmationContent}
+                          isApprovalClicked={isApprovalClicked}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="text-xs text-text-muted transition-all duration-200 group-hover:-translate-y-4 group-hover:opacity-0 pt-1">
+                  {!isStreaming && !hideTimestamp && timestamp}
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {hasToolConfirmation && !toolConfirmationShownInline && (
           <ToolCallConfirmation

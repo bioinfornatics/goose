@@ -550,3 +550,159 @@ Multi-agent routing is only active when:
 
 4. **What happens when an external agent goes unhealthy mid-conversation?**
    - Recommendation: Fall back to builtin assistant with a notification to the user
+
+
+---
+
+## 13. SOTA Protocol Alignment Analysis
+
+Based on review of the linked resources and the existing Goose codebase:
+
+### 13.1 ACP (Agent Communication Protocol) Alignment
+
+**Spec:** <https://agentcommunicationprotocol.dev>
+
+| ACP Concept | Goose Implementation | Status |
+|-------------|---------------------|--------|
+| **Agent Manifest** (capabilities, domains, content types) | `AgentDetail` in `manifest.rs` | ✅ Fully aligned |
+| **SessionMode** (behavioral modes per session) | `GooseAgent` 8 modes, `CodingAgent` 8 modes, `SessionModeState` in ACP bridge | ✅ Fully aligned |
+| **SetSessionMode** (change mode at runtime) | `AcpBridge::set_session_mode` → `GooseAcpAgent::on_set_mode` | ✅ Fully aligned |
+| **SetSessionModel** (change model at runtime) | `AcpBridge::set_session_model` → `GooseAcpAgent::on_set_model` | ✅ Fully aligned |
+| **ToolCall with status updates** | `ToolCallUpdate`, `ToolCallStatus` in ACP schema | ✅ Fully aligned |
+| **Permission requests** | `RequestPermissionRequest` → `OrchestratorClient` auto-approves | ✅ Implemented (auto-approve) |
+| **Session notifications** | `SessionNotification` → `AgentMessageChunk` collected as text | ✅ Implemented |
+| **MCP server injection** | `mcp_server_to_extension_config` converts ACP McpServer to ExtensionConfig | ✅ Fully aligned |
+| **Agent distribution** (binary/npx/uvx/cargo/docker) | `AgentDistribution` + `spawn_agent` | ✅ Fully aligned |
+| **Dependencies** | `AgentDependency` in manifest | ✅ Schema ready |
+
+**Key finding:** Goose is one of the **most complete ACP implementations** in the Rust ecosystem. The `goose-acp` crate implements both client (`AgentClientManager`) and server (`GooseAcpAgent`) sides of ACP.
+
+### 13.2 A2A (Agent-to-Agent Protocol) Alignment
+
+**Spec:** <https://agent2agent.info/docs/concepts/agentcard/>
+
+| A2A Concept | Goose Implementation | Status |
+|-------------|---------------------|--------|
+| **Agent Card** (`/.well-known/agent-card.json`) | `agent_card.rs` route serves A2A card | ✅ Fully aligned |
+| **Skills** (structured capability declarations) | `AgentSkill` in manifest + `A2aAgentSkill` in formats | ✅ Fully aligned |
+| **Task lifecycle** (submitted→working→completed/failed) | `TaskManager` with `TaskState` enum | ✅ Fully aligned |
+| **Artifacts** (structured task outputs) | Not implemented | ❌ Gap |
+| **Push notifications** | Not implemented for A2A | ❌ Gap |
+| **Security schemes** (API key, OAuth2, HTTP) | `SecurityScheme` in manifest, `A2aSecurityScheme` in formats | ✅ Fully aligned |
+| **Discovery** (fetch agent cards from endpoints) | `A2aRegistrySource` fetches from `/.well-known/agent-card.json` | ✅ Fully aligned |
+| **Capabilities** (streaming, pushNotifications, stateTransitionHistory) | `A2aAgentCapabilities` struct | ✅ Schema ready |
+
+**Key finding:** A2A discovery and agent cards are fully implemented. The gap is in **task-based communication** (A2A tasks with artifacts) vs. the current **prompt-based communication** (ACP prompt/response).
+
+### 13.3 What the Meta-Orchestrator Should Use
+
+For **builtin agents** (GooseAgent, CodingAgent):
+- **No protocol needed** — they run in-process, share the same `Agent` struct
+- Use `active_tool_groups` + `when_to_use` for routing decisions
+- Use `AgentMode` / `SessionMode` for mode switching (already ACP-compliant)
+
+For **local ACP agents** (spawned via binary/npx/uvx):
+- Use **ACP** (`AgentClientManager` → `AgentHandle` → stdio)
+- Already implemented: `connect_with_distribution`, `prompt_agent`, `set_mode`
+- Router uses `when_to_use` hints from agent modes for matching
+
+For **remote A2A agents** (HTTP endpoints):
+- Use **A2A** via task-based communication
+- Discovery: `A2aRegistrySource` fetches agent cards
+- Execution: Need to add `a2a-client` crate for HTTP task submission
+- Router uses A2A `skills` for matching
+
+### 13.4 Extension ↔ Agent Binding: How It Should Work
+
+The core insight from the protocol review:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ USER enables extensions in UI (MCP servers)                      │
+│ e.g., developer, github, memory, fetch, computercontroller       │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ ExtensionManager holds ALL enabled MCP servers                   │
+│ (unchanged — this is the global pool)                            │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ AGENTS declare which TOOL GROUPS they need                       │
+│                                                                  │
+│ GooseAgent (assistant mode):                                     │
+│   tool_groups: [everything] → gets ALL tools                     │
+│                                                                  │
+│ CodingAgent (security mode):                                     │
+│   tool_groups: [developer, read, fetch, memory]                  │
+│   → only sees tools from those groups                            │
+│                                                                  │
+│ CodingAgent (backend mode):                                      │
+│   tool_groups: [developer, edit, command, mcp, memory]           │
+│   → sees tools from those groups                                 │
+│                                                                  │
+│ External ACP Agent:                                              │
+│   → self-contained, brings own MCP servers via ACP manifest      │
+│   → OR orchestrator injects MCP servers per ACP spec             │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**This is already how the `CodingAgent` modes work!** Each mode has `tool_groups: Vec<ToolGroupAccess>` that restricts which tools are visible. The `active_tool_groups` field on `Agent` is the scoping mechanism.
+
+What's missing is the **orchestrator wiring** — when the router decides "this goes to CodingAgent/security", it needs to:
+1. Set `active_tool_groups` to the security mode's `tool_groups`
+2. Set the system prompt to the security mode's template
+3. Run the reply loop with that scoped configuration
+
+### 13.5 Validation: Is the Design Correct?
+
+| Design Decision | SOTA Validation |
+|----------------|-----------------|
+| **IntentRouter uses LLM for classification** | ✅ Standard pattern (AutoGen, CrewAI, LangGraph all do this) |
+| **Fast-path bypasses LLM for simple cases** | ✅ Optimization not in specs but recommended by TrueFoundry registry patterns |
+| **Agents declare `when_to_use` hints** | ✅ A2A Agent Card has `skills[].description` for this exact purpose |
+| **Extensions bound via `tool_groups`** | ✅ ACP Agent Manifest supports `dependencies` (tools an agent needs) |
+| **Routing prompt includes agent skills** | ✅ A2A skills are designed for exactly this — machine-readable capability matching |
+| **Shared conversation across agent switches** | ⚠️ ACP sessions are per-agent — need orchestrator-level conversation wrapping |
+| **AgentEvent for routing transparency** | ✅ ACP `SessionNotification` supports status updates; A2A Task has `status.message` |
+| **Health monitoring affects routing** | ✅ A2A recommends checking agent availability before routing |
+| **Builtin agents run in-process** | ✅ Not a protocol concern — this is an optimization |
+| **External agents via ACP stdio** | ✅ ACP Client Protocol is designed exactly for this |
+| **Remote agents via A2A HTTP** | ✅ A2A Protocol is designed exactly for this |
+
+### 13.6 Gaps to Address
+
+1. **A2A Task-based execution**: Currently Goose uses ACP prompt/response for external agents. For true A2A compliance, need to add task lifecycle (`tasks/send`, `tasks/get`, `tasks/cancel`) for remote agents.
+
+2. **A2A Artifacts**: The A2A spec defines structured outputs (files, data) from tasks. Goose currently returns text only from external agents. Need to map A2A artifacts to Goose `MessageContent` types.
+
+3. **ACP MCP Server Injection**: The ACP spec allows the orchestrator to inject MCP servers into agent sessions (`NewSessionRequest.mcp_servers`). Goose's ACP bridge parses this (`mcp_server_to_extension_config`), but the orchestrator doesn't use it yet for routing.
+
+4. **Agent Registry Federation**: The TrueFoundry AI Agent Registry pattern suggests federated discovery across multiple registries. Goose's `RegistryManager` already supports multiple sources — just need to wire the orchestrator to use it.
+
+---
+
+## 14. Updated Implementation Priority
+
+Given the SOTA analysis, the implementation order should be:
+
+### Phase 0: Extension Enable/Disable from Agents Tab (1 day)
+**Prerequisite for everything else**
+
+The UI already has extension toggles in `BottomMenuExtensionSelection`. Wire the same toggle into `AgentsView.tsx` per-agent:
+- Each agent card shows which extensions/tool_groups it uses
+- Users can toggle extensions on/off per agent
+- This maps to `active_tool_groups` scoping
+
+### Phase 1: Agent Slot Registry + Enable/Disable (2 days)
+Already in original plan — no changes needed.
+
+### Phase 2: IntentRouter (3-5 days)  
+Add `when_to_use` matching from A2A skills spec. The CodingAgent already has `when_to_use` on every mode — use these for routing.
+
+### Phase 3: A2A Task Integration (2-3 days)
+Add `a2a-client` for HTTP task-based communication with remote agents. Map A2A `Task` → `AgentEvent` stream.
+
+### Phase 4-6: Same as original plan.

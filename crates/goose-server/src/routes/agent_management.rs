@@ -111,6 +111,28 @@ pub async fn connect_agent(
         .await
         .map_err(|e| ErrorResponse::internal(format!("Connection failed: {e}")))?;
 
+    // Resolve agent manifest dependencies via ServiceBroker
+    if let RegistryEntryDetail::Agent(detail) = &entry.detail {
+        if !detail.dependencies.is_empty() {
+            let broker = goose::agent_manager::ServiceBroker::new();
+            let resolution = broker.resolve_dependencies(detail);
+            tracing::info!(
+                agent = %req.name,
+                resolved = resolution.resolved.len(),
+                missing_required = resolution.missing_required.len(),
+                missing_optional = resolution.missing_optional.len(),
+                "Resolved agent manifest dependencies"
+            );
+            for dep_name in &resolution.missing_required {
+                tracing::warn!(
+                    agent = %req.name,
+                    dep = %dep_name,
+                    "Required dependency unresolved"
+                );
+            }
+        }
+    }
+
     Ok(Json(ConnectAgentResponse {
         agent_id: req.name,
         connected: true,
@@ -431,8 +453,66 @@ pub async fn unbind_extension_from_agent(
     Ok(StatusCode::OK)
 }
 
+#[derive(Serialize)]
+pub struct OrchestratorStatus {
+    pub enabled: bool,
+    pub routing_mode: String,
+    pub agents: Vec<OrchestratorAgentInfo>,
+    pub total_modes: usize,
+}
+
+#[derive(Serialize)]
+pub struct OrchestratorAgentInfo {
+    pub name: String,
+    pub enabled: bool,
+    pub mode_count: usize,
+    pub default_mode: String,
+}
+
+#[utoipa::path(
+    get,
+    path = "/orchestrator/status",
+    responses(
+        (status = 200, description = "Orchestrator status")
+    ),
+    tag = "Orchestrator"
+)]
+pub async fn orchestrator_status(State(state): State<Arc<AppState>>) -> Json<OrchestratorStatus> {
+    use goose::agents::orchestrator_agent::{is_orchestrator_enabled, OrchestratorAgent};
+
+    let provider = Arc::new(tokio::sync::Mutex::new(None));
+    let router = OrchestratorAgent::new(provider);
+
+    let mut agents = Vec::new();
+    let mut total_modes = 0;
+
+    for slot in router.slots() {
+        let enabled = state.agent_slot_registry.is_enabled(&slot.name).await;
+        let mode_count = slot.modes.len();
+        total_modes += mode_count;
+        agents.push(OrchestratorAgentInfo {
+            name: slot.name.clone(),
+            enabled,
+            mode_count,
+            default_mode: slot.default_mode.clone(),
+        });
+    }
+
+    Json(OrchestratorStatus {
+        enabled: is_orchestrator_enabled(),
+        routing_mode: if is_orchestrator_enabled() {
+            "llm".to_string()
+        } else {
+            "keyword".to_string()
+        },
+        agents,
+        total_modes,
+    })
+}
+
 pub fn routes(state: Arc<AppState>) -> Router {
     Router::new()
+        // Builtin agent routes
         .route("/agents/builtin", get(list_builtin_agents))
         .route("/agents/builtin/{name}/toggle", post(toggle_builtin_agent))
         .route(
@@ -443,11 +523,14 @@ pub fn routes(state: Arc<AppState>) -> Router {
             "/agents/builtin/{name}/extensions/unbind",
             post(unbind_extension_from_agent),
         )
-        .with_state(state)
+        // External agent routes
         .route("/agents/external/connect", post(connect_agent))
         .route("/agents/external/{agent_id}/session", post(create_session))
         .route("/agents/external/{agent_id}/prompt", post(prompt_agent))
         .route("/agents/external/{agent_id}/mode", post(set_mode))
         .route("/agents/external", get(list_agents))
         .route("/agents/external/{agent_id}", delete(disconnect_agent))
+        // Orchestrator status
+        .route("/orchestrator/status", get(orchestrator_status))
+        .with_state(state)
 }

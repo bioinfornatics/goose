@@ -77,7 +77,8 @@ impl GooseAgent {
                 description: "General-purpose assistant — the default Goose personality".into(),
                 template_name: "system.md".into(),
                 category: ModeCategory::Session,
-                tool_groups: vec![],
+                // "mcp" = all tools. Assistant is the default mode with full access.
+                tool_groups: vec![ToolGroupAccess::Full("mcp".into())],
             },
             BuiltinMode {
                 slug: "specialist".into(),
@@ -85,7 +86,15 @@ impl GooseAgent {
                 description: "Focused task execution with bounded turns".into(),
                 template_name: "specialist.md".into(),
                 category: ModeCategory::Session,
-                tool_groups: vec![],
+                // Specialist gets developer tools + memory but not apps/todo.
+                tool_groups: vec![
+                    ToolGroupAccess::Full("developer".into()),
+                    ToolGroupAccess::Full("memory".into()),
+                    ToolGroupAccess::Full("command".into()),
+                    ToolGroupAccess::Full("edit".into()),
+                    ToolGroupAccess::Full("read".into()),
+                    ToolGroupAccess::Full("fetch".into()),
+                ],
             },
             BuiltinMode {
                 slug: "recipe_maker".into(),
@@ -93,7 +102,9 @@ impl GooseAgent {
                 description: "Generate recipe files from conversations".into(),
                 template_name: "recipe.md".into(),
                 category: ModeCategory::PromptOnly,
-                tool_groups: vec![],
+                // PromptOnly mode — no tool access needed.
+                // "none" matches no extension owner, effectively blocking all tools.
+                tool_groups: vec![ToolGroupAccess::Full("none".into())],
             },
             BuiltinMode {
                 slug: "app_maker".into(),
@@ -101,7 +112,8 @@ impl GooseAgent {
                 description: "Create new Goose apps from user instructions".into(),
                 template_name: "apps_create.md".into(),
                 category: ModeCategory::LlmOnly,
-                tool_groups: vec![],
+                // Only needs apps extension tools.
+                tool_groups: vec![ToolGroupAccess::Full("apps".into())],
             },
             BuiltinMode {
                 slug: "app_iterator".into(),
@@ -109,7 +121,8 @@ impl GooseAgent {
                 description: "Update existing Goose apps based on feedback".into(),
                 template_name: "apps_iterate.md".into(),
                 category: ModeCategory::LlmOnly,
-                tool_groups: vec![],
+                // Only needs apps extension tools.
+                tool_groups: vec![ToolGroupAccess::Full("apps".into())],
             },
             BuiltinMode {
                 slug: "judge".into(),
@@ -117,7 +130,10 @@ impl GooseAgent {
                 description: "Analyze tool operations for read-only detection".into(),
                 template_name: "permission_judge.md".into(),
                 category: ModeCategory::LlmOnly,
-                tool_groups: vec![],
+                // SECURITY: Judge must NOT have tool access.
+                // It receives tool call descriptions via prompt context only.
+                // "none" matches no extension owner, effectively blocking all tools.
+                tool_groups: vec![ToolGroupAccess::Full("none".into())],
             },
             BuiltinMode {
                 slug: "planner".into(),
@@ -125,7 +141,8 @@ impl GooseAgent {
                 description: "Create step-by-step execution plans".into(),
                 template_name: "plan.md".into(),
                 category: ModeCategory::PromptOnly,
-                tool_groups: vec![],
+                // PromptOnly mode — no tool access needed.
+                tool_groups: vec![ToolGroupAccess::Full("none".into())],
             },
             // NOTE: The compactor mode has been migrated to OrchestratorAgent.
             // Compaction is now an orchestrator-level concern, not a user-facing mode.
@@ -279,5 +296,75 @@ mod tests {
     fn test_nonexistent_mode() {
         let agent = GooseAgent::new();
         assert!(agent.mode("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_assistant_has_full_tool_access() {
+        let agent = GooseAgent::new();
+        let mode = agent.mode("assistant").unwrap();
+        assert_eq!(mode.tool_groups.len(), 1);
+        assert!(matches!(&mode.tool_groups[0], ToolGroupAccess::Full(name) if name == "mcp"));
+    }
+
+    #[test]
+    fn test_specialist_has_scoped_tool_access() {
+        let agent = GooseAgent::new();
+        let mode = agent.mode("specialist").unwrap();
+        assert!(mode.tool_groups.len() > 1);
+        let group_names: Vec<&str> = mode
+            .tool_groups
+            .iter()
+            .map(|g| match g {
+                ToolGroupAccess::Full(name) => name.as_str(),
+                ToolGroupAccess::Restricted { group, .. } => group.as_str(),
+            })
+            .collect();
+        assert!(group_names.contains(&"developer"));
+        assert!(group_names.contains(&"memory"));
+        assert!(group_names.contains(&"command"));
+        assert!(!group_names.contains(&"mcp"));
+        assert!(!group_names.contains(&"apps"));
+    }
+
+    #[test]
+    fn test_judge_has_no_tool_access() {
+        let agent = GooseAgent::new();
+        let mode = agent.mode("judge").unwrap();
+        assert_eq!(mode.tool_groups.len(), 1);
+        assert!(matches!(&mode.tool_groups[0], ToolGroupAccess::Full(name) if name == "none"));
+    }
+
+    #[test]
+    fn test_app_maker_only_has_apps_tools() {
+        let agent = GooseAgent::new();
+        let mode = agent.mode("app_maker").unwrap();
+        assert_eq!(mode.tool_groups.len(), 1);
+        assert!(matches!(&mode.tool_groups[0], ToolGroupAccess::Full(name) if name == "apps"));
+    }
+
+    #[test]
+    fn test_planner_has_no_tool_access() {
+        let agent = GooseAgent::new();
+        let mode = agent.mode("planner").unwrap();
+        assert_eq!(mode.tool_groups.len(), 1);
+        assert!(matches!(&mode.tool_groups[0], ToolGroupAccess::Full(name) if name == "none"));
+    }
+
+    #[test]
+    fn test_recipe_maker_has_no_tool_access() {
+        let agent = GooseAgent::new();
+        let mode = agent.mode("recipe_maker").unwrap();
+        assert_eq!(mode.tool_groups.len(), 1);
+        assert!(matches!(&mode.tool_groups[0], ToolGroupAccess::Full(name) if name == "none"));
+    }
+
+    #[test]
+    fn test_tool_groups_exported_in_agent_modes() {
+        let agent = GooseAgent::new();
+        let agent_modes = agent.to_agent_modes();
+        let backend = agent_modes.iter().find(|m| m.slug == "specialist").unwrap();
+        assert!(!backend.tool_groups.is_empty());
+        let judge = agent_modes.iter().find(|m| m.slug == "judge").unwrap();
+        assert!(!judge.tool_groups.is_empty());
     }
 }

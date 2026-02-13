@@ -143,6 +143,16 @@ export default function GooseMessage({
           </details>
         )}
 
+        {routingInfo && routingInfo.agentName !== 'Goose Agent' && (
+          <div className="flex items-center gap-1.5 mb-1">
+            <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20">
+              <span className="text-xs font-medium text-blue-400">{routingInfo.agentName}</span>
+              <span className="text-xs text-blue-300/70">›</span>
+              <span className="text-xs text-blue-300">{routingInfo.modeSlug}</span>
+            </div>
+          </div>
+        )}
+
         {(displayText.trim() || imagePaths.length > 0) && (
           <div className="flex flex-col group">
             {displayText.trim() && (

@@ -430,6 +430,9 @@ derive_utoipa!(Icon as IconSchema);
         super::routes::agent_management::list_agents,
         super::routes::agent_management::disconnect_agent,
         super::routes::agent_management::list_builtin_agents,
+        super::routes::agent_management::toggle_builtin_agent,
+        super::routes::agent_management::bind_extension_to_agent,
+        super::routes::agent_management::unbind_extension_from_agent,
     ),
     components(schemas(
         super::routes::config_management::UpsertConfigQuery,
@@ -610,6 +613,8 @@ derive_utoipa!(Icon as IconSchema);
         super::routes::agent_management::BuiltinAgentInfo,
         super::routes::agent_management::BuiltinAgentMode,
         super::routes::agent_management::BuiltinAgentsResponse,
+        super::routes::agent_management::ToggleAgentResponse,
+        super::routes::agent_management::BindExtensionRequest,
     ))
 )]
 pub struct ApiDoc;

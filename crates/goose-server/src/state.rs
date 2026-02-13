@@ -9,6 +9,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
+use crate::agent_slot_registry::AgentSlotRegistry;
 use crate::tunnel::TunnelManager;
 use goose::agents::ExtensionLoadResult;
 
@@ -23,6 +24,7 @@ pub struct AppState {
     recipe_session_tracker: Arc<Mutex<HashSet<String>>>,
     pub tunnel_manager: Arc<TunnelManager>,
     pub extension_loading_tasks: ExtensionLoadingTasks,
+    pub agent_slot_registry: AgentSlotRegistry,
 }
 
 impl AppState {
@@ -38,6 +40,7 @@ impl AppState {
             recipe_session_tracker: Arc::new(Mutex::new(HashSet::new())),
             tunnel_manager,
             extension_loading_tasks: Arc::new(Mutex::new(HashMap::new())),
+            agent_slot_registry: AgentSlotRegistry::new(),
         }))
     }
 

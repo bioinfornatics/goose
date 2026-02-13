@@ -1,5 +1,6 @@
 use axum::{
-    extract::Path,
+    extract::{Path, State},
+    http::StatusCode,
     routing::{delete, get, post},
     Json, Router,
 };
@@ -13,6 +14,7 @@ use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex;
 
 use crate::routes::errors::ErrorResponse;
+use crate::state::AppState;
 
 fn acp_manager() -> &'static Arc<Mutex<AgentClientManager>> {
     static INSTANCE: OnceLock<Arc<Mutex<AgentClientManager>>> = OnceLock::new();
@@ -247,6 +249,8 @@ pub struct BuiltinAgentInfo {
     pub status: String,
     pub modes: Vec<BuiltinAgentMode>,
     pub default_mode: String,
+    pub enabled: bool,
+    pub bound_extensions: Vec<String>,
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
@@ -262,7 +266,9 @@ pub struct BuiltinAgentsResponse {
     ),
     tag = "Builtin Agents"
 )]
-pub async fn list_builtin_agents() -> Json<BuiltinAgentsResponse> {
+pub async fn list_builtin_agents(
+    State(state): State<Arc<AppState>>,
+) -> Json<BuiltinAgentsResponse> {
     use goose::agents::coding_agent::CodingAgent;
     use goose::agents::goose_agent::GooseAgent;
 
@@ -305,6 +311,21 @@ pub async fn list_builtin_agents() -> Json<BuiltinAgentsResponse> {
         })
         .collect();
 
+    let goose_enabled = state.agent_slot_registry.is_enabled("Goose Agent").await;
+    let coding_enabled = state.agent_slot_registry.is_enabled("Coding Agent").await;
+    let goose_exts: Vec<String> = state
+        .agent_slot_registry
+        .get_bound_extensions("Goose Agent")
+        .await
+        .into_iter()
+        .collect();
+    let coding_exts: Vec<String> = state
+        .agent_slot_registry
+        .get_bound_extensions("Coding Agent")
+        .await
+        .into_iter()
+        .collect();
+
     let agents = vec![
         BuiltinAgentInfo {
             name: "Goose Agent".into(),
@@ -312,6 +333,8 @@ pub async fn list_builtin_agents() -> Json<BuiltinAgentsResponse> {
             status: "active".into(),
             modes: goose_modes,
             default_mode: goose.default_mode_slug().into(),
+            enabled: goose_enabled,
+            bound_extensions: goose_exts,
         },
         BuiltinAgentInfo {
             name: "Coding Agent".into(),
@@ -319,15 +342,108 @@ pub async fn list_builtin_agents() -> Json<BuiltinAgentsResponse> {
             status: "active".into(),
             modes: coding_modes,
             default_mode: coding.default_mode_slug().into(),
+            enabled: coding_enabled,
+            bound_extensions: coding_exts,
         },
     ];
 
     Json(BuiltinAgentsResponse { agents })
 }
 
-pub fn routes() -> Router {
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct ToggleAgentResponse {
+    pub name: String,
+    pub enabled: bool,
+}
+
+#[utoipa::path(
+    post,
+    path = "/agents/builtin/{name}/toggle",
+    params(("name" = String, Path, description = "Agent name")),
+    responses(
+        (status = 200, description = "Agent toggled", body = ToggleAgentResponse),
+        (status = 404, description = "Agent not found")
+    ),
+    tag = "Builtin Agents"
+)]
+pub async fn toggle_builtin_agent(
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
+) -> Result<Json<ToggleAgentResponse>, StatusCode> {
+    let valid_names = ["Goose Agent", "Coding Agent"];
+    if !valid_names.contains(&name.as_str()) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let enabled = state.agent_slot_registry.toggle(&name).await;
+    Ok(Json(ToggleAgentResponse { name, enabled }))
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct BindExtensionRequest {
+    pub extension_name: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/agents/builtin/{name}/extensions/bind",
+    params(("name" = String, Path, description = "Agent name")),
+    request_body = BindExtensionRequest,
+    responses((status = 200, description = "Extension bound")),
+    tag = "Builtin Agents"
+)]
+pub async fn bind_extension_to_agent(
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
+    Json(body): Json<BindExtensionRequest>,
+) -> Result<StatusCode, StatusCode> {
+    let valid_names = ["Goose Agent", "Coding Agent"];
+    if !valid_names.contains(&name.as_str()) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    state
+        .agent_slot_registry
+        .bind_extension(&name, &body.extension_name)
+        .await;
+    Ok(StatusCode::OK)
+}
+
+#[utoipa::path(
+    post,
+    path = "/agents/builtin/{name}/extensions/unbind",
+    params(("name" = String, Path, description = "Agent name")),
+    request_body = BindExtensionRequest,
+    responses((status = 200, description = "Extension unbound")),
+    tag = "Builtin Agents"
+)]
+pub async fn unbind_extension_from_agent(
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
+    Json(body): Json<BindExtensionRequest>,
+) -> Result<StatusCode, StatusCode> {
+    let valid_names = ["Goose Agent", "Coding Agent"];
+    if !valid_names.contains(&name.as_str()) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    state
+        .agent_slot_registry
+        .unbind_extension(&name, &body.extension_name)
+        .await;
+    Ok(StatusCode::OK)
+}
+
+pub fn routes(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/agents/builtin", get(list_builtin_agents))
+        .route("/agents/builtin/{name}/toggle", post(toggle_builtin_agent))
+        .route(
+            "/agents/builtin/{name}/extensions/bind",
+            post(bind_extension_to_agent),
+        )
+        .route(
+            "/agents/builtin/{name}/extensions/unbind",
+            post(unbind_extension_from_agent),
+        )
+        .with_state(state)
         .route("/agents/external/connect", post(connect_agent))
         .route("/agents/external/{agent_id}/session", post(create_session))
         .route("/agents/external/{agent_id}/prompt", post(prompt_agent))

@@ -718,6 +718,108 @@
         }
       }
     },
+    "/agents/builtin/{name}/extensions/bind": {
+      "post": {
+        "tags": [
+          "Builtin Agents"
+        ],
+        "operationId": "bind_extension_to_agent",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Agent name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BindExtensionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Extension bound"
+          }
+        }
+      }
+    },
+    "/agents/builtin/{name}/extensions/unbind": {
+      "post": {
+        "tags": [
+          "Builtin Agents"
+        ],
+        "operationId": "unbind_extension_from_agent",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Agent name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BindExtensionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Extension unbound"
+          }
+        }
+      }
+    },
+    "/agents/builtin/{name}/toggle": {
+      "post": {
+        "tags": [
+          "Builtin Agents"
+        ],
+        "operationId": "toggle_builtin_agent",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Agent name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Agent toggled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToggleAgentResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent not found"
+          }
+        }
+      }
+    },
     "/agents/external": {
       "get": {
         "tags": [
@@ -3718,6 +3820,17 @@
           }
         }
       },
+      "BindExtensionRequest": {
+        "type": "object",
+        "required": [
+          "extension_name"
+        ],
+        "properties": {
+          "extension_name": {
+            "type": "string"
+          }
+        }
+      },
       "BuiltinAgentInfo": {
         "type": "object",
         "required": [
@@ -3725,14 +3838,25 @@
           "description",
           "status",
           "modes",
-          "default_mode"
+          "default_mode",
+          "enabled",
+          "bound_extensions"
         ],
         "properties": {
+          "bound_extensions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "default_mode": {
             "type": "string"
           },
           "description": {
             "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
           },
           "modes": {
             "type": "array",
@@ -7253,6 +7377,21 @@
             "type": "string"
           },
           "thinking": {
+            "type": "string"
+          }
+        }
+      },
+      "ToggleAgentResponse": {
+        "type": "object",
+        "required": [
+          "name",
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "name": {
             "type": "string"
           }
         }

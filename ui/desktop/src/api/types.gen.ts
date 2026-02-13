@@ -50,9 +50,15 @@ export type AuthorRequest = {
     metadata?: string | null;
 };
 
+export type BindExtensionRequest = {
+    extension_name: string;
+};
+
 export type BuiltinAgentInfo = {
+    bound_extensions: Array<string>;
     default_mode: string;
     description: string;
+    enabled: boolean;
     modes: Array<BuiltinAgentMode>;
     name: string;
     status: string;
@@ -1238,6 +1244,11 @@ export type ThinkingContent = {
     thinking: string;
 };
 
+export type ToggleAgentResponse = {
+    enabled: boolean;
+    name: string;
+};
+
 export type TokenState = {
     accumulatedInputTokens: number;
     accumulatedOutputTokens: number;
@@ -1989,6 +2000,72 @@ export type ListBuiltinAgentsResponses = {
 };
 
 export type ListBuiltinAgentsResponse = ListBuiltinAgentsResponses[keyof ListBuiltinAgentsResponses];
+
+export type BindExtensionToAgentData = {
+    body: BindExtensionRequest;
+    path: {
+        /**
+         * Agent name
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/agents/builtin/{name}/extensions/bind';
+};
+
+export type BindExtensionToAgentResponses = {
+    /**
+     * Extension bound
+     */
+    200: unknown;
+};
+
+export type UnbindExtensionFromAgentData = {
+    body: BindExtensionRequest;
+    path: {
+        /**
+         * Agent name
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/agents/builtin/{name}/extensions/unbind';
+};
+
+export type UnbindExtensionFromAgentResponses = {
+    /**
+     * Extension unbound
+     */
+    200: unknown;
+};
+
+export type ToggleBuiltinAgentData = {
+    body?: never;
+    path: {
+        /**
+         * Agent name
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/agents/builtin/{name}/toggle';
+};
+
+export type ToggleBuiltinAgentErrors = {
+    /**
+     * Agent not found
+     */
+    404: unknown;
+};
+
+export type ToggleBuiltinAgentResponses = {
+    /**
+     * Agent toggled
+     */
+    200: ToggleAgentResponse;
+};
+
+export type ToggleBuiltinAgentResponse = ToggleBuiltinAgentResponses[keyof ToggleBuiltinAgentResponses];
 
 export type ListAgentsData = {
     body?: never;

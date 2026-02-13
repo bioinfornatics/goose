@@ -11,12 +11,18 @@ import {
   Cpu,
   Wrench,
   Puzzle,
+  Power,
+  Link,
+  Unlink,
 } from 'lucide-react';
 import {
   listAgents,
   connectAgent,
   disconnectAgent,
   listBuiltinAgents,
+  toggleBuiltinAgent,
+  bindExtensionToAgent,
+  unbindExtensionFromAgent,
 } from '../../api/sdk.gen';
 import type { BuiltinAgentMode } from '../../api/types.gen';
 
@@ -29,6 +35,8 @@ interface AgentCard {
   kind: 'builtin' | 'external';
   modes: BuiltinAgentMode[];
   defaultMode?: string;
+  enabled: boolean;
+  boundExtensions: string[];
 }
 
 export default function AgentsView() {
@@ -41,6 +49,8 @@ export default function AgentsView() {
   // Connect form
   const [showConnect, setShowConnect] = useState(false);
   const [connectName, setConnectName] = useState('');
+  const [bindExtName, setBindExtName] = useState('');
+  const [showBindForm, setShowBindForm] = useState<string | null>(null);
 
   const fetchAgents = useCallback(async () => {
     setLoading(true);
@@ -55,10 +65,12 @@ export default function AgentsView() {
             id: agent.name.toLowerCase().replace(/\s+/g, '-'),
             name: agent.name,
             description: agent.description,
-            status: 'active',
+            status: agent.enabled ? 'active' : 'disconnected',
             kind: 'builtin',
             modes: agent.modes,
             defaultMode: agent.default_mode,
+            enabled: agent.enabled,
+            boundExtensions: agent.bound_extensions || [],
           });
         }
       }
@@ -78,6 +90,8 @@ export default function AgentsView() {
             status: 'connected',
             kind: 'external',
             modes: [],
+            enabled: true,
+            boundExtensions: [],
           });
         }
       }
@@ -110,6 +124,42 @@ export default function AgentsView() {
       fetchAgents();
     } catch (e) {
       setError(`Disconnect failed: ${e}`);
+    }
+  };
+
+  const handleToggleAgent = async (agent: AgentCard) => {
+    try {
+      await toggleBuiltinAgent({ path: { name: agent.name } });
+      fetchAgents();
+    } catch (e) {
+      setError(`Toggle failed: ${e}`);
+    }
+  };
+
+  const handleBindExtension = async (agentName: string) => {
+    if (!bindExtName.trim()) return;
+    try {
+      await bindExtensionToAgent({
+        path: { name: agentName },
+        body: { extension_name: bindExtName.trim() },
+      });
+      setBindExtName('');
+      setShowBindForm(null);
+      fetchAgents();
+    } catch (e) {
+      setError(`Bind failed: ${e}`);
+    }
+  };
+
+  const handleUnbindExtension = async (agentName: string, extName: string) => {
+    try {
+      await unbindExtensionFromAgent({
+        path: { name: agentName },
+        body: { extension_name: extName },
+      });
+      fetchAgents();
+    } catch (e) {
+      setError(`Unbind failed: ${e}`);
     }
   };
 
@@ -262,6 +312,21 @@ export default function AgentsView() {
                         </div>
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
+                        {/* Enable/Disable toggle for builtin agents */}
+                        {agent.kind === 'builtin' && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleToggleAgent(agent); }}
+                            className={`flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors ${
+                              agent.enabled
+                                ? 'text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20'
+                                : 'text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                            }`}
+                            title={agent.enabled ? 'Disable agent' : 'Enable agent'}
+                          >
+                            <Power className="w-3.5 h-3.5" />
+                            {agent.enabled ? 'On' : 'Off'}
+                          </button>
+                        )}
                         <div className="flex items-center gap-1.5">
                           <span className={`w-2 h-2 rounded-full ${status.bg}`} />
                           <span className={`text-xs ${status.color}`}>{status.label}</span>
@@ -292,6 +357,87 @@ export default function AgentsView() {
                       </div>
                     )}
                   </div>
+
+                  {/* Expanded: Bound Extensions */}
+                  {isExpanded && agent.kind === 'builtin' && (
+                    <div className="border-t border-gray-200 dark:border-gray-700 p-4 bg-gray-50/50 dark:bg-gray-800/20">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <Link className="w-4 h-4 text-gray-400" />
+                          <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Bound Extensions
+                          </span>
+                          {agent.boundExtensions.length > 0 && (
+                            <span className="text-[10px] text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded-full">
+                              {agent.boundExtensions.length}
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowBindForm(showBindForm === agent.id ? null : agent.id);
+                          }}
+                          className="flex items-center gap-1 px-2 py-1 text-xs text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md transition-colors"
+                        >
+                          <Plus className="w-3 h-3" />
+                          Bind
+                        </button>
+                      </div>
+
+                      {/* Bind form */}
+                      {showBindForm === agent.id && (
+                        <div className="flex gap-2 mb-3">
+                          <input
+                            value={bindExtName}
+                            onChange={(e) => setBindExtName(e.target.value)}
+                            placeholder="Extension name (e.g., developer, memory)..."
+                            className="flex-1 px-2.5 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            onKeyDown={(e) => e.key === 'Enter' && handleBindExtension(agent.name)}
+                            autoFocus
+                          />
+                          <button
+                            onClick={() => handleBindExtension(agent.name)}
+                            className="px-3 py-1.5 text-xs bg-blue-500 text-white rounded-md hover:bg-blue-600"
+                          >
+                            Add
+                          </button>
+                          <button
+                            onClick={() => { setShowBindForm(null); setBindExtName(''); }}
+                            className="px-2 py-1.5 text-xs text-gray-500 hover:text-gray-700"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Extensions list */}
+                      {agent.boundExtensions.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {agent.boundExtensions.map((ext) => (
+                            <span
+                              key={ext}
+                              className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
+                            >
+                              <Puzzle className="w-3 h-3" />
+                              {ext}
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleUnbindExtension(agent.name, ext); }}
+                                className="ml-0.5 text-indigo-400 hover:text-red-500 transition-colors"
+                                title={`Unbind ${ext}`}
+                              >
+                                <Unlink className="w-3 h-3" />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-400 italic">
+                          No extensions bound — this agent uses all available extensions
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   {/* Expanded: Modes Grid */}
                   {isExpanded && agent.modes.length > 0 && (

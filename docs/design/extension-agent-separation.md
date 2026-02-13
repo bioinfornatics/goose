@@ -63,15 +63,16 @@ share the same extension pool. This violates ACP's architecture where:
 | **chatrecall** | Platform | ChatRecallClient | Search past conversations | **Orchestrator service** — cross-session awareness |
 | **extensionmanager** | Platform | ExtensionManagerClient | Add/remove extensions at runtime | **Orchestrator tool** — meta-management concern |
 | **summon** | Platform | SummonClient | Delegate to specialists, load knowledge | **Orchestrator tool** — delegation is orchestration |
-| **code_execution** | Platform | CodeExecutionClient | Execute code in sandbox | **MCP Service** ✅ — available to any agent |
+| **code_execution** | Platform | CodeExecutionClient | Batch multiple tool calls into single code execution, saving tokens | **Orchestrator/GooseAgent optimization** — meta-tool that wraps other MCP calls via CodeMode, not a standalone service |
 | **tom** | Platform | TomClient | Inject top-of-mind context | **Orchestrator concern** — context injection is pre-routing |
 
 ### Verdict
 
 | Category | Extensions | Rationale |
 |----------|-----------|-----------|
-| **True MCP Services** (agent-independent) | developer, memory, computercontroller, autovisualiser, code_execution, tutorial | Generic tools any agent can use |
+| **True MCP Services** (agent-independent) | developer, memory, computercontroller, autovisualiser, tutorial | Generic tools any agent can use |
 | **Orchestrator-owned** (should move up) | summon, extensionmanager, chatrecall, tom | Cross-agent concerns: delegation, meta-management, context injection |
+| **Meta-optimization** (orchestrator or GooseAgent) | code_execution | Wraps other MCP tool calls into batched code execution via CodeMode — saves tokens by consolidating multiple tool invocations into one. Should be owned by whichever agent is executing (OrchestratorAgent or GooseAgent), not loaded globally |
 | **Agent-mode-specific** (should bind via manifest) | apps (→ app_maker mode), todo (→ GooseAgent) | Only specific modes need them |
 
 ---
@@ -81,18 +82,20 @@ share the same extension pool. This violates ACP's architecture where:
 ```
 ┌────────────────────────────────────────────────────────────────┐
 │  Layer 0: Extension Registry (MCP Service Pool)                │
-│  ┌──────────┐ ┌──────────┐ ┌───────────────┐ ┌────────────┐  │
-│  │developer │ │ memory   │ │computercontrol│ │code_execut.│  │
-│  └──────────┘ └──────────┘ └───────────────┘ └────────────┘  │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐                      │
-│  │autovisual│ │ tutorial │ │ user MCP │ ← user-installed     │
-│  └──────────┘ └──────────┘ └──────────┘                      │
+│  ┌──────────┐ ┌──────────┐ ┌───────────────┐ ┌──────────┐    │
+│  │developer │ │ memory   │ │computercontrol│ │autovisual│    │
+│  └──────────┘ └──────────┘ └───────────────┘ └──────────┘    │
+│  ┌──────────┐ ┌──────────┐                                    │
+│  │ tutorial │ │ user MCP │ ← user-installed                   │
+│  └──────────┘ └──────────┘                                    │
 │  These are SERVICES — agents request them, server wires them  │
 └──────────────────────────────┬─────────────────────────────────┘
                                │ ServiceBroker resolves
 ┌──────────────────────────────▼─────────────────────────────────┐
 │  Layer 1: OrchestratorAgent (internal, mandatory)              │
 │  Own tools: summon, extensionmanager, chatrecall, tom          │
+│  Meta-optimization: code_execution (batches MCP calls,         │
+│    saving tokens — owned by executing agent, not global)       │
 │  Responsibilities:                                             │
 │    - LLM routing / compound splitting                          │
 │    - Context injection (TOM) before delegation                 │

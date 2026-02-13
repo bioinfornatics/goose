@@ -71,6 +71,14 @@ static TEMPLATE_REGISTRY: &[(&str, &str)] = &[
         "coding_agent/devsecops.md",
         "DevSecOps — CI/CD security, infrastructure as code, and supply chain",
     ),
+    (
+        "orchestrator/system.md",
+        "Orchestrator system prompt — meta-coordinator for routing to agents/modes",
+    ),
+    (
+        "orchestrator/routing.md",
+        "Orchestrator routing prompt — structured output for agent/mode selection",
+    ),
 ];
 
 /// Information about a template including its content and customization status

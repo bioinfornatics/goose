@@ -17,6 +17,7 @@ pub mod intent_router;
 mod large_response_handler;
 pub mod mcp_client;
 pub mod moim;
+pub mod orchestrator_agent;
 pub mod platform_tools;
 pub mod prompt_manager;
 mod reply_parts;

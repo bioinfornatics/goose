@@ -11,7 +11,7 @@ use axum::{
 };
 use bytes::Bytes;
 use futures::{stream::StreamExt, Stream};
-use goose::agents::intent_router::IntentRouter;
+use goose::agents::orchestrator_agent::OrchestratorAgent;
 use goose::agents::{AgentEvent, SessionConfig};
 use goose::conversation::message::{Message, MessageContent, TokenState};
 use goose::conversation::Conversation;
@@ -301,7 +301,8 @@ pub async fn reply(
                 .join(" ");
 
             if !user_text.is_empty() {
-                let mut router = IntentRouter::new();
+                let provider = Arc::new(tokio::sync::Mutex::new(agent.provider().await.ok()));
+                let mut router = OrchestratorAgent::new(provider);
 
                 // Sync router state from the agent slot registry
                 for slot_name in &["Goose Agent", "Coding Agent"] {
@@ -314,7 +315,7 @@ pub async fn reply(
                     router.set_bound_extensions(slot_name, bound.into_iter().collect());
                 }
 
-                let decision = router.route(&user_text);
+                let decision = router.route(&user_text).await;
 
                 tracing::info!(
                     agent_name = %decision.agent_name,

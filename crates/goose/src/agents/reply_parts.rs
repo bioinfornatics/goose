@@ -165,6 +165,18 @@ impl Agent {
         }
         drop(active_groups);
 
+        // Apply extension-scoped filtering (when agent has bound extensions)
+        let allowed = self.allowed_extensions.read().await;
+        if !allowed.is_empty() {
+            tools.retain(|tool| {
+                let owner = crate::agents::extension_manager::get_tool_owner(tool)
+                    .unwrap_or_default()
+                    .to_lowercase();
+                allowed.iter().any(|ext| ext.to_lowercase() == owner)
+            });
+        }
+        drop(allowed);
+
         // Stable tool ordering is important for multi session prompt caching.
         tools.sort_by(|a, b| a.name.cmp(&b.name));
 

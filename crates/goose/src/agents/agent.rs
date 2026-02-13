@@ -130,6 +130,8 @@ pub struct Agent {
     pub(super) tool_inspection_manager: ToolInspectionManager,
     /// Active tool groups from current mode — empty means all tools available
     pub active_tool_groups: tokio::sync::RwLock<Vec<crate::registry::manifest::ToolGroupAccess>>,
+    /// Allowed extensions for this agent — empty means all extensions available
+    pub allowed_extensions: tokio::sync::RwLock<Vec<String>>,
     container: Mutex<Option<Container>>,
 }
 
@@ -137,7 +139,16 @@ pub struct Agent {
 pub enum AgentEvent {
     Message(Message),
     McpNotification((String, ServerNotification)),
-    ModelChange { model: String, mode: String },
+    ModelChange {
+        model: String,
+        mode: String,
+    },
+    RoutingDecision {
+        agent_name: String,
+        mode_slug: String,
+        confidence: f32,
+        reasoning: String,
+    },
     HistoryReplaced(Conversation),
 }
 
@@ -218,6 +229,7 @@ impl Agent {
             retry_manager: RetryManager::new(),
             tool_inspection_manager: Self::create_tool_inspection_manager(permission_manager),
             active_tool_groups: tokio::sync::RwLock::new(Vec::new()),
+            allowed_extensions: tokio::sync::RwLock::new(Vec::new()),
             container: Mutex::new(None),
         }
     }
@@ -430,6 +442,10 @@ impl Agent {
         groups: Vec<crate::registry::manifest::ToolGroupAccess>,
     ) {
         *self.active_tool_groups.write().await = groups;
+    }
+
+    pub async fn set_allowed_extensions(&self, extensions: Vec<String>) {
+        *self.allowed_extensions.write().await = extensions;
     }
 
     pub async fn set_container(&self, container: Option<Container>) {

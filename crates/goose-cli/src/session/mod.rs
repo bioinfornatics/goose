@@ -79,6 +79,12 @@ enum StreamEvent {
         model: String,
         mode: String,
     },
+    RoutingDecision {
+        agent_name: String,
+        mode_slug: String,
+        confidence: f32,
+        reasoning: String,
+    },
     Error {
         error: String,
     },
@@ -1059,6 +1065,18 @@ impl CliSession {
                                 emit_stream_event(&StreamEvent::ModelChange { model: model.clone(), mode: mode.clone() });
                             } else if !is_json_mode {
                                 println!("{}", console::style(format!("─── {} · {} ───", model, mode)).dim());
+                            }
+                        }
+                        Some(Ok(AgentEvent::RoutingDecision { agent_name, mode_slug, confidence, reasoning })) => {
+                            if is_stream_json_mode {
+                                emit_stream_event(&StreamEvent::RoutingDecision {
+                                    agent_name: agent_name.clone(),
+                                    mode_slug: mode_slug.clone(),
+                                    confidence,
+                                    reasoning: reasoning.clone(),
+                                });
+                            } else if !is_json_mode {
+                                println!("{}", console::style(format!("⟶ {} · {} (confidence: {:.0}%)", agent_name, mode_slug, confidence * 100.0)).dim());
                             }
                         }
                         Some(Err(e)) => {

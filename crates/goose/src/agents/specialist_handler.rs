@@ -250,7 +250,9 @@ fn get_specialist_messages_with_callback(
                     }
                     conversation.push(msg);
                 }
-                Ok(AgentEvent::McpNotification(_)) | Ok(AgentEvent::ModelChange { .. }) => {}
+                Ok(AgentEvent::McpNotification(_))
+                | Ok(AgentEvent::ModelChange { .. })
+                | Ok(AgentEvent::RoutingDecision { .. }) => {}
                 Ok(AgentEvent::HistoryReplaced(updated_conversation)) => {
                     conversation = updated_conversation;
                 }
@@ -400,8 +402,9 @@ async fn run_specialist_stream(
                 }
                 conversation.push(msg);
             }
-            Ok(AgentEvent::McpNotification(_)) => {}
-            Ok(AgentEvent::ModelChange { .. }) => {}
+            Ok(AgentEvent::McpNotification(_))
+            | Ok(AgentEvent::ModelChange { .. })
+            | Ok(AgentEvent::RoutingDecision { .. }) => {}
             Ok(AgentEvent::HistoryReplaced(updated_conversation)) => {
                 conversation = updated_conversation;
             }

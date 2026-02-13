@@ -5627,6 +5627,37 @@
           {
             "type": "object",
             "required": [
+              "agent_name",
+              "mode_slug",
+              "confidence",
+              "reasoning",
+              "type"
+            ],
+            "properties": {
+              "agent_name": {
+                "type": "string"
+              },
+              "confidence": {
+                "type": "number",
+                "format": "float"
+              },
+              "mode_slug": {
+                "type": "string"
+              },
+              "reasoning": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "RoutingDecision"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
               "request_id",
               "message",
               "type"

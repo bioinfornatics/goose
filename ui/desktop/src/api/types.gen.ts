@@ -629,6 +629,12 @@ export type MessageEvent = {
     model: string;
     type: 'ModelChange';
 } | {
+    agent_name: string;
+    confidence: number;
+    mode_slug: string;
+    reasoning: string;
+    type: 'RoutingDecision';
+} | {
     message: {
         [key: string]: unknown;
     };

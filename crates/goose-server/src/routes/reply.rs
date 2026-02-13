@@ -11,6 +11,7 @@ use axum::{
 };
 use bytes::Bytes;
 use futures::{stream::StreamExt, Stream};
+use goose::agents::intent_router::IntentRouter;
 use goose::agents::{AgentEvent, SessionConfig};
 use goose::conversation::message::{Message, MessageContent, TokenState};
 use goose::conversation::Conversation;
@@ -137,6 +138,12 @@ pub enum MessageEvent {
     ModelChange {
         model: String,
         mode: String,
+    },
+    RoutingDecision {
+        agent_name: String,
+        mode_slug: String,
+        confidence: f32,
+        reasoning: String,
     },
     Notification {
         request_id: String,
@@ -278,6 +285,72 @@ pub async fn reply(
             }
         };
 
+        // Route user message to the best agent/mode via IntentRouter
+        {
+            let user_text: String = user_message
+                .content
+                .iter()
+                .filter_map(|c| {
+                    if let MessageContent::Text(t) = c {
+                        Some(t.text.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            if !user_text.is_empty() {
+                let mut router = IntentRouter::new();
+
+                // Sync router state from the agent slot registry
+                for slot_name in &["Goose Agent", "Coding Agent"] {
+                    let enabled = state.agent_slot_registry.is_enabled(slot_name).await;
+                    router.set_enabled(slot_name, enabled);
+                    let bound = state
+                        .agent_slot_registry
+                        .get_bound_extensions(slot_name)
+                        .await;
+                    router.set_bound_extensions(slot_name, bound.into_iter().collect());
+                }
+
+                let decision = router.route(&user_text);
+
+                tracing::info!(
+                    agent_name = %decision.agent_name,
+                    mode_slug = %decision.mode_slug,
+                    confidence = %decision.confidence,
+                    "Routed message to agent/mode"
+                );
+
+                // Apply bound extensions as allowed_extensions filter
+                if let Some(slot) = router
+                    .slots()
+                    .iter()
+                    .find(|s| s.name == decision.agent_name)
+                {
+                    if !slot.bound_extensions.is_empty() {
+                        agent
+                            .set_allowed_extensions(slot.bound_extensions.clone())
+                            .await;
+                    }
+                }
+
+                // Emit routing decision as SSE event
+                let _ = stream_event(
+                    MessageEvent::RoutingDecision {
+                        agent_name: decision.agent_name,
+                        mode_slug: decision.mode_slug,
+                        confidence: decision.confidence,
+                        reasoning: decision.reasoning,
+                    },
+                    &task_tx,
+                    &task_cancel,
+                )
+                .await;
+            }
+        }
+
         let session_config = SessionConfig {
             id: session_id.clone(),
             schedule_id: session.schedule_id.clone(),
@@ -364,6 +437,9 @@ pub async fn reply(
                                 request_id: request_id.clone(),
                                 message: n,
                             }, &tx, &cancel_token).await;
+                        }
+                        Ok(Some(Ok(AgentEvent::RoutingDecision { agent_name, mode_slug, confidence, reasoning }))) => {
+                            stream_event(MessageEvent::RoutingDecision { agent_name, mode_slug, confidence, reasoning }, &tx, &cancel_token).await;
                         }
 
                         Ok(Some(Err(e))) => {

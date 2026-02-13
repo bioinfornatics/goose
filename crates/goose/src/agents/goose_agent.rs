@@ -12,7 +12,7 @@
 //!
 //! 2. **LLM-only modes** — direct provider.complete() with specialized prompt
 //!    - `judge` (permission_judge.md) — read-only detection
-//!    - `compactor` (compaction.md) — conversation summarization
+//!    - `compactor` — migrated to OrchestratorAgent (compaction is orchestrator-level)
 //!    - `app_maker` (apps_create.md) — generate new apps
 //!    - `app_iterator` (apps_iterate.md) — update existing apps
 //!
@@ -127,15 +127,9 @@ impl GooseAgent {
                 category: ModeCategory::PromptOnly,
                 tool_groups: vec![],
             },
-            BuiltinMode {
-                slug: "compactor".into(),
-                name: "📦 Compactor".into(),
-                description: "Summarize conversation history when context limits are reached"
-                    .into(),
-                template_name: "compaction.md".into(),
-                category: ModeCategory::LlmOnly,
-                tool_groups: vec![],
-            },
+            // NOTE: The compactor mode has been migrated to OrchestratorAgent.
+            // Compaction is now an orchestrator-level concern, not a user-facing mode.
+            // The actual compaction logic remains in context_mgmt::compact_messages().
         ];
 
         let mode_map = modes.into_iter().map(|m| (m.slug.clone(), m)).collect();
@@ -224,7 +218,7 @@ mod tests {
     fn test_default_agent_has_all_modes() {
         let agent = GooseAgent::new();
         let modes = agent.list_modes();
-        assert_eq!(modes.len(), 8);
+        assert_eq!(modes.len(), 7);
     }
 
     #[test]
@@ -262,7 +256,7 @@ mod tests {
     fn test_to_agent_modes() {
         let agent = GooseAgent::new();
         let agent_modes = agent.to_agent_modes();
-        assert_eq!(agent_modes.len(), 8);
+        assert_eq!(agent_modes.len(), 7);
 
         let assistant = agent_modes.iter().find(|m| m.slug == "assistant").unwrap();
         assert_eq!(assistant.instructions_file.as_deref(), Some("system.md"));

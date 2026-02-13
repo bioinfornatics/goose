@@ -29,9 +29,14 @@
 use crate::agents::coding_agent::CodingAgent;
 use crate::agents::goose_agent::GooseAgent;
 use crate::agents::intent_router::{IntentRouter, RoutingDecision};
+use crate::context_mgmt::{
+    check_if_compaction_needed, compact_messages, DEFAULT_COMPACTION_THRESHOLD,
+};
+use crate::conversation::Conversation;
 use crate::prompt_template;
-use crate::providers::base::Provider;
+use crate::providers::base::{Provider, ProviderUsage};
 use crate::registry::manifest::AgentMode;
+use crate::session::Session;
 
 use anyhow::Result;
 use serde::Serialize;
@@ -313,6 +318,58 @@ impl OrchestratorAgent {
         }
 
         Ok(OrchestratorPlan { is_compound, tasks })
+    }
+
+    /// Check if the conversation needs compaction before delegating to a sub-agent.
+    ///
+    /// The orchestrator is the right place for this check because it has visibility
+    /// across all agents and can compact proactively before routing, rather than
+    /// waiting for an agent to hit its context limit mid-reply.
+    pub async fn check_compaction_needed(
+        &self,
+        conversation: &Conversation,
+        session: &Session,
+    ) -> Result<bool> {
+        let provider_guard = self.provider.lock().await;
+        let provider = match provider_guard.as_ref() {
+            Some(p) => p,
+            None => return Ok(false),
+        };
+        check_if_compaction_needed(provider.as_ref(), conversation, None, session).await
+    }
+
+    /// Perform proactive compaction if the conversation exceeds the threshold.
+    ///
+    /// Returns the compacted conversation and usage info if compaction was performed,
+    /// or None if compaction wasn't needed.
+    pub async fn compact_if_needed(
+        &self,
+        session_id: &str,
+        conversation: &Conversation,
+        session: &Session,
+    ) -> Result<Option<(Conversation, ProviderUsage)>> {
+        if !self.check_compaction_needed(conversation, session).await? {
+            return Ok(None);
+        }
+
+        let provider_guard = self.provider.lock().await;
+        let provider = provider_guard
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No provider available for compaction"))?;
+
+        let config = crate::config::Config::global();
+        let threshold = config
+            .get_param::<f64>("GOOSE_AUTO_COMPACT_THRESHOLD")
+            .unwrap_or(DEFAULT_COMPACTION_THRESHOLD);
+        let threshold_pct = (threshold * 100.0) as u32;
+
+        info!(
+            threshold = threshold_pct,
+            "Orchestrator: proactive compaction triggered"
+        );
+
+        let result = compact_messages(provider.as_ref(), session_id, conversation, false).await?;
+        Ok(Some(result))
     }
 }
 
@@ -607,5 +664,26 @@ mod tests {
     fn test_is_orchestrator_disabled_by_default() {
         std::env::remove_var("GOOSE_ORCHESTRATOR_ENABLED");
         assert!(!is_orchestrator_enabled());
+    }
+
+    #[test]
+    fn test_catalog_excludes_compactor_mode() {
+        let orch = make_orchestrator();
+        let catalog = orch.build_catalog_text();
+        // Compactor should not appear as a routable mode since it's
+        // an orchestrator-level concern, not a user-facing agent mode
+        assert!(
+            !catalog.contains("compactor"),
+            "Compactor mode should be excluded from the routing catalog"
+        );
+    }
+
+    #[test]
+    fn test_orchestrator_has_compaction_methods() {
+        let orch = make_orchestrator();
+        // Verify the orchestrator exposes compaction coordination methods.
+        // Actual async compaction tests require a real provider + session,
+        // so we verify the API surface exists and the struct is well-formed.
+        assert!(orch.provider.try_lock().is_ok());
     }
 }

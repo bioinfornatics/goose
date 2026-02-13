@@ -655,6 +655,7 @@ export type MessageMetadata = {
      * Whether the message should be included in the agent's context window
      */
     agentVisible: boolean;
+    routingInfo?: RoutingInfo | null;
     /**
      * Whether the message should be visible to the user in the UI
      */
@@ -1036,6 +1037,11 @@ export type RetryConfig = {
 };
 
 export type Role = string;
+
+export type RoutingInfo = {
+    agentName: string;
+    modeSlug: string;
+};
 
 export type RunNowResponse = {
     session_id: string;

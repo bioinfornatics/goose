@@ -5739,6 +5739,14 @@
             "type": "boolean",
             "description": "Whether the message should be included in the agent's context window"
           },
+          "routingInfo": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/RoutingInfo"
+              }
+            ],
+            "nullable": true
+          },
           "userVisible": {
             "type": "boolean",
             "description": "Whether the message should be visible to the user in the UI"
@@ -6731,6 +6739,21 @@
             "type": "string"
           }
         ]
+      },
+      "RoutingInfo": {
+        "type": "object",
+        "required": [
+          "agentName",
+          "modeSlug"
+        ],
+        "properties": {
+          "agentName": {
+            "type": "string"
+          },
+          "modeSlug": {
+            "type": "string"
+          }
+        }
       },
       "RunNowResponse": {
         "type": "object",

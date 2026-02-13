@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { X, Brain } from 'lucide-react';
 import { useReasoningDetail } from '../contexts/ReasoningDetailContext';
 import MarkdownContent from './MarkdownContent';
@@ -6,6 +7,15 @@ import { cn } from '../utils';
 
 export default function ReasoningDetailPanel() {
   const { detail, isOpen, closeDetail } = useReasoningDetail();
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const isLiveStreaming = detail?.title === 'Thinking...';
+
+  // Auto-scroll to bottom during live streaming
+  useEffect(() => {
+    if (isLiveStreaming && bottomRef.current) {
+      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [detail?.content, isLiveStreaming]);
 
   return (
     <div
@@ -18,7 +28,13 @@ export default function ReasoningDetailPanel() {
         <>
           <div className="flex items-center justify-between px-4 py-3 border-b border-border-default shrink-0">
             <div className="flex items-center gap-2 min-w-0">
-              <Brain size={16} className="text-text-muted shrink-0" />
+              <Brain
+                size={16}
+                className={cn(
+                  'shrink-0',
+                  isLiveStreaming ? 'text-amber-400 animate-pulse' : 'text-text-muted'
+                )}
+              />
               <h3 className="text-sm font-medium text-text-default truncate">
                 {detail.title}
               </h3>
@@ -33,6 +49,7 @@ export default function ReasoningDetailPanel() {
           <ScrollArea className="flex-1 min-h-0" paddingX={4} paddingY={4}>
             <div className="text-sm text-text-muted/90">
               <MarkdownContent content={detail.content} />
+              <div ref={bottomRef} />
             </div>
           </ScrollArea>
         </>

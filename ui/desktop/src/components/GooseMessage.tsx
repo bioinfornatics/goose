@@ -34,14 +34,33 @@ function ThinkingSection({
   isStreaming: boolean;
   messageId?: string;
 }) {
-  const { toggleDetail, isOpen: isPanelOpen, detail } = useReasoningDetail();
+  const { toggleDetail, openDetail, updateContent, isOpen: isPanelOpen, detail } =
+    useReasoningDetail();
+  const hasAutoOpened = useRef(false);
   const preview = cotText.split('\n').find((l) => l.trim())?.slice(0, 80) || 'Reasoning...';
   const isThisMessageOpen = isPanelOpen && detail?.messageId === messageId;
 
+  // Auto-open reasoning panel during streaming and live-update content
+  useEffect(() => {
+    if (isStreaming && cotText.length > 0) {
+      if (!hasAutoOpened.current) {
+        hasAutoOpened.current = true;
+        openDetail({ title: 'Thinking...', content: cotText, messageId });
+      } else if (isThisMessageOpen) {
+        updateContent(cotText);
+      }
+    }
+    if (!isStreaming && hasAutoOpened.current) {
+      hasAutoOpened.current = false;
+      if (isThisMessageOpen) {
+        updateContent(cotText);
+      }
+    }
+  }, [isStreaming, cotText, messageId, openDetail, updateContent, isThisMessageOpen]);
+
   const handleClick = () => {
-    if (isStreaming) return;
     toggleDetail({
-      title: 'Thought process',
+      title: isStreaming ? 'Thinking...' : 'Thought process',
       content: cotText,
       messageId,
     });
@@ -51,11 +70,10 @@ function ThinkingSection({
     <div className="mb-2">
       <button
         onClick={handleClick}
-        disabled={isStreaming}
         className={cn(
           'flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors select-none group',
           isStreaming
-            ? 'bg-background-muted/50 border-border-default/50 cursor-default'
+            ? 'bg-background-muted/50 border-border-default/50 hover:bg-background-muted cursor-pointer'
             : 'bg-background-muted/50 border-border-default/50 hover:bg-background-muted cursor-pointer',
           isThisMessageOpen && 'bg-background-muted border-border-default'
         )}
@@ -75,15 +93,13 @@ function ThinkingSection({
             — {preview}
           </span>
         )}
-        {!isStreaming && (
-          <ChevronRight
-            size={14}
-            className={cn(
-              'text-text-muted/50 shrink-0 transition-transform duration-200',
-              isThisMessageOpen && 'rotate-90'
-            )}
-          />
-        )}
+        <ChevronRight
+          size={14}
+          className={cn(
+            'text-text-muted/50 shrink-0 transition-transform duration-200',
+            isThisMessageOpen && 'rotate-90'
+          )}
+        />
       </button>
     </div>
   );

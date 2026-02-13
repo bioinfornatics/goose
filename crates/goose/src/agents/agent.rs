@@ -1192,7 +1192,11 @@ impl Agent {
                                     filtered_response,
                                 } = self.categorize_tools(&response, &tools).await;
 
-                                yield AgentEvent::Message(filtered_response.clone());
+                                // Strip <tool_call>/<tool_result> XML tags from text content
+                                // before sending to the UI. Some models emit these as raw text
+                                // alongside structured tool calls.
+                                let display_response = filtered_response.clone().strip_tool_call_tags();
+                                yield AgentEvent::Message(display_response);
                                 tokio::task::yield_now().await;
 
                                 let num_tool_requests = frontend_requests.len() + remaining_requests.len();

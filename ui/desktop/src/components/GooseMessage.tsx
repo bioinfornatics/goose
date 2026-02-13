@@ -115,15 +115,24 @@ export default function GooseMessage({
 
   let { textContent, imagePaths } = getTextAndImageContent(message);
 
+  const stripInternalTags = (text: string): string => {
+    // Strip <tool_call>...</tool_call> and <tool_result>...</tool_result> XML tags
+    // that some models emit as raw text alongside structured tool calls.
+    return text
+      .replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, '')
+      .replace(/<tool_result>[\s\S]*?<\/tool_result>/gi, '')
+      .trim();
+  };
+
   const splitChainOfThought = (text: string): { displayText: string; cotText: string | null } => {
     const regex = /<think>([\s\S]*?)<\/think>/i;
     const match = text.match(regex);
     if (!match) {
-      return { displayText: text, cotText: null };
+      return { displayText: stripInternalTags(text), cotText: null };
     }
 
     const cotRaw = match[1].trim();
-    const displayText = text.replace(regex, '').trim();
+    const displayText = stripInternalTags(text.replace(regex, '').trim());
 
     return {
       displayText,

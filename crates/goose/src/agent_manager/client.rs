@@ -282,6 +282,11 @@ impl AgentClientManager {
         self.agents.lock().await.keys().cloned().collect()
     }
 
+    pub async fn get_agent_info(&self, agent_id: &str) -> Option<InitializeResponse> {
+        let agents = self.agents.lock().await;
+        agents.get(agent_id).map(|h| h.info.clone())
+    }
+
     pub async fn disconnect_agent(&self, agent_id: &str) -> Result<()> {
         let handle = self
             .agents

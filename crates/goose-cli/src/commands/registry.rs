@@ -607,3 +607,111 @@ pub async fn handle_agent_run(name: &str, prompt: &str, mode: Option<&str>) -> R
 
     Ok(())
 }
+
+pub async fn handle_orchestrate(request: &str, use_llm: bool) -> Result<()> {
+    use goose::agents::orchestrator_agent::OrchestratorAgent;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+
+    if use_llm {
+        unsafe { std::env::set_var("GOOSE_ORCHESTRATOR_ENABLED", "true") };
+    }
+
+    let provider = if use_llm {
+        let agent = goose::agents::Agent::new();
+        agent.provider().await.ok()
+    } else {
+        None
+    };
+
+    let orchestrator = OrchestratorAgent::new(Arc::new(Mutex::new(provider)));
+    let plan = orchestrator.route(request).await;
+
+    let primary = plan.primary_routing();
+    println!(
+        "{} {}",
+        style("Orchestrator Routing Decision").bold().cyan(),
+        if use_llm { "(LLM)" } else { "(keyword)" }
+    );
+    println!();
+    println!(
+        "  {} {} / {}",
+        style("→").green(),
+        style(&primary.agent_name).bold(),
+        style(&primary.mode_slug).bold()
+    );
+    println!(
+        "  {} {:.0}%",
+        style("Confidence:").dim(),
+        primary.confidence * 100.0
+    );
+    println!("  {} {}", style("Reasoning:").dim(), primary.reasoning);
+
+    if plan.is_compound {
+        println!();
+        println!(
+            "{} Compound request detected — {} sub-tasks:",
+            style("⚡").yellow(),
+            plan.tasks.len()
+        );
+        for (i, sub) in plan.tasks.iter().enumerate() {
+            println!(
+                "  {}. {} / {} — {}",
+                i + 1,
+                style(&sub.routing.agent_name).bold(),
+                style(&sub.routing.mode_slug).bold(),
+                sub.sub_task_description
+            );
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn handle_orchestrator_status() -> Result<()> {
+    use goose::agents::orchestrator_agent::OrchestratorAgent;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+
+    let orchestrator = OrchestratorAgent::new(Arc::new(Mutex::new(None)));
+    let is_llm_enabled = goose::agents::orchestrator_agent::is_orchestrator_enabled();
+
+    println!("{}", style("Orchestrator Status").bold().cyan());
+    println!();
+    println!(
+        "  {} {}",
+        style("Mode:").dim(),
+        if is_llm_enabled {
+            style("LLM-based routing").green()
+        } else {
+            style("Keyword matching (default)").yellow()
+        }
+    );
+    println!(
+        "  {} GOOSE_ORCHESTRATOR_ENABLED={}",
+        style("Env:").dim(),
+        if is_llm_enabled {
+            "true"
+        } else {
+            "false/unset"
+        }
+    );
+    println!();
+
+    println!("{}", style("Agent Catalog:").bold());
+    let catalog_text = orchestrator.build_catalog_text();
+    for line in catalog_text.lines() {
+        println!("  {}", line);
+    }
+
+    let slots = orchestrator.slots();
+    println!();
+    println!(
+        "{} {} agents registered, {} modes total",
+        style("Summary:").bold(),
+        slots.len(),
+        slots.iter().map(|s| s.modes.len()).sum::<usize>()
+    );
+
+    Ok(())
+}

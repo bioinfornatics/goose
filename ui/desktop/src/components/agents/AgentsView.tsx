@@ -238,6 +238,40 @@ export default function AgentsView() {
           </div>
         )}
 
+        {/* Orchestrator Status Banner */}
+        <div className="mb-6 p-4 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-gradient-to-r from-indigo-50 to-violet-50 dark:from-indigo-900/20 dark:to-violet-900/20">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-indigo-100 dark:bg-indigo-800/50">
+                <Cpu className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-indigo-900 dark:text-indigo-200">
+                  Orchestrator
+                </h3>
+                <p className="text-xs text-indigo-600 dark:text-indigo-400">
+                  {agents.filter(a => a.enabled).length} active agent{agents.filter(a => a.enabled).length !== 1 ? 's' : ''}
+                  {' · '}
+                  {agents.filter(a => a.enabled && a.modes.length > 0).reduce((sum, a) => sum + a.modes.length, 0)} modes available
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs px-2 py-1 rounded-full bg-indigo-100 dark:bg-indigo-800/50 text-indigo-700 dark:text-indigo-300 font-medium">
+                Keyword Routing
+              </span>
+              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="Orchestrator active" />
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {agents.filter(a => a.enabled).map(a => (
+              <span key={a.id} className="text-[10px] px-2 py-0.5 rounded-full bg-white/70 dark:bg-gray-800/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700">
+                {a.name} ({a.modes.length})
+              </span>
+            ))}
+          </div>
+        </div>
+
         {/* Connect Form */}
         {showConnect && (
           <div className="mb-6 p-4 border-2 border-dashed border-blue-300 dark:border-blue-700 rounded-xl bg-blue-50/50 dark:bg-blue-900/10">

@@ -849,6 +849,21 @@ enum AgentCommand {
         #[arg(long, help = "Agent mode to activate")]
         mode: Option<String>,
     },
+
+    /// Route a request through the orchestrator
+    #[command(about = "Use the OrchestratorAgent to route a request to the best agent/mode")]
+    Orchestrate {
+        /// The request to route
+        #[arg(help = "User request to route through orchestrator")]
+        request: String,
+        /// Enable LLM-based routing (otherwise uses keyword fallback)
+        #[arg(long, help = "Enable LLM-based routing instead of keyword matching")]
+        llm: bool,
+    },
+
+    /// Show orchestrator status and agent catalog
+    #[command(about = "Display orchestrator status, agent catalog, and routing info")]
+    Status,
 }
 
 #[derive(Subcommand)]
@@ -1211,6 +1226,7 @@ fn get_command_name(command: &Option<Command>) -> &'static str {
         Some(Command::Recipe { .. }) => "recipe",
         Some(Command::Registry { .. }) => "registry",
         Some(Command::Agent { .. }) => "agent",
+        // Orchestrate is a sub-command of agent
         Some(Command::Skill { .. }) => "skill",
         Some(Command::Web { .. }) => "web",
         Some(Command::Term { .. }) => "term",
@@ -1684,6 +1700,10 @@ async fn handle_agent_subcommand(command: AgentCommand) -> Result<()> {
             instructions,
             mode,
         } => handle_agent_run(&name, &instructions, mode.as_deref()).await,
+        AgentCommand::Orchestrate { request, llm } => {
+            crate::commands::registry::handle_orchestrate(&request, llm).await
+        }
+        AgentCommand::Status => crate::commands::registry::handle_orchestrator_status().await,
     }
 }
 

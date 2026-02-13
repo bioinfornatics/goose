@@ -45,7 +45,7 @@ use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 /// Whether LLM-based orchestration is enabled (feature flag).
-fn is_orchestrator_enabled() -> bool {
+pub fn is_orchestrator_enabled() -> bool {
     std::env::var("GOOSE_ORCHESTRATOR_ENABLED")
         .map(|v| v == "true" || v == "1")
         .unwrap_or(false)
@@ -225,7 +225,7 @@ impl OrchestratorAgent {
     }
 
     /// Build a human-readable catalog of all available agents and their modes.
-    fn build_catalog_text(&self) -> String {
+    pub fn build_catalog_text(&self) -> String {
         let mut text = String::new();
         for entry in &self.catalog {
             text.push_str(&format!(

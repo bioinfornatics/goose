@@ -119,7 +119,7 @@ impl IntentRouter {
         }
 
         if let Some((score, slot, mode)) = best {
-            if score >= 0.3 {
+            if score >= 0.2 {
                 return RoutingDecision {
                     agent_name: slot.name.clone(),
                     mode_slug: mode.slug.clone(),
@@ -140,12 +140,13 @@ impl IntentRouter {
 
     fn score_mode_match(&self, message_lower: &str, mode: &AgentMode) -> f32 {
         let mut score: f32 = 0.0;
+        let message_words = Self::extract_keywords(message_lower);
 
         if let Some(ref when) = mode.when_to_use {
             let keywords = Self::extract_keywords(when);
             let matched = keywords
                 .iter()
-                .filter(|kw| message_lower.contains(kw.as_str()))
+                .filter(|kw| message_words.iter().any(|mw| Self::words_match(mw, kw)))
                 .count();
             if !keywords.is_empty() {
                 score += (matched as f32 / keywords.len() as f32) * 0.6;
@@ -155,7 +156,7 @@ impl IntentRouter {
         let desc_keywords = Self::extract_keywords(&mode.description);
         let desc_matched = desc_keywords
             .iter()
-            .filter(|kw| message_lower.contains(kw.as_str()))
+            .filter(|kw| message_words.iter().any(|mw| Self::words_match(mw, kw)))
             .count();
         if !desc_keywords.is_empty() {
             score += (desc_matched as f32 / desc_keywords.len() as f32) * 0.3;
@@ -191,6 +192,20 @@ impl IntentRouter {
             .filter(|w| w.len() > 2 && !stop_words.contains(w))
             .map(String::from)
             .collect()
+    }
+
+    fn words_match(a: &str, b: &str) -> bool {
+        if a == b {
+            return true;
+        }
+        let shorter = a.len().min(b.len());
+        let shared = a.chars().zip(b.chars()).take_while(|(x, y)| x == y).count();
+        // If the shorter word is a complete prefix of the longer, match
+        if shared == shorter && shorter >= 3 {
+            return true;
+        }
+        // Otherwise require a shared prefix of at least 4 covering most of the shorter word
+        shared >= 4 && shared >= shorter.saturating_sub(2)
     }
 
     fn fallback_decision(&self, reason: &str) -> RoutingDecision {

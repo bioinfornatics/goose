@@ -1083,6 +1083,7 @@ impl ExtensionManager {
             let extensions = self.extensions.lock().await;
             extensions
                 .iter()
+                .filter(|(_name, ext)| ext.supports_resources())
                 .map(|(name, ext)| (name.clone(), ext.get_client()))
                 .collect()
         };
@@ -1102,7 +1103,11 @@ impl ExtensionManager {
                     }
                 }
                 Err(e) => {
-                    warn!("Failed to list resources for {}: {:?}", extension_name, e);
+                    tracing::debug!(
+                        "Failed to list ui resources for {}: {:?}",
+                        extension_name,
+                        e
+                    );
                 }
             }
         }

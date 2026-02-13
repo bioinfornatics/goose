@@ -684,7 +684,17 @@ impl Agent {
                         },
                         Err(e) => {
                             let error_msg = e.to_string();
-                            warn!("Failed to load extension {}: {}", name, error_msg);
+                            if error_msg.contains("Unknown platform extension")
+                                || error_msg.contains("Unknown builtin extension")
+                            {
+                                tracing::debug!(
+                                    "Skipping unavailable extension {}: {}",
+                                    name,
+                                    error_msg
+                                );
+                            } else {
+                                warn!("Failed to load extension {}: {}", name, error_msg);
+                            }
                             ExtensionLoadResult {
                                 name,
                                 success: false,

@@ -147,6 +147,22 @@ pub static PLATFORM_EXTENSIONS: Lazy<HashMap<&'static str, PlatformExtensionDef>
             },
         );
 
+        // "skills" is an alias for "summon" — skills are discovered and loaded
+        // by the summon extension via scan_skills_dir(). Users may have "skills"
+        // in their config.yaml from older versions.
+        map.insert(
+            "skills",
+            PlatformExtensionDef {
+                name: "skills",
+                display_name: "Skills",
+                description: "Load and use skills from relevant directories (provided by Summon)",
+                default_enabled: true,
+                unprefixed_tools: true,
+                scope: ExtensionScope::Orchestrator,
+                client_factory: |ctx| Box::new(summon_extension::SummonClient::new(ctx).unwrap()),
+            },
+        );
+
         map
     },
 );

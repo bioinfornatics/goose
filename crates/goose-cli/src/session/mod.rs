@@ -1057,8 +1057,8 @@ impl CliSession {
                         Some(Ok(AgentEvent::ModelChange { model, mode })) => {
                             if is_stream_json_mode {
                                 emit_stream_event(&StreamEvent::ModelChange { model: model.clone(), mode: mode.clone() });
-                            } else if self.debug {
-                                eprintln!("Model changed to {} in {} mode", model, mode);
+                            } else if !is_json_mode {
+                                println!("{}", console::style(format!("─── {} · {} ───", model, mode)).dim());
                             }
                         }
                         Some(Err(e)) => {

@@ -14,6 +14,15 @@ export type ToolConfirmationRequestContent = ToolConfirmationRequest & {
 };
 export type NotificationEvent = Extract<MessageEvent, { type: 'Notification' }>;
 
+export interface ModelAttribution {
+  model: string;
+  mode: string;
+}
+
+export type MessageWithAttribution = Message & {
+  _modelInfo?: ModelAttribution;
+};
+
 // Compaction response message - must match backend constant
 const COMPACTION_THINKING_TEXT = 'goose is compacting the conversation...';
 

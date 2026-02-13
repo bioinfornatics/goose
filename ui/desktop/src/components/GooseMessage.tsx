@@ -11,6 +11,7 @@ import {
   getElicitationContent,
   getPendingToolConfirmationIds,
   getAnyToolConfirmationData,
+  MessageWithAttribution,
   ToolConfirmationData,
   NotificationEvent,
 } from '../types/message';
@@ -67,6 +68,7 @@ export default function GooseMessage({
   const { displayText, cotText } = splitChainOfThought(textContent);
 
   const timestamp = useMemo(() => formatMessageTimestamp(message.created), [message.created]);
+  const modelInfo = (message as MessageWithAttribution)._modelInfo;
   const toolRequests = getToolRequests(message);
   const messageIndex = messages.findIndex((msg) => msg.id === message.id);
   const toolConfirmationContent = getToolConfirmationContent(message);
@@ -161,6 +163,14 @@ export default function GooseMessage({
                 {!isStreaming && (
                   <div className="text-xs font-mono text-text-muted pt-1 transition-all duration-200 group-hover:-translate-y-4 group-hover:opacity-0">
                     {timestamp}
+                    {modelInfo && (
+                      <>
+                        <span className="mx-1 opacity-50">·</span>
+                        <span>{modelInfo.model}</span>
+                        <span className="mx-1 opacity-50">·</span>
+                        <span>{modelInfo.mode}</span>
+                      </>
+                    )}
                   </div>
                 )}
                 {message.content.every((content) => content.type === 'text') && !isStreaming && (

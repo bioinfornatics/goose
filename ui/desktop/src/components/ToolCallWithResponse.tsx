@@ -432,6 +432,15 @@ const getExtensionTooltip = (toolCallName: string): string | null => {
   return `${extensionName} extension`;
 };
 
+// Helper function to extract extension name for display
+const getExtensionName = (toolCallName: string): string | null => {
+  const lastIndex = toolCallName.lastIndexOf('__');
+  if (lastIndex === -1) return null;
+
+  const extensionName = toolCallName.substring(0, lastIndex);
+  return extensionName || null;
+};
+
 function ToolCallView({
   isCancelledMessage,
   toolCall,
@@ -712,6 +721,8 @@ function ToolCallView({
 
   const toolCallStatus = getToolCallStatus(loadingStatus);
 
+  const extensionName = getExtensionName(toolCall.name);
+
   const toolLabel = (
     <span
       className={cn(
@@ -720,6 +731,12 @@ function ToolCallView({
       )}
     >
       <ToolIconWithStatus ToolIcon={getToolCallIcon(toolCall.name)} status={toolCallStatus} />
+      {extensionName && (
+        <>
+          <span className="text-text-muted/60 text-xs shrink-0">{extensionName}</span>
+          <span className="text-text-muted/40 text-xs shrink-0">›</span>
+        </>
+      )}
       <span className="truncate flex-1 min-w-0">{getToolLabelContent()}</span>
     </span>
   );

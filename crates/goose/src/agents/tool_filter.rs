@@ -60,6 +60,10 @@ fn tool_matches_group(tool: &Tool, group_name: &str) -> bool {
     match group_name {
         "mcp" => true,
 
+        "none" => false,
+
+        "orchestrator" => super::extension::is_orchestrator_extension(&owner),
+
         "developer" | "memory" | "computercontroller" | "code_execution" => owner == group_name,
 
         "command" => {
@@ -204,5 +208,30 @@ mod tests {
         let result = filter_tools(tools, &[ToolGroupAccess::Full("context7".into())]);
         assert_eq!(result.len(), 1);
         assert_eq!(&*result[0].name, "context7__lookup");
+    }
+
+    #[test]
+    fn test_none_group_matches_nothing() {
+        let tools = vec![
+            make_tool("developer__shell", "developer"),
+            make_tool("memory__search", "memory"),
+            make_tool("summon__delegate", "summon"),
+        ];
+        let result = filter_tools(tools, &[ToolGroupAccess::Full("none".into())]);
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn test_orchestrator_group_matches_orchestrator_extensions() {
+        let tools = vec![
+            make_tool("summon__delegate", "summon"),
+            make_tool("extensionmanager__manage", "extensionmanager"),
+            make_tool("chatrecall__search", "chatrecall"),
+            make_tool("tom__context", "tom"),
+            make_tool("developer__shell", "developer"),
+            make_tool("memory__search", "memory"),
+        ];
+        let result = filter_tools(tools, &[ToolGroupAccess::Full("orchestrator".into())]);
+        assert_eq!(result.len(), 4);
     }
 }

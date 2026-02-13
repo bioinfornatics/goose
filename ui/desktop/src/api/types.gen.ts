@@ -707,6 +707,20 @@ export type ModelInfo = {
     supports_cache_control?: boolean | null;
 };
 
+export type OrchestratorAgentInfo = {
+    default_mode: string;
+    enabled: boolean;
+    mode_count: number;
+    name: string;
+};
+
+export type OrchestratorStatus = {
+    agents: Array<OrchestratorAgentInfo>;
+    enabled: boolean;
+    routing_mode: string;
+    total_modes: number;
+};
+
 export type ParseRecipeRequest = {
     content: string;
 };
@@ -3142,6 +3156,20 @@ export type McpUiProxyErrors = {
 export type McpUiProxyResponses = {
     /**
      * MCP UI proxy HTML page
+     */
+    200: unknown;
+};
+
+export type OrchestratorStatusData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/orchestrator/status';
+};
+
+export type OrchestratorStatusResponses = {
+    /**
+     * Orchestrator status
      */
     200: unknown;
 };

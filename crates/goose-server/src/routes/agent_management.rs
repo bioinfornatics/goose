@@ -453,7 +453,7 @@ pub async fn unbind_extension_from_agent(
     Ok(StatusCode::OK)
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct OrchestratorStatus {
     pub enabled: bool,
     pub routing_mode: String,
@@ -461,7 +461,7 @@ pub struct OrchestratorStatus {
     pub total_modes: usize,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct OrchestratorAgentInfo {
     pub name: String,
     pub enabled: bool,

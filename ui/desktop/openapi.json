@@ -2184,6 +2184,19 @@
         }
       }
     },
+    "/orchestrator/status": {
+      "get": {
+        "tags": [
+          "Orchestrator"
+        ],
+        "operationId": "orchestrator_status",
+        "responses": {
+          "200": {
+            "description": "Orchestrator status"
+          }
+        }
+      }
+    },
     "/recipes/create": {
       "post": {
         "tags": [
@@ -5814,6 +5827,57 @@
             "type": "boolean",
             "description": "Whether this model supports cache control",
             "nullable": true
+          }
+        }
+      },
+      "OrchestratorAgentInfo": {
+        "type": "object",
+        "required": [
+          "name",
+          "enabled",
+          "mode_count",
+          "default_mode"
+        ],
+        "properties": {
+          "default_mode": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "mode_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "OrchestratorStatus": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "routing_mode",
+          "agents",
+          "total_modes"
+        ],
+        "properties": {
+          "agents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrchestratorAgentInfo"
+            }
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "routing_mode": {
+            "type": "string"
+          },
+          "total_modes": {
+            "type": "integer",
+            "minimum": 0
           }
         }
       },

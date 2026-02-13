@@ -433,8 +433,11 @@ derive_utoipa!(Icon as IconSchema);
         super::routes::agent_management::toggle_builtin_agent,
         super::routes::agent_management::bind_extension_to_agent,
         super::routes::agent_management::unbind_extension_from_agent,
+        super::routes::agent_management::orchestrator_status,
     ),
     components(schemas(
+        super::routes::agent_management::OrchestratorStatus,
+        super::routes::agent_management::OrchestratorAgentInfo,
         super::routes::config_management::UpsertConfigQuery,
         super::routes::config_management::ConfigKeyQuery,
         super::routes::config_management::DetectProviderRequest,

@@ -1,8 +1,10 @@
-import { useMemo, useRef } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import ImagePreview from './ImagePreview';
 import { formatMessageTimestamp } from '../utils/timeUtils';
 import MarkdownContent from './MarkdownContent';
 import ToolCallWithResponse from './ToolCallWithResponse';
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from './ui/collapsible';
+import { Brain, ChevronRight } from 'lucide-react';
 import {
   getTextAndImageContent,
   getToolRequests,
@@ -21,6 +23,50 @@ import ElicitationRequest from './ElicitationRequest';
 import MessageCopyLink from './MessageCopyLink';
 import { cn } from '../utils';
 import { identifyConsecutiveToolCalls, shouldHideTimestamp } from '../utils/toolCallChaining';
+
+// ChatGPT-style thinking/reasoning section — collapsed by default, animated
+function ThinkingSection({ cotText, isStreaming }: { cotText: string; isStreaming: boolean }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const lines = cotText.split('\n').filter((l) => l.trim()).length;
+  const preview = cotText.split('\n').find((l) => l.trim())?.slice(0, 80) || 'Reasoning...';
+
+  return (
+    <Collapsible open={isOpen} onOpenChange={setIsOpen} className="mb-2">
+      <CollapsibleTrigger className="flex items-center gap-2 w-full px-3 py-2 rounded-lg bg-background-muted/50 border border-border-default/50 hover:bg-background-muted transition-colors cursor-pointer select-none group">
+        <Brain
+          size={16}
+          className={cn(
+            'text-text-muted shrink-0',
+            isStreaming && 'animate-pulse text-amber-400'
+          )}
+        />
+        <span className="text-sm font-medium text-text-muted">
+          {isStreaming ? 'Thinking...' : 'Thought process'}
+        </span>
+        {!isOpen && !isStreaming && (
+          <span className="text-xs text-text-muted/60 truncate flex-1 text-left">
+            — {preview}
+          </span>
+        )}
+        {!isStreaming && (
+          <span className="text-xs text-text-muted/50 shrink-0">{lines} lines</span>
+        )}
+        <ChevronRight
+          size={14}
+          className={cn(
+            'text-text-muted/50 shrink-0 transition-transform duration-200',
+            isOpen && 'rotate-90'
+          )}
+        />
+      </CollapsibleTrigger>
+      <CollapsibleContent className="overflow-hidden data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0">
+        <div className="mt-1 px-3 py-2 rounded-b-lg border border-t-0 border-border-default/30 bg-background-muted/30 text-sm text-text-muted/80 max-h-64 overflow-y-auto">
+          <MarkdownContent content={cotText} />
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
 
 interface GooseMessageProps {
   sessionId: string;
@@ -133,14 +179,7 @@ export default function GooseMessage({
     <div className="goose-message flex w-[90%] justify-start min-w-0">
       <div className="flex flex-col w-full min-w-0">
         {cotText && (
-          <details className="bg-background-muted border border-border-default rounded p-2 mb-2">
-            <summary className="cursor-pointer text-sm text-text-muted select-none">
-              Show thinking
-            </summary>
-            <div className="mt-2">
-              <MarkdownContent content={cotText} />
-            </div>
-          </details>
+          <ThinkingSection cotText={cotText} isStreaming={isStreaming && !displayText.trim()} />
         )}
 
         {routingInfo && routingInfo.agentName !== 'Goose Agent' && (

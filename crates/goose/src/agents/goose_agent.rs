@@ -42,6 +42,7 @@ pub struct BuiltinMode {
     pub template_name: String,
     pub category: ModeCategory,
     pub tool_groups: Vec<ToolGroupAccess>,
+    pub recommended_extensions: Vec<String>,
 }
 
 /// How the mode is executed.
@@ -77,8 +78,8 @@ impl GooseAgent {
                 description: "General-purpose assistant — the default Goose personality".into(),
                 template_name: "system.md".into(),
                 category: ModeCategory::Session,
-                // "mcp" = all tools. Assistant is the default mode with full access.
                 tool_groups: vec![ToolGroupAccess::Full("mcp".into())],
+                recommended_extensions: vec!["developer".into(), "memory".into(), "todo".into()],
             },
             BuiltinMode {
                 slug: "specialist".into(),
@@ -86,7 +87,6 @@ impl GooseAgent {
                 description: "Focused task execution with bounded turns".into(),
                 template_name: "specialist.md".into(),
                 category: ModeCategory::Session,
-                // Specialist gets developer tools + memory but not apps/todo.
                 tool_groups: vec![
                     ToolGroupAccess::Full("developer".into()),
                     ToolGroupAccess::Full("memory".into()),
@@ -95,6 +95,7 @@ impl GooseAgent {
                     ToolGroupAccess::Full("read".into()),
                     ToolGroupAccess::Full("fetch".into()),
                 ],
+                recommended_extensions: vec!["developer".into(), "memory".into()],
             },
             BuiltinMode {
                 slug: "recipe_maker".into(),
@@ -102,9 +103,8 @@ impl GooseAgent {
                 description: "Generate recipe files from conversations".into(),
                 template_name: "recipe.md".into(),
                 category: ModeCategory::PromptOnly,
-                // PromptOnly mode — no tool access needed.
-                // "none" matches no extension owner, effectively blocking all tools.
                 tool_groups: vec![ToolGroupAccess::Full("none".into())],
+                recommended_extensions: vec![],
             },
             BuiltinMode {
                 slug: "app_maker".into(),
@@ -112,8 +112,8 @@ impl GooseAgent {
                 description: "Create new Goose apps from user instructions".into(),
                 template_name: "apps_create.md".into(),
                 category: ModeCategory::LlmOnly,
-                // Only needs apps extension tools.
                 tool_groups: vec![ToolGroupAccess::Full("apps".into())],
+                recommended_extensions: vec!["apps".into()],
             },
             BuiltinMode {
                 slug: "app_iterator".into(),
@@ -121,8 +121,8 @@ impl GooseAgent {
                 description: "Update existing Goose apps based on feedback".into(),
                 template_name: "apps_iterate.md".into(),
                 category: ModeCategory::LlmOnly,
-                // Only needs apps extension tools.
                 tool_groups: vec![ToolGroupAccess::Full("apps".into())],
+                recommended_extensions: vec!["apps".into()],
             },
             BuiltinMode {
                 slug: "judge".into(),
@@ -130,10 +130,8 @@ impl GooseAgent {
                 description: "Analyze tool operations for read-only detection".into(),
                 template_name: "permission_judge.md".into(),
                 category: ModeCategory::LlmOnly,
-                // SECURITY: Judge must NOT have tool access.
-                // It receives tool call descriptions via prompt context only.
-                // "none" matches no extension owner, effectively blocking all tools.
                 tool_groups: vec![ToolGroupAccess::Full("none".into())],
+                recommended_extensions: vec![],
             },
             BuiltinMode {
                 slug: "planner".into(),
@@ -141,8 +139,8 @@ impl GooseAgent {
                 description: "Create step-by-step execution plans".into(),
                 template_name: "plan.md".into(),
                 category: ModeCategory::PromptOnly,
-                // PromptOnly mode — no tool access needed.
                 tool_groups: vec![ToolGroupAccess::Full("none".into())],
+                recommended_extensions: vec![],
             },
             // NOTE: The compactor mode has been migrated to OrchestratorAgent.
             // Compaction is now an orchestrator-level concern, not a user-facing mode.

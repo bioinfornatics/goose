@@ -371,6 +371,65 @@ impl OrchestratorAgent {
         let result = compact_messages(provider.as_ref(), session_id, conversation, false).await?;
         Ok(Some(result))
     }
+
+    /// Get the tool_groups for a given routing decision.
+    ///
+    /// Looks up the mode's tool_groups from GooseAgent or CodingAgent
+    /// based on the routing decision's agent_name and mode_slug.
+    /// Returns empty Vec if the mode isn't found (which means "all tools" — backward compatible).
+    pub fn get_tool_groups_for_routing(
+        &self,
+        agent_name: &str,
+        mode_slug: &str,
+    ) -> Vec<crate::registry::manifest::ToolGroupAccess> {
+        match agent_name {
+            "Goose Agent" => {
+                let goose = GooseAgent::new();
+                if let Some(mode) = goose.mode(mode_slug) {
+                    mode.tool_groups.clone()
+                } else {
+                    vec![] // unknown mode → all tools (backward compatible)
+                }
+            }
+            "Coding Agent" => {
+                let coding = CodingAgent::new();
+                if let Some(mode) = coding.mode(mode_slug) {
+                    mode.tool_groups.clone()
+                } else {
+                    vec![]
+                }
+            }
+            _ => vec![], // external agent → all tools
+        }
+    }
+
+    /// Get the recommended MCP extensions for a specific agent/mode.
+    /// Used by reply.rs to activate only the extensions needed by the current mode.
+    pub fn get_recommended_extensions_for_routing(
+        &self,
+        agent_name: &str,
+        mode_slug: &str,
+    ) -> Vec<String> {
+        match agent_name {
+            "Goose Agent" => {
+                let goose = GooseAgent::new();
+                if let Some(mode) = goose.mode(mode_slug) {
+                    mode.recommended_extensions.clone()
+                } else {
+                    vec![]
+                }
+            }
+            "Coding Agent" => {
+                let coding = CodingAgent::new();
+                if let Some(mode) = coding.mode(mode_slug) {
+                    mode.recommended_extensions.clone()
+                } else {
+                    vec![]
+                }
+            }
+            _ => vec![], // external agent → no restrictions
+        }
+    }
 }
 
 /// Aggregate results from multiple sub-tasks into a coherent response.

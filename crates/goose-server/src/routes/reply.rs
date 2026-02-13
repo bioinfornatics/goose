@@ -336,6 +336,22 @@ pub async fn reply(
                     }
                 }
 
+                // Apply mode-specific tool_groups from the routing decision
+                let tool_groups =
+                    router.get_tool_groups_for_routing(&primary.agent_name, &primary.mode_slug);
+                if !tool_groups.is_empty() {
+                    agent.set_active_tool_groups(tool_groups).await;
+                }
+
+                // Apply mode-recommended extensions (merge with slot bound_extensions)
+                let recommended = router.get_recommended_extensions_for_routing(
+                    &primary.agent_name,
+                    &primary.mode_slug,
+                );
+                if !recommended.is_empty() {
+                    agent.set_allowed_extensions(recommended).await;
+                }
+
                 // Emit routing decision as SSE event
                 let _ = stream_event(
                     MessageEvent::RoutingDecision {

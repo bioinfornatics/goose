@@ -336,6 +336,11 @@ pub async fn reply(
                     }
                 }
 
+                // Set orchestrator context flag for scope-based extension filtering
+                let is_orchestrator_active =
+                    goose::agents::orchestrator_agent::is_orchestrator_enabled();
+                agent.set_orchestrator_context(is_orchestrator_active).await;
+
                 // Apply mode-specific tool_groups from the routing decision
                 let tool_groups =
                     router.get_tool_groups_for_routing(&primary.agent_name, &primary.mode_slug);

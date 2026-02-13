@@ -126,7 +126,7 @@ pub static PLATFORM_EXTENSIONS: Lazy<HashMap<&'static str, PlatformExtensionDef>
                     "Goose will make extension calls through code execution, saving tokens",
                 default_enabled: false,
                 unprefixed_tools: true,
-                scope: ExtensionScope::Orchestrator,
+                scope: ExtensionScope::AgentSpecific,
                 client_factory: |ctx| {
                     Box::new(code_execution_extension::CodeExecutionClient::new(ctx).unwrap())
                 },
@@ -1061,9 +1061,9 @@ available_tools: []
     }
 
     #[test]
-    fn test_code_execution_is_orchestrator_scoped() {
+    fn test_code_execution_is_agent_specific() {
         let ext = super::PLATFORM_EXTENSIONS.get("code_execution");
         assert!(ext.is_some());
-        assert_eq!(ext.unwrap().scope, super::ExtensionScope::Orchestrator);
+        assert_eq!(ext.unwrap().scope, super::ExtensionScope::AgentSpecific);
     }
 }

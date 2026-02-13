@@ -132,6 +132,7 @@ pub struct Agent {
     pub active_tool_groups: tokio::sync::RwLock<Vec<crate::registry::manifest::ToolGroupAccess>>,
     /// Allowed extensions for this agent — empty means all extensions available
     pub allowed_extensions: tokio::sync::RwLock<Vec<String>>,
+    pub is_orchestrator_context: tokio::sync::RwLock<bool>,
     container: Mutex<Option<Container>>,
 }
 
@@ -230,6 +231,7 @@ impl Agent {
             tool_inspection_manager: Self::create_tool_inspection_manager(permission_manager),
             active_tool_groups: tokio::sync::RwLock::new(Vec::new()),
             allowed_extensions: tokio::sync::RwLock::new(Vec::new()),
+            is_orchestrator_context: tokio::sync::RwLock::new(false),
             container: Mutex::new(None),
         }
     }
@@ -446,6 +448,10 @@ impl Agent {
 
     pub async fn set_allowed_extensions(&self, extensions: Vec<String>) {
         *self.allowed_extensions.write().await = extensions;
+    }
+
+    pub async fn set_orchestrator_context(&self, is_orchestrator: bool) {
+        *self.is_orchestrator_context.write().await = is_orchestrator;
     }
 
     pub async fn set_container(&self, container: Option<Container>) {

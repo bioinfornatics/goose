@@ -165,6 +165,17 @@ impl Agent {
         }
         drop(active_groups);
 
+        // Apply scope-based filtering: hide orchestrator-only tools when not in orchestrator context
+        let is_orchestrator = *self.is_orchestrator_context.read().await;
+        if !is_orchestrator {
+            tools.retain(|tool| {
+                let owner = crate::agents::extension_manager::get_tool_owner(tool)
+                    .unwrap_or_default()
+                    .to_lowercase();
+                !crate::agents::extension::is_orchestrator_extension(&owner)
+            });
+        }
+
         // Apply extension-scoped filtering (when agent has bound extensions)
         let allowed = self.allowed_extensions.read().await;
         if !allowed.is_empty() {

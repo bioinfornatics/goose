@@ -147,24 +147,41 @@ export default function GooseMessage({
 
   let { textContent, imagePaths } = getTextAndImageContent(message);
 
-  const stripInternalTags = (text: string): string => {
-    // Strip <tool_call>...</tool_call> and <tool_result>...</tool_result> XML tags
-    // that some models emit as raw text alongside structured tool calls.
-    return text
+  const stripInternalTags = (text: string, streaming: boolean): string => {
+    let cleaned = text
+      // Strip complete <tool_call>...</tool_call> and <tool_result>...</tool_result> XML tags
       .replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, '')
-      .replace(/<tool_result>[\s\S]*?<\/tool_result>/gi, '')
-      .trim();
+      .replace(/<tool_result>[\s\S]*?<\/tool_result>/gi, '');
+
+    if (streaming) {
+      // During streaming, also strip incomplete/partial tool call tags that haven't closed yet
+      cleaned = cleaned
+        .replace(/<tool_call>[\s\S]*$/gi, '')
+        .replace(/<tool_result>[\s\S]*$/gi, '');
+
+      // Strip partial JSON tool call fragments that appear during streaming
+      // e.g., 'developer.shell", "arguments": {"command": "cd ...'
+      // These are fragments of tool_use blocks being streamed as text
+      cleaned = cleaned.replace(/[a-zA-Z_]+\.\w+",\s*"arguments":\s*\{[\s\S]*$/g, '');
+      // Also strip Ollama-style XML function calls: <function=name><parameter=...>
+      cleaned = cleaned.replace(/<function=[\s\S]*$/gi, '');
+    }
+
+    return cleaned.trim();
   };
 
-  const splitChainOfThought = (text: string): { displayText: string; cotText: string | null } => {
+  const splitChainOfThought = (
+    text: string,
+    streaming: boolean
+  ): { displayText: string; cotText: string | null } => {
     const regex = /<think>([\s\S]*?)<\/think>/i;
     const match = text.match(regex);
     if (!match) {
-      return { displayText: stripInternalTags(text), cotText: null };
+      return { displayText: stripInternalTags(text, streaming), cotText: null };
     }
 
     const cotRaw = match[1].trim();
-    const displayText = stripInternalTags(text.replace(regex, '').trim());
+    const displayText = stripInternalTags(text.replace(regex, '').trim(), streaming);
 
     return {
       displayText,
@@ -172,7 +189,7 @@ export default function GooseMessage({
     };
   };
 
-  const { displayText, cotText } = splitChainOfThought(textContent);
+  const { displayText, cotText } = splitChainOfThought(textContent, isStreaming);
 
   const timestamp = useMemo(() => formatMessageTimestamp(message.created), [message.created]);
   const modelInfo = (message as MessageWithAttribution)._modelInfo;

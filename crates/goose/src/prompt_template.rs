@@ -79,6 +79,10 @@ static TEMPLATE_REGISTRY: &[(&str, &str)] = &[
         "orchestrator/routing.md",
         "Orchestrator routing prompt — structured output for agent/mode selection",
     ),
+    (
+        "orchestrator/splitting.md",
+        "Orchestrator splitting prompt — detect and decompose compound requests into sub-tasks",
+    ),
 ];
 
 /// Information about a template including its content and customization status

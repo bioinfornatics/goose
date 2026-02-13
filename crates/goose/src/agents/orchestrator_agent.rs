@@ -9,14 +9,21 @@
 //! User Message → OrchestratorAgent.route()
 //!   ├─ Build agent catalog from GooseAgent + CodingAgent + external agents
 //!   ├─ Render routing prompt with catalog + user message
-//!   ├─ LLM classifies intent → RoutingDecision
+//!   ├─ LLM classifies intent → RoutingDecision (single or compound)
 //!   ├─ (fallback) IntentRouter keyword matching
-//!   └─ Return RoutingDecision { agent_name, mode_slug, confidence, reasoning }
+//!   └─ Return OrchestratorPlan with one or more sub-tasks
 //! ```
+//!
+//! # Compound Request Splitting
+//!
+//! When a user message contains multiple independent intents (e.g., "fix the login
+//! bug and add a dark theme"), the orchestrator splits it into sub-tasks, each
+//! routed to the appropriate agent/mode. Results are aggregated into a coherent
+//! response.
 //!
 //! # Feature Flag
 //!
-//! Set `GOOSE_ORCHESTRATOR_ENABLED=true` to use LLM routing.
+//! Set `GOOSE_ORCHESTRATOR_ENABLED=true` to use LLM routing + splitting.
 //! When disabled (default), falls back to IntentRouter for backward compatibility.
 
 use crate::agents::coding_agent::CodingAgent;
@@ -44,6 +51,39 @@ fn is_orchestrator_enabled() -> bool {
 struct RoutingPromptContext {
     user_message: String,
     agent_catalog: String,
+}
+
+/// A sub-task produced by compound request splitting.
+#[derive(Debug, Clone)]
+pub struct SubTask {
+    pub routing: RoutingDecision,
+    pub sub_task_description: String,
+}
+
+/// The plan produced by the orchestrator for a user message.
+#[derive(Debug, Clone)]
+pub struct OrchestratorPlan {
+    pub is_compound: bool,
+    pub tasks: Vec<SubTask>,
+}
+
+impl OrchestratorPlan {
+    /// Create a simple plan with a single routing decision (no splitting).
+    pub fn single(decision: RoutingDecision) -> Self {
+        let desc = decision.reasoning.clone();
+        Self {
+            is_compound: false,
+            tasks: vec![SubTask {
+                routing: decision,
+                sub_task_description: desc,
+            }],
+        }
+    }
+
+    /// Get the primary routing decision (first task).
+    pub fn primary_routing(&self) -> &RoutingDecision {
+        &self.tasks[0].routing
+    }
 }
 
 /// An agent slot with its modes, used for building the catalog.
@@ -117,21 +157,22 @@ impl OrchestratorAgent {
         self.intent_router.slots()
     }
 
-    /// Route a user message to the best agent and mode.
+    /// Route a user message to the best agent and mode, with optional compound splitting.
     ///
-    /// If `GOOSE_ORCHESTRATOR_ENABLED=true` and a provider is available,
-    /// uses LLM-based routing. Otherwise falls back to keyword matching.
-    pub async fn route(&self, user_message: &str) -> RoutingDecision {
+    /// Returns an `OrchestratorPlan` that may contain multiple sub-tasks for
+    /// compound requests when LLM orchestration is enabled.
+    pub async fn route(&self, user_message: &str) -> OrchestratorPlan {
         if is_orchestrator_enabled() {
             match self.route_with_llm(user_message).await {
-                Ok(decision) => {
+                Ok(plan) => {
                     info!(
-                        agent_name = %decision.agent_name,
-                        mode_slug = %decision.mode_slug,
-                        confidence = %decision.confidence,
+                        is_compound = plan.is_compound,
+                        task_count = plan.tasks.len(),
+                        primary_agent = %plan.primary_routing().agent_name,
+                        primary_mode = %plan.primary_routing().mode_slug,
                         "LLM orchestrator routed message"
                     );
-                    return decision;
+                    return plan;
                 }
                 Err(e) => {
                     warn!(
@@ -142,7 +183,7 @@ impl OrchestratorAgent {
             }
         }
 
-        // Fallback to keyword-based IntentRouter
+        // Fallback to keyword-based IntentRouter (always single-task)
         let decision = self.intent_router.route(user_message);
         debug!(
             agent_name = %decision.agent_name,
@@ -150,11 +191,11 @@ impl OrchestratorAgent {
             confidence = %decision.confidence,
             "Keyword router fallback"
         );
-        decision
+        OrchestratorPlan::single(decision)
     }
 
-    /// Use the LLM to classify the user's intent and select the best agent/mode.
-    async fn route_with_llm(&self, user_message: &str) -> Result<RoutingDecision> {
+    /// Use the LLM to classify the user's intent, potentially splitting compound requests.
+    async fn route_with_llm(&self, user_message: &str) -> Result<OrchestratorPlan> {
         let provider_guard = self.provider.lock().await;
         let provider = provider_guard
             .as_ref()
@@ -166,15 +207,16 @@ impl OrchestratorAgent {
             agent_catalog: catalog_text,
         };
 
-        let routing_prompt = prompt_template::render_template("orchestrator/routing.md", &context)?;
+        let splitting_prompt =
+            prompt_template::render_template("orchestrator/splitting.md", &context)?;
 
         let messages = vec![crate::conversation::message::Message::user().with_text(user_message)];
 
         let (response, _usage) = provider
-            .complete("orchestrator-routing", &routing_prompt, &messages, &[])
+            .complete("orchestrator-routing", &splitting_prompt, &messages, &[])
             .await?;
 
-        self.parse_routing_response(&response)
+        self.parse_splitting_response(&response)
     }
 
     /// Build a human-readable catalog of all available agents and their modes.
@@ -182,24 +224,15 @@ impl OrchestratorAgent {
         let mut text = String::new();
         for entry in &self.catalog {
             text.push_str(&format!(
-                "### {} — {}
-",
+                "### {} \u{2014} {}\n",
                 entry.name, entry.description
             ));
-            text.push_str(&format!(
-                "Default mode: {}
-",
-                entry.default_mode
-            ));
-            text.push_str(
-                "Modes:
-",
-            );
+            text.push_str(&format!("Default mode: {}\n", entry.default_mode));
+            text.push_str("Modes:\n");
             for mode in &entry.modes {
                 let when = mode.when_to_use.as_deref().unwrap_or(&mode.description);
                 text.push_str(&format!(
-                    "  - **{}** ({}): {} | Use when: {}
-",
+                    "  - **{}** ({}): {} | Use when: {}\n",
                     mode.slug, mode.name, mode.description, when
                 ));
             }
@@ -208,11 +241,11 @@ impl OrchestratorAgent {
         text
     }
 
-    /// Parse the LLM's JSON response into a RoutingDecision.
-    fn parse_routing_response(
+    /// Parse the LLM's splitting response into an OrchestratorPlan.
+    fn parse_splitting_response(
         &self,
         response: &crate::conversation::message::Message,
-    ) -> Result<RoutingDecision> {
+    ) -> Result<OrchestratorPlan> {
         let text = response
             .content
             .iter()
@@ -223,39 +256,85 @@ impl OrchestratorAgent {
             .collect::<Vec<_>>()
             .join("");
 
-        // Try to extract JSON from the response (may be wrapped in markdown code blocks)
         let json_str = extract_json(&text)?;
-
         let parsed: serde_json::Value = serde_json::from_str(&json_str)?;
 
-        let agent_name = parsed["agent_name"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing agent_name in routing response"))?;
-        let mode_slug = parsed["mode_slug"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("Missing mode_slug in routing response"))?;
-        let confidence = parsed["confidence"].as_f64().unwrap_or(0.5) as f32;
-        let reasoning = parsed["reasoning"]
-            .as_str()
-            .unwrap_or("LLM routing decision")
-            .to_string();
+        let is_compound = parsed["is_compound"].as_bool().unwrap_or(false);
+        let tasks_arr = parsed["tasks"]
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("Missing 'tasks' array in splitting response"))?;
 
-        // Validate agent_name exists in catalog
-        if !self.catalog.iter().any(|e| e.name == agent_name) {
+        if tasks_arr.is_empty() {
+            return Err(anyhow::anyhow!("Empty tasks array in splitting response"));
+        }
+
+        let mut tasks = Vec::new();
+        for task_val in tasks_arr {
+            let agent_name = task_val["agent_name"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("Missing agent_name in task"))?;
+            let mode_slug = task_val["mode_slug"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("Missing mode_slug in task"))?;
+            let confidence = task_val["confidence"].as_f64().unwrap_or(0.5) as f32;
+            let reasoning = task_val["reasoning"]
+                .as_str()
+                .unwrap_or("LLM routing decision")
+                .to_string();
+            let sub_task = task_val["sub_task"]
+                .as_str()
+                .unwrap_or(agent_name)
+                .to_string();
+
+            // Validate agent_name
+            if !self.catalog.iter().any(|e| e.name == agent_name) {
+                warn!(
+                    "LLM selected unknown agent '{}', skipping sub-task",
+                    agent_name
+                );
+                continue;
+            }
+
+            tasks.push(SubTask {
+                routing: RoutingDecision {
+                    agent_name: agent_name.to_string(),
+                    mode_slug: mode_slug.to_string(),
+                    confidence,
+                    reasoning,
+                },
+                sub_task_description: sub_task,
+            });
+        }
+
+        if tasks.is_empty() {
             return Err(anyhow::anyhow!(
-                "LLM selected unknown agent '{}', available: {:?}",
-                agent_name,
-                self.catalog.iter().map(|e| &e.name).collect::<Vec<_>>()
+                "No valid tasks after filtering, all agent names were unknown"
             ));
         }
 
-        Ok(RoutingDecision {
-            agent_name: agent_name.to_string(),
-            mode_slug: mode_slug.to_string(),
-            confidence,
-            reasoning,
-        })
+        Ok(OrchestratorPlan { is_compound, tasks })
     }
+}
+
+/// Aggregate results from multiple sub-tasks into a coherent response.
+///
+/// Takes the sub-task descriptions and their results, and produces a
+/// combined message that presents all results clearly.
+pub fn aggregate_results(tasks: &[SubTask], results: &[String]) -> String {
+    if tasks.len() == 1 {
+        return results.first().cloned().unwrap_or_default();
+    }
+
+    let mut output = String::from("I handled your compound request in multiple parts:\n\n");
+    for (i, (task, result)) in tasks.iter().zip(results.iter()).enumerate() {
+        output.push_str(&format!(
+            "## Part {} — {}\n\n{}\n\n",
+            i + 1,
+            task.sub_task_description,
+            result
+        ));
+    }
+    output
 }
 
 /// Extract a JSON object from text that may contain markdown code fences.
@@ -302,10 +381,13 @@ fn extract_json(text: &str) -> Result<String> {
 mod tests {
     use super::*;
 
+    fn make_orchestrator() -> OrchestratorAgent {
+        OrchestratorAgent::new(Arc::new(Mutex::new(None)))
+    }
+
     #[test]
     fn test_build_catalog_text() {
-        let provider = Arc::new(Mutex::new(None));
-        let orch = OrchestratorAgent::new(provider);
+        let orch = make_orchestrator();
         let catalog = orch.build_catalog_text();
 
         assert!(catalog.contains("Goose Agent"));
@@ -316,57 +398,174 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_routing_response_json() {
-        let provider = Arc::new(Mutex::new(None));
-        let orch = OrchestratorAgent::new(provider);
+    fn test_parse_single_task_response() {
+        let orch = make_orchestrator();
 
-        let response = crate::conversation::message::Message::assistant()
-            .with_text(r#"{"agent_name": "Coding Agent", "mode_slug": "backend", "confidence": 0.9, "reasoning": "API implementation task"}"#);
+        let response = crate::conversation::message::Message::assistant().with_text(
+            r#"{"is_compound": false, "tasks": [{"agent_name": "Coding Agent", "mode_slug": "backend", "confidence": 0.9, "reasoning": "API implementation task", "sub_task": "implement a REST API endpoint"}]}"#,
+        );
 
-        let decision = orch.parse_routing_response(&response).unwrap();
-        assert_eq!(decision.agent_name, "Coding Agent");
-        assert_eq!(decision.mode_slug, "backend");
-        assert!((decision.confidence - 0.9).abs() < 0.01);
+        let plan = orch.parse_splitting_response(&response).unwrap();
+        assert!(!plan.is_compound);
+        assert_eq!(plan.tasks.len(), 1);
+        assert_eq!(plan.primary_routing().agent_name, "Coding Agent");
+        assert_eq!(plan.primary_routing().mode_slug, "backend");
+        assert_eq!(
+            plan.tasks[0].sub_task_description,
+            "implement a REST API endpoint"
+        );
     }
 
     #[test]
-    fn test_parse_routing_response_markdown_wrapped() {
-        let provider = Arc::new(Mutex::new(None));
-        let orch = OrchestratorAgent::new(provider);
+    fn test_parse_compound_response() {
+        let orch = make_orchestrator();
+
+        let response = crate::conversation::message::Message::assistant().with_text(
+            r#"{"is_compound": true, "tasks": [
+                {"agent_name": "Coding Agent", "mode_slug": "backend", "confidence": 0.85, "reasoning": "Bug fix", "sub_task": "Fix the login endpoint bug"},
+                {"agent_name": "Coding Agent", "mode_slug": "frontend", "confidence": 0.8, "reasoning": "UI feature", "sub_task": "Add dark theme toggle to settings"}
+            ]}"#,
+        );
+
+        let plan = orch.parse_splitting_response(&response).unwrap();
+        assert!(plan.is_compound);
+        assert_eq!(plan.tasks.len(), 2);
+        assert_eq!(plan.tasks[0].routing.agent_name, "Coding Agent");
+        assert_eq!(plan.tasks[0].routing.mode_slug, "backend");
+        assert_eq!(
+            plan.tasks[0].sub_task_description,
+            "Fix the login endpoint bug"
+        );
+        assert_eq!(plan.tasks[1].routing.mode_slug, "frontend");
+        assert_eq!(
+            plan.tasks[1].sub_task_description,
+            "Add dark theme toggle to settings"
+        );
+    }
+
+    #[test]
+    fn test_parse_response_markdown_wrapped() {
+        let orch = make_orchestrator();
 
         let text = concat!(
-            "Here's my routing decision:
-
-",
-            "```json
-",
-            r#"{"agent_name": "Goose Agent", "mode_slug": "planner", "confidence": 0.85, "reasoning": "Planning task"}"#,
-            "
-```"
+            "Here's my analysis:\n\n",
+            "```json\n",
+            r#"{"is_compound": false, "tasks": [{"agent_name": "Goose Agent", "mode_slug": "planner", "confidence": 0.85, "reasoning": "Planning task", "sub_task": "Create a project plan"}]}"#,
+            "\n```"
         );
         let response = crate::conversation::message::Message::assistant().with_text(text);
 
-        let decision = orch.parse_routing_response(&response).unwrap();
-        assert_eq!(decision.agent_name, "Goose Agent");
-        assert_eq!(decision.mode_slug, "planner");
+        let plan = orch.parse_splitting_response(&response).unwrap();
+        assert!(!plan.is_compound);
+        assert_eq!(plan.primary_routing().agent_name, "Goose Agent");
+        assert_eq!(plan.primary_routing().mode_slug, "planner");
     }
 
     #[test]
-    fn test_parse_routing_response_invalid_agent() {
-        let provider = Arc::new(Mutex::new(None));
-        let orch = OrchestratorAgent::new(provider);
+    fn test_parse_response_invalid_agent_filtered() {
+        let orch = make_orchestrator();
 
         let response = crate::conversation::message::Message::assistant().with_text(
-            r#"{"agent_name": "NonExistent Agent", "mode_slug": "foo", "confidence": 0.5}"#,
+            r#"{"is_compound": true, "tasks": [
+                {"agent_name": "NonExistent Agent", "mode_slug": "foo", "confidence": 0.5, "reasoning": "test", "sub_task": "invalid"},
+                {"agent_name": "Goose Agent", "mode_slug": "assistant", "confidence": 0.8, "reasoning": "fallback", "sub_task": "valid task"}
+            ]}"#,
         );
 
-        let result = orch.parse_routing_response(&response);
-        assert!(result.is_err());
+        let plan = orch.parse_splitting_response(&response).unwrap();
+        assert_eq!(plan.tasks.len(), 1);
+        assert_eq!(plan.tasks[0].routing.agent_name, "Goose Agent");
+    }
+
+    #[test]
+    fn test_parse_response_all_invalid_agents() {
+        let orch = make_orchestrator();
+
+        let response = crate::conversation::message::Message::assistant().with_text(
+            r#"{"is_compound": false, "tasks": [{"agent_name": "NonExistent", "mode_slug": "x", "confidence": 0.5, "reasoning": "t", "sub_task": "y"}]}"#,
+        );
+
+        assert!(orch.parse_splitting_response(&response).is_err());
+    }
+
+    #[test]
+    fn test_parse_response_empty_tasks() {
+        let orch = make_orchestrator();
+
+        let response = crate::conversation::message::Message::assistant()
+            .with_text(r#"{"is_compound": false, "tasks": []}"#);
+
+        assert!(orch.parse_splitting_response(&response).is_err());
+    }
+
+    #[test]
+    fn test_orchestrator_plan_single() {
+        let decision = RoutingDecision {
+            agent_name: "Goose Agent".into(),
+            mode_slug: "assistant".into(),
+            confidence: 0.9,
+            reasoning: "General question".into(),
+        };
+        let plan = OrchestratorPlan::single(decision);
+
+        assert!(!plan.is_compound);
+        assert_eq!(plan.tasks.len(), 1);
+        assert_eq!(plan.primary_routing().agent_name, "Goose Agent");
+    }
+
+    #[test]
+    fn test_aggregate_results_single() {
+        let tasks = vec![SubTask {
+            routing: RoutingDecision {
+                agent_name: "Goose Agent".into(),
+                mode_slug: "assistant".into(),
+                confidence: 0.9,
+                reasoning: "test".into(),
+            },
+            sub_task_description: "Answer the question".into(),
+        }];
+        let results = vec!["The answer is 42.".into()];
+
+        let output = aggregate_results(&tasks, &results);
+        assert_eq!(output, "The answer is 42.");
+    }
+
+    #[test]
+    fn test_aggregate_results_compound() {
+        let tasks = vec![
+            SubTask {
+                routing: RoutingDecision {
+                    agent_name: "Coding Agent".into(),
+                    mode_slug: "backend".into(),
+                    confidence: 0.8,
+                    reasoning: "bug fix".into(),
+                },
+                sub_task_description: "Fix login bug".into(),
+            },
+            SubTask {
+                routing: RoutingDecision {
+                    agent_name: "Coding Agent".into(),
+                    mode_slug: "frontend".into(),
+                    confidence: 0.8,
+                    reasoning: "UI feature".into(),
+                },
+                sub_task_description: "Add dark theme".into(),
+            },
+        ];
+        let results = vec!["Login bug fixed.".into(), "Dark theme added.".into()];
+
+        let output = aggregate_results(&tasks, &results);
+        assert!(output.contains("Part 1"));
+        assert!(output.contains("Fix login bug"));
+        assert!(output.contains("Login bug fixed."));
+        assert!(output.contains("Part 2"));
+        assert!(output.contains("Add dark theme"));
+        assert!(output.contains("Dark theme added."));
     }
 
     #[test]
     fn test_extract_json_raw() {
-        let text = r#"{"agent_name": "Goose Agent", "mode_slug": "assistant"}"#;
+        let text = r#"{"is_compound": false, "tasks": [{"agent_name": "Goose Agent"}]}"#;
         let json = extract_json(text).unwrap();
         assert!(json.contains("Goose Agent"));
     }
@@ -374,14 +573,10 @@ mod tests {
     #[test]
     fn test_extract_json_code_block() {
         let text = concat!(
-            "Some text
-",
-            "```json
-",
+            "Some text\n",
+            "```json\n",
             r#"{"key": "value"}"#,
-            "
-```
-",
+            "\n```\n",
             "More text"
         );
         let json = extract_json(text).unwrap();
@@ -391,28 +586,25 @@ mod tests {
     #[test]
     fn test_extract_json_no_json() {
         let text = "Just plain text with no JSON";
-        let result = extract_json(text);
-        assert!(result.is_err());
+        assert!(extract_json(text).is_err());
     }
 
     #[tokio::test]
     async fn test_route_fallback_to_keyword() {
-        let provider = Arc::new(Mutex::new(None));
-        let orch = OrchestratorAgent::new(provider);
+        let orch = make_orchestrator();
 
-        // Without GOOSE_ORCHESTRATOR_ENABLED, should use keyword fallback
-        let decision = orch
+        let plan = orch
             .route("implement a REST API endpoint for user authentication")
             .await;
 
-        // Should route to something (keyword router handles it)
-        assert!(!decision.agent_name.is_empty());
-        assert!(!decision.mode_slug.is_empty());
+        assert!(!plan.is_compound);
+        assert_eq!(plan.tasks.len(), 1);
+        assert!(!plan.primary_routing().agent_name.is_empty());
+        assert!(!plan.primary_routing().mode_slug.is_empty());
     }
 
     #[test]
     fn test_is_orchestrator_disabled_by_default() {
-        // Clean env
         std::env::remove_var("GOOSE_ORCHESTRATOR_ENABLED");
         assert!(!is_orchestrator_enabled());
     }

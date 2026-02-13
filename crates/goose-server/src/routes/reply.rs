@@ -315,21 +315,20 @@ pub async fn reply(
                     router.set_bound_extensions(slot_name, bound.into_iter().collect());
                 }
 
-                let decision = router.route(&user_text).await;
+                let plan = router.route(&user_text).await;
+                let primary = plan.primary_routing();
 
                 tracing::info!(
-                    agent_name = %decision.agent_name,
-                    mode_slug = %decision.mode_slug,
-                    confidence = %decision.confidence,
+                    agent_name = %primary.agent_name,
+                    mode_slug = %primary.mode_slug,
+                    confidence = %primary.confidence,
+                    is_compound = plan.is_compound,
+                    task_count = plan.tasks.len(),
                     "Routed message to agent/mode"
                 );
 
-                // Apply bound extensions as allowed_extensions filter
-                if let Some(slot) = router
-                    .slots()
-                    .iter()
-                    .find(|s| s.name == decision.agent_name)
-                {
+                // Apply bound extensions from the primary routing target
+                if let Some(slot) = router.slots().iter().find(|s| s.name == primary.agent_name) {
                     if !slot.bound_extensions.is_empty() {
                         agent
                             .set_allowed_extensions(slot.bound_extensions.clone())
@@ -340,10 +339,10 @@ pub async fn reply(
                 // Emit routing decision as SSE event
                 let _ = stream_event(
                     MessageEvent::RoutingDecision {
-                        agent_name: decision.agent_name,
-                        mode_slug: decision.mode_slug,
-                        confidence: decision.confidence,
-                        reasoning: decision.reasoning,
+                        agent_name: primary.agent_name.clone(),
+                        mode_slug: primary.mode_slug.clone(),
+                        confidence: primary.confidence,
+                        reasoning: primary.reasoning.clone(),
                     },
                     &task_tx,
                     &task_cancel,

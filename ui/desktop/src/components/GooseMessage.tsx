@@ -220,9 +220,10 @@ export default function GooseMessage({
 
   const pendingConfirmationIds = getPendingToolConfirmationIds(messages);
 
-  // In hidden mode, skip rendering messages that would be completely empty
-  // (no text, no images, no thinking, only hidden tool calls)
-  if (
+  // In hidden mode, if message has only tool calls (no text, images, thinking),
+  // show a minimal indicator with routing info instead of the full tool call panels.
+  // This ensures the user sees that work is being done and which agent is handling it.
+  const isToolOnlyMessage =
     hideToolCalls &&
     !displayText.trim() &&
     imagePaths.length === 0 &&
@@ -230,9 +231,27 @@ export default function GooseMessage({
     !hasToolConfirmation &&
     !hasElicitation &&
     toolRequests.length > 0 &&
-    toolRequests.every((req) => !pendingConfirmationIds.has(req.id))
-  ) {
-    return null;
+    toolRequests.every((req) => !pendingConfirmationIds.has(req.id));
+
+  if (isToolOnlyMessage && !isStreaming) {
+    // For completed tool-only messages in hidden mode, show routing info if available
+    if (!routingInfo || routingInfo.agentName === 'Goose Agent') {
+      return null;
+    }
+    // Show just the agent badge for non-default agents
+    return (
+      <div className="goose-message flex w-[90%] justify-start min-w-0">
+        <div className="flex flex-col w-full min-w-0">
+          <div className="flex items-center gap-1.5 mb-1">
+            <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20">
+              <span className="text-xs font-medium text-blue-400">{routingInfo.agentName}</span>
+              <span className="text-xs text-blue-300/70">›</span>
+              <span className="text-xs text-blue-300">{routingInfo.modeSlug}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

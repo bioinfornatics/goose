@@ -23,7 +23,8 @@
 //!
 //! # Feature Flag
 //!
-//! Set `GOOSE_ORCHESTRATOR_ENABLED=true` to use LLM routing + splitting.
+//! LLM routing + splitting is enabled by default.
+//! Set `GOOSE_ORCHESTRATOR_DISABLED=true` to fall back to keyword routing.
 //! When disabled (default), falls back to IntentRouter for backward compatibility.
 
 use crate::agents::coding_agent::CodingAgent;
@@ -44,9 +45,10 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
-/// Whether LLM-based orchestration is enabled (feature flag).
+/// Whether LLM-based orchestration is enabled.
+/// Enabled by default. Set GOOSE_ORCHESTRATOR_DISABLED=true to fall back to keyword routing.
 pub fn is_orchestrator_enabled() -> bool {
-    std::env::var("GOOSE_ORCHESTRATOR_ENABLED")
+    !std::env::var("GOOSE_ORCHESTRATOR_DISABLED")
         .map(|v| v == "true" || v == "1")
         .unwrap_or(false)
 }
@@ -720,9 +722,10 @@ mod tests {
     }
 
     #[test]
-    fn test_is_orchestrator_disabled_by_default() {
-        std::env::remove_var("GOOSE_ORCHESTRATOR_ENABLED");
+    fn test_orchestrator_can_be_disabled() {
+        std::env::set_var("GOOSE_ORCHESTRATOR_DISABLED", "true");
         assert!(!is_orchestrator_enabled());
+        std::env::remove_var("GOOSE_ORCHESTRATOR_DISABLED");
     }
 
     #[test]

@@ -613,8 +613,10 @@ pub async fn handle_orchestrate(request: &str, use_llm: bool) -> Result<()> {
     use std::sync::Arc;
     use tokio::sync::Mutex;
 
-    if use_llm {
-        unsafe { std::env::set_var("GOOSE_ORCHESTRATOR_ENABLED", "true") };
+    // LLM orchestration is now enabled by default
+    // Only disable if explicitly requested (--no-llm would set this)
+    if !use_llm {
+        unsafe { std::env::set_var("GOOSE_ORCHESTRATOR_DISABLED", "true") };
     }
 
     let provider = if use_llm {
@@ -682,18 +684,18 @@ pub async fn handle_orchestrator_status() -> Result<()> {
         "  {} {}",
         style("Mode:").dim(),
         if is_llm_enabled {
-            style("LLM-based routing").green()
+            style("LLM-based routing (default)").green()
         } else {
-            style("Keyword matching (default)").yellow()
+            style("Keyword matching (fallback)").yellow()
         }
     );
     println!(
-        "  {} GOOSE_ORCHESTRATOR_ENABLED={}",
+        "  {} GOOSE_ORCHESTRATOR_DISABLED={}",
         style("Env:").dim(),
         if is_llm_enabled {
-            "true"
+            "false (orchestrator active)"
         } else {
-            "false/unset"
+            "true (fallback to keyword routing)"
         }
     );
     println!();

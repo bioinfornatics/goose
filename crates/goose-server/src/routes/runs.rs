@@ -7,7 +7,6 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -120,21 +119,11 @@ impl RunStore {
 }
 
 fn now_iso() -> String {
-    let duration = SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or(Duration::ZERO);
-    let secs = duration.as_secs();
-    // Simple ISO-ish timestamp without external dependency
-    format!("{secs}")
+    chrono::Utc::now().to_rfc3339()
 }
 
 fn generate_run_id() -> String {
-    use std::time::UNIX_EPOCH;
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or(Duration::ZERO)
-        .as_millis();
-    format!("run_{ts:x}")
+    format!("run_{}", uuid::Uuid::new_v4().as_hyphenated())
 }
 
 /// Configure ACP /runs routes.
@@ -148,6 +137,9 @@ pub fn routes(state: Arc<crate::state::AppState>) -> axum::Router {
 }
 
 /// POST /runs — create a new run.
+///
+/// NOTE: This endpoint is not yet fully implemented. Run processing currently
+/// returns a stub response. Full integration with Agent.reply() is planned.
 pub async fn create_run(
     State(state): State<AppState>,
     Json(req): Json<RunCreateRequest>,
@@ -170,11 +162,11 @@ pub async fn create_run(
     let store = state.run_store();
     store.create(run).await;
 
-    debug!(run_id = %run_id, mode = ?req.mode, "ACP run created");
+    debug!(run_id = %run_id, mode = ?req.mode, "ACP run created (stub mode)");
 
+    // Full Agent.reply() integration pending — return stub with clear status
     match req.mode {
         RunMode::Stream => {
-            // Return SSE stream
             store.update_status(&run_id, RunStatus::InProgress).await;
 
             let stream = create_run_stream(state, run_id.clone(), req).await;
@@ -183,7 +175,6 @@ pub async fn create_run(
                 .into_response()
         }
         RunMode::Async => {
-            // Return 202 Accepted with run_id, process in background
             store.update_status(&run_id, RunStatus::InProgress).await;
 
             let bg_state = state.clone();
@@ -197,13 +188,13 @@ pub async fn create_run(
                 StatusCode::ACCEPTED,
                 Json(serde_json::json!({
                     "run_id": run_id,
-                    "status": "in_progress"
+                    "status": "in_progress",
+                    "_warning": "Run processing is not yet fully implemented. Responses are stubs."
                 })),
             )
                 .into_response()
         }
         RunMode::Sync => {
-            // Process synchronously and return result
             store.update_status(&run_id, RunStatus::InProgress).await;
             process_run(state.clone(), run_id.clone(), req).await;
 
@@ -295,6 +286,10 @@ pub async fn list_runs(State(state): State<AppState>) -> impl IntoResponse {
     }))
 }
 
+/// Process a run request.
+///
+/// **STUB**: Not yet integrated with Agent.reply(). Returns an acknowledgment
+/// message to indicate the endpoint is reachable but not fully functional.
 async fn process_run(state: AppState, run_id: String, req: RunCreateRequest) {
     let store = state.run_store();
 
@@ -320,15 +315,15 @@ async fn process_run(state: AppState, run_id: String, req: RunCreateRequest) {
         return;
     }
 
-    // For now, create a simple response acknowledging the run
-    // Full integration with Agent.reply() will be added when
-    // the orchestrator is fully wired
     store
         .append_output(
             &run_id,
             RunMessage {
                 role: "agent".to_string(),
-                content: format!("Run {run_id} processed: {user_text}"),
+                content: format!(
+                    "[STUB] Run {run_id} received {msg_count} message(s).                      Full Agent.reply() integration is pending.",
+                    msg_count = req.messages.len()
+                ),
             },
         )
         .await;

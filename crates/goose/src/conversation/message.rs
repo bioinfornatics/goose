@@ -574,7 +574,14 @@ impl From<PromptMessage> for Message {
     }
 }
 
-#[derive(ToSchema, Clone, Copy, PartialEq, Serialize, Deserialize, Debug)]
+#[derive(ToSchema, Clone, PartialEq, Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct RoutingInfo {
+    pub agent_name: String,
+    pub mode_slug: String,
+}
+
+#[derive(ToSchema, Clone, PartialEq, Serialize, Deserialize, Debug)]
 /// Metadata for message visibility
 #[serde(rename_all = "camelCase")]
 pub struct MessageMetadata {
@@ -582,6 +589,8 @@ pub struct MessageMetadata {
     pub user_visible: bool,
     /// Whether the message should be included in the agent's context window
     pub agent_visible: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub routing_info: Option<RoutingInfo>,
 }
 
 impl Default for MessageMetadata {
@@ -589,6 +598,7 @@ impl Default for MessageMetadata {
         MessageMetadata {
             user_visible: true,
             agent_visible: true,
+            routing_info: None,
         }
     }
 }
@@ -599,6 +609,7 @@ impl MessageMetadata {
         MessageMetadata {
             user_visible: false,
             agent_visible: true,
+            routing_info: None,
         }
     }
 
@@ -607,6 +618,7 @@ impl MessageMetadata {
         MessageMetadata {
             user_visible: true,
             agent_visible: false,
+            routing_info: None,
         }
     }
 
@@ -615,38 +627,45 @@ impl MessageMetadata {
         MessageMetadata {
             user_visible: false,
             agent_visible: false,
+            routing_info: None,
         }
     }
 
-    /// Return a copy with agent_visible set to false
-    pub fn with_agent_invisible(self) -> Self {
+    pub fn with_agent_invisible(&self) -> Self {
         Self {
             agent_visible: false,
-            ..self
+            ..self.clone()
         }
     }
 
-    /// Return a copy with user_visible set to false
-    pub fn with_user_invisible(self) -> Self {
+    pub fn with_user_invisible(&self) -> Self {
         Self {
             user_visible: false,
-            ..self
+            ..self.clone()
         }
     }
 
-    /// Return a copy with agent_visible set to true
-    pub fn with_agent_visible(self) -> Self {
+    pub fn with_agent_visible(&self) -> Self {
         Self {
             agent_visible: true,
-            ..self
+            ..self.clone()
         }
     }
 
-    /// Return a copy with user_visible set to true
-    pub fn with_user_visible(self) -> Self {
+    pub fn with_user_visible(&self) -> Self {
         Self {
             user_visible: true,
-            ..self
+            ..self.clone()
+        }
+    }
+
+    pub fn with_routing_info(&self, agent_name: String, mode_slug: String) -> Self {
+        Self {
+            routing_info: Some(RoutingInfo {
+                agent_name,
+                mode_slug,
+            }),
+            ..self.clone()
         }
     }
 }
@@ -853,7 +872,14 @@ impl Message {
                 if let MessageContent::Text(ref text) = c {
                     let cleaned = TOOL_CALL_RE.replace_all(&text.text, "");
                     let cleaned = TOOL_RESULT_RE.replace_all(&cleaned, "");
-                    let cleaned = cleaned.trim().to_string();
+                    // Only trim if tags were actually stripped, to preserve
+                    // whitespace in streaming text deltas
+                    let had_tags = cleaned.len() != text.text.len();
+                    let cleaned = if had_tags {
+                        cleaned.trim().to_string()
+                    } else {
+                        cleaned.into_owned()
+                    };
                     if cleaned.is_empty() {
                         None
                     } else {

@@ -598,6 +598,16 @@ async fn process_message_streaming(
                     }) => {
                         tracing::info!("Routed to {} in mode {}", agent_name, mode_slug);
                     }
+                    Ok(AgentEvent::ToolAvailabilityChange {
+                        previous_count,
+                        current_count,
+                    }) => {
+                        tracing::warn!(
+                            "Tool availability changed: {} -> {}",
+                            previous_count,
+                            current_count
+                        );
+                    }
                     Err(e) => {
                         error!("Error in message stream: {}", e);
                         send_error(&sender, &format!("Error: {}", e)).await;

@@ -252,7 +252,8 @@ fn get_specialist_messages_with_callback(
                 }
                 Ok(AgentEvent::McpNotification(_))
                 | Ok(AgentEvent::ModelChange { .. })
-                | Ok(AgentEvent::RoutingDecision { .. }) => {}
+                | Ok(AgentEvent::RoutingDecision { .. })
+                | Ok(AgentEvent::ToolAvailabilityChange { .. }) => {}
                 Ok(AgentEvent::HistoryReplaced(updated_conversation)) => {
                     conversation = updated_conversation;
                 }
@@ -404,7 +405,8 @@ async fn run_specialist_stream(
             }
             Ok(AgentEvent::McpNotification(_))
             | Ok(AgentEvent::ModelChange { .. })
-            | Ok(AgentEvent::RoutingDecision { .. }) => {}
+            | Ok(AgentEvent::RoutingDecision { .. })
+            | Ok(AgentEvent::ToolAvailabilityChange { .. }) => {}
             Ok(AgentEvent::HistoryReplaced(updated_conversation)) => {
                 conversation = updated_conversation;
             }

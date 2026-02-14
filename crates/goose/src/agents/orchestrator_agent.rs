@@ -41,16 +41,37 @@ use crate::session::Session;
 
 use anyhow::Result;
 use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
+/// Thread-safe flag for LLM-based orchestration.
+/// Initialized from GOOSE_ORCHESTRATOR_DISABLED env var on first access,
+/// then controllable via set_orchestrator_enabled() without unsafe env mutation.
+static ORCHESTRATOR_DISABLED: AtomicBool = AtomicBool::new(false);
+static ORCHESTRATOR_INIT: std::sync::Once = std::sync::Once::new();
+
+fn init_orchestrator_flag() {
+    ORCHESTRATOR_INIT.call_once(|| {
+        let disabled = std::env::var("GOOSE_ORCHESTRATOR_DISABLED")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false);
+        ORCHESTRATOR_DISABLED.store(disabled, Ordering::Relaxed);
+    });
+}
+
 /// Whether LLM-based orchestration is enabled.
-/// Enabled by default. Set GOOSE_ORCHESTRATOR_DISABLED=true to fall back to keyword routing.
+/// Reads the env var once at startup, then uses a thread-safe atomic flag.
 pub fn is_orchestrator_enabled() -> bool {
-    !std::env::var("GOOSE_ORCHESTRATOR_DISABLED")
-        .map(|v| v == "true" || v == "1")
-        .unwrap_or(false)
+    init_orchestrator_flag();
+    !ORCHESTRATOR_DISABLED.load(Ordering::Relaxed)
+}
+
+/// Disable LLM-based orchestration (thread-safe, no env mutation).
+pub fn set_orchestrator_enabled(enabled: bool) {
+    init_orchestrator_flag();
+    ORCHESTRATOR_DISABLED.store(!enabled, Ordering::Relaxed);
 }
 
 /// Context for rendering the orchestrator routing prompt.
@@ -723,9 +744,12 @@ mod tests {
 
     #[test]
     fn test_orchestrator_can_be_disabled() {
-        std::env::set_var("GOOSE_ORCHESTRATOR_DISABLED", "true");
+        // Use the thread-safe API instead of mutating env vars
+        set_orchestrator_enabled(false);
         assert!(!is_orchestrator_enabled());
-        std::env::remove_var("GOOSE_ORCHESTRATOR_DISABLED");
+        // Restore default state
+        set_orchestrator_enabled(true);
+        assert!(is_orchestrator_enabled());
     }
 
     #[test]

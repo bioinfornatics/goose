@@ -609,14 +609,14 @@ pub async fn handle_agent_run(name: &str, prompt: &str, mode: Option<&str>) -> R
 }
 
 pub async fn handle_orchestrate(request: &str, use_llm: bool) -> Result<()> {
-    use goose::agents::orchestrator_agent::OrchestratorAgent;
+    use goose::agents::orchestrator_agent::{set_orchestrator_enabled, OrchestratorAgent};
     use std::sync::Arc;
     use tokio::sync::Mutex;
 
     // LLM orchestration is now enabled by default
     // Only disable if explicitly requested (--no-llm would set this)
     if !use_llm {
-        unsafe { std::env::set_var("GOOSE_ORCHESTRATOR_DISABLED", "true") };
+        set_orchestrator_enabled(false);
     }
 
     let provider = if use_llm {

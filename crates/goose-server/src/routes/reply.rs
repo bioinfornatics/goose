@@ -13,7 +13,7 @@ use bytes::Bytes;
 use futures::{stream::StreamExt, Stream};
 use goose::agents::orchestrator_agent::OrchestratorAgent;
 use goose::agents::{AgentEvent, SessionConfig};
-use goose::conversation::message::{Message, MessageContent, TokenState};
+use goose::conversation::message::{Message, MessageContent, RoutingInfo, TokenState};
 use goose::conversation::Conversation;
 use goose::session::SessionManager;
 use rmcp::model::ServerNotification;
@@ -152,6 +152,10 @@ pub enum MessageEvent {
     },
     UpdateConversation {
         conversation: Conversation,
+    },
+    ToolAvailabilityChange {
+        previous_count: usize,
+        current_count: usize,
     },
     Ping,
 }
@@ -422,6 +426,7 @@ pub async fn reply(
             }
         };
 
+        let mut current_routing_info: Option<RoutingInfo> = None;
         let mut heartbeat_interval = tokio::time::interval(Duration::from_millis(500));
         loop {
             tokio::select! {
@@ -438,6 +443,19 @@ pub async fn reply(
                             for content in &message.content {
                                 track_tool_telemetry(content, all_messages.messages());
                             }
+
+                            // Attach routing info to assistant messages for persistence
+                            let message = if message.role == rmcp::model::Role::Assistant {
+                                if let Some(ref ri) = current_routing_info {
+                                    let mut msg = message;
+                                    msg.metadata.routing_info = Some(ri.clone());
+                                    msg
+                                } else {
+                                    message
+                                }
+                            } else {
+                                message
+                            };
 
                             all_messages.push(message.clone());
 
@@ -460,7 +478,18 @@ pub async fn reply(
                             }, &tx, &cancel_token).await;
                         }
                         Ok(Some(Ok(AgentEvent::RoutingDecision { agent_name, mode_slug, confidence, reasoning }))) => {
+                            current_routing_info = Some(RoutingInfo {
+                                agent_name: agent_name.clone(),
+                                mode_slug: mode_slug.clone(),
+                            });
                             stream_event(MessageEvent::RoutingDecision { agent_name, mode_slug, confidence, reasoning }, &tx, &cancel_token).await;
+                        }
+                        Ok(Some(Ok(AgentEvent::ToolAvailabilityChange { previous_count, current_count }))) => {
+                            tracing::warn!(
+                                "Tool availability changed: {} -> {}",
+                                previous_count, current_count
+                            );
+                            stream_event(MessageEvent::ToolAvailabilityChange { previous_count, current_count }, &tx, &cancel_token).await;
                         }
 
                         Ok(Some(Err(e))) => {

@@ -1079,6 +1079,15 @@ impl CliSession {
                                 println!("{}", console::style(format!("⟶ {} · {} (confidence: {:.0}%)", agent_name, mode_slug, confidence * 100.0)).dim());
                             }
                         }
+                        Some(Ok(AgentEvent::ToolAvailabilityChange { previous_count, current_count })) => {
+                            let msg = format!("⚠ Tool availability changed: {} → {}", previous_count, current_count);
+                            if is_stream_json_mode {
+                                // Stream as a notification-style event
+                                eprintln!("{}", msg);
+                            } else if !is_json_mode {
+                                println!("{}", console::style(msg).yellow());
+                            }
+                        }
                         Some(Err(e)) => {
                             handle_agent_error(&e, is_stream_json_mode);
                             cancel_token_clone.cancel();

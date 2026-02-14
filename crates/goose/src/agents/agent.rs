@@ -59,6 +59,31 @@ use tracing::{debug, error, info, instrument, warn};
 const DEFAULT_MAX_TURNS: u32 = 1000;
 const COMPACTION_THINKING_TEXT: &str = "goose is compacting the conversation...";
 
+/// Detect short "preamble-only" responses where the model stated intent to act
+/// but produced no substantive content (typically because tools were unavailable).
+fn is_preamble_response(text: &str) -> bool {
+    if text.is_empty() {
+        return false;
+    }
+    let trimmed = text.trim();
+    // Short responses that start with intent patterns
+    let is_short = trimmed.len() < 500;
+    let intent_patterns = [
+        "let me ",
+        "i'll ",
+        "i will ",
+        "let's ",
+        "now let me ",
+        "now i'll ",
+        "first, let me ",
+        "first, i'll ",
+    ];
+    is_short
+        && intent_patterns
+            .iter()
+            .any(|p| trimmed.to_lowercase().starts_with(p))
+}
+
 /// Context needed for the reply function
 pub struct ReplyContext {
     pub conversation: Conversation,
@@ -151,6 +176,12 @@ pub enum AgentEvent {
         reasoning: String,
     },
     HistoryReplaced(Conversation),
+    /// Emitted when the number of available tools changes between iterations,
+    /// indicating possible extension disconnection or reconnection.
+    ToolAvailabilityChange {
+        previous_count: usize,
+        current_count: usize,
+    },
 }
 
 impl Default for Agent {
@@ -1097,6 +1128,8 @@ impl Agent {
             let max_turns = session_config.max_turns.unwrap_or(DEFAULT_MAX_TURNS);
             let mut compaction_attempts = 0;
             let mut last_assistant_text = String::new();
+            let mut previous_tool_count = tools.len();
+            let mut tools_lost_recovery_attempted = false;
 
             loop {
                 if is_token_cancelled(&cancel_token) {
@@ -1136,6 +1169,50 @@ impl Agent {
                     &self.extension_manager,
                     &working_dir,
                 ).await;
+
+                // P0-1: Detect tool availability changes between iterations.
+                // If tools disappeared (e.g. extension disconnected), attempt one re-fetch
+                // before giving up. This prevents the model from producing text-only
+                // preambles when it expects to call tools.
+                if tools.is_empty() && previous_tool_count > 0 && !tools_lost_recovery_attempted {
+                    warn!(
+                        "Tool count dropped from {} to 0 — attempting extension re-fetch",
+                        previous_tool_count
+                    );
+                    self.extension_manager.invalidate_tools_cache().await;
+                    let recovered = self
+                        .prepare_tools_and_prompt(&session_config.id, &session.working_dir)
+                        .await?;
+                    tools = recovered.0;
+                    toolshim_tools = recovered.1;
+                    system_prompt = recovered.2;
+                    tools_lost_recovery_attempted = true;
+
+                    yield AgentEvent::ToolAvailabilityChange {
+                        previous_count: previous_tool_count,
+                        current_count: tools.len(),
+                    };
+
+                    if tools.is_empty() {
+                        warn!("Tool recovery failed — extensions may have crashed");
+                    } else {
+                        info!("Tool recovery succeeded: {} tools restored", tools.len());
+                        tools_lost_recovery_attempted = false;
+                    }
+                } else if tools.len() != previous_tool_count {
+                    info!(
+                        "Tool count changed: {} -> {}",
+                        previous_tool_count,
+                        tools.len()
+                    );
+                    if tools.len() < previous_tool_count {
+                        yield AgentEvent::ToolAvailabilityChange {
+                            previous_count: previous_tool_count,
+                            current_count: tools.len(),
+                        };
+                    }
+                }
+                previous_tool_count = tools.len();
 
                 let mut stream = Self::stream_response_from_provider(
                     self.provider().await?,
@@ -1513,6 +1590,20 @@ impl Agent {
                         }
                     } else if did_recovery_compact_this_iteration {
                         // Avoid setting exit_chat; continue from last user message in the conversation
+                    } else if tools.is_empty() && is_preamble_response(&last_assistant_text) {
+                        // P0-2: The model produced a short intent-statement ("Let me analyze...")
+                        // but had no tools to act on it. Instead of silently exiting, inform the
+                        // user so they understand why the agent stopped.
+                        warn!(
+                            "Preamble-only response detected with no tools available ({} chars)",
+                            last_assistant_text.len()
+                        );
+                        let notice = Message::assistant().with_text(
+                            "I wanted to use tools to help with your request, but my extensions                              appear to be unavailable. You may want to check your extension                              configuration or restart the session."
+                        );
+                        messages_to_add.push(notice.clone());
+                        yield AgentEvent::Message(notice);
+                        exit_chat = true;
                     } else {
                         match self.handle_retry_logic(&mut conversation, &session_config, &initial_messages).await {
                             Ok(should_retry) => {

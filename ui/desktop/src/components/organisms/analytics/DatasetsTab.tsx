@@ -1,5 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { CreateDatasetRequest, EvalDataset, EvalDatasetSummary } from '@/api';
+import { useCallback, useEffect, useState } from 'react';
+import type {
+  CreateDatasetRequest,
+  EvalDataset,
+  EvalDatasetSummary,
+  EvalRunDetail,
+  EvalRunSummary,
+} from '@/api';
 import {
   createEvalDataset,
   deleteEvalDataset,
@@ -18,30 +24,6 @@ interface TestCaseRow {
   expectedAgent: string;
   expectedMode: string;
   tags: string;
-}
-
-interface RunResult {
-  input: string;
-  expectedAgent: string;
-  expectedMode: string;
-  actualAgent: string;
-  actualMode: string;
-  confidence: number;
-  agentCorrect: boolean;
-  modeCorrect: boolean;
-  fullyCorrect: boolean;
-}
-
-interface RunSummary {
-  id: string;
-  datasetId: string;
-  datasetName: string;
-  status: string;
-  accuracy: number;
-  agentAccuracy: number;
-  modeAccuracy: number;
-  totalCases: number;
-  createdAt: string;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -91,32 +73,62 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={`text-xs font-medium ${color}`}>{status.toUpperCase()}</span>;
 }
 
-// ── ConfusionMatrix ────────────────────────────────────────────────
+// ── RunDetailPanel ─────────────────────────────────────────────────
 
-function ConfusionMatrix({ results }: { results: RunResult[] }) {
-  const matrix = useMemo(() => {
-    const agents = new Set<string>();
-    for (const r of results) {
-      agents.add(r.expectedAgent);
-      agents.add(r.actualAgent);
-    }
-    const sorted = [...agents].sort();
-    const counts: Record<string, Record<string, number>> = {};
-    for (const expected of sorted) {
-      counts[expected] = {};
-      for (const actual of sorted) {
-        counts[expected][actual] = 0;
-      }
-    }
-    for (const r of results) {
-      if (counts[r.expectedAgent]) {
-        counts[r.expectedAgent][r.actualAgent] = (counts[r.expectedAgent][r.actualAgent] || 0) + 1;
-      }
-    }
-    return { agents: sorted, counts };
-  }, [results]);
+type RunDetailTab = 'overview' | 'matrix' | 'failures';
 
-  if (matrix.agents.length === 0) return null;
+function kpiColor(value: number): string {
+  if (value >= 0.9) return 'text-green-400';
+  if (value >= 0.7) return 'text-yellow-400';
+  return 'text-red-400';
+}
+
+function FailuresTable({ failures }: { failures: import('@/api').FailureDetail[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-border-default">
+            <th className="text-left p-2 text-text-muted font-normal">Input</th>
+            <th className="text-left p-2 text-text-muted font-normal">Expected</th>
+            <th className="text-left p-2 text-text-muted font-normal">Actual</th>
+            <th className="text-right p-2 text-text-muted font-normal">Conf.</th>
+            <th className="text-left p-2 text-text-muted font-normal">Reasoning</th>
+          </tr>
+        </thead>
+        <tbody>
+          {failures.map((f) => (
+            <tr
+              key={`fail-${f.expectedAgent}-${f.actualAgent}-${f.input.slice(0, 30)}`}
+              className="border-b border-border-default hover:bg-background-muted"
+            >
+              <td className="p-2 text-text-default max-w-[300px] truncate" title={f.input}>
+                {f.input}
+              </td>
+              <td className="p-2 text-text-muted whitespace-nowrap">
+                {f.expectedAgent} / {f.expectedMode}
+              </td>
+              <td className="p-2 text-text-default whitespace-nowrap">
+                <span className="text-red-400">{f.actualAgent}</span> / {f.actualMode}
+              </td>
+              <td className="p-2 text-right text-text-muted">{formatPercent(f.confidence)}</td>
+              <td className="p-2 text-text-muted max-w-[250px]">
+                <span className="text-xs italic">
+                  {f.expectedAgent !== f.actualAgent
+                    ? `Expected ${f.expectedAgent}, got ${f.actualAgent}`
+                    : `Agent ✓, mode: expected ${f.expectedMode}, got ${f.actualMode}`}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ApiConfusionMatrix({ matrix }: { matrix: import('@/api').ConfusionMatrix }) {
+  if (!matrix.labels.length) return null;
 
   return (
     <div className="overflow-x-auto">
@@ -124,20 +136,23 @@ function ConfusionMatrix({ results }: { results: RunResult[] }) {
         <thead>
           <tr>
             <th className="p-2 text-text-muted font-normal text-left">Expected ↓ / Actual →</th>
-            {matrix.agents.map((a) => (
-              <th key={a} className="p-2 text-text-muted font-normal text-center whitespace-nowrap">
-                {a}
+            {matrix.labels.map((label) => (
+              <th
+                key={label}
+                className="p-2 text-text-muted font-normal text-center whitespace-nowrap"
+              >
+                {label}
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {matrix.agents.map((expected) => (
+          {matrix.labels.map((expected, rowIdx) => (
             <tr key={expected}>
               <td className="p-2 text-text-default font-medium whitespace-nowrap">{expected}</td>
-              {matrix.agents.map((actual) => {
-                const count = matrix.counts[expected]?.[actual] || 0;
-                const isDiagonal = expected === actual;
+              {matrix.labels.map((actual, colIdx) => {
+                const count = matrix.matrix[rowIdx]?.[colIdx] ?? 0;
+                const isDiagonal = rowIdx === colIdx;
                 const bg =
                   count === 0
                     ? ''
@@ -158,104 +173,211 @@ function ConfusionMatrix({ results }: { results: RunResult[] }) {
   );
 }
 
-// ── RunDetailPanel ─────────────────────────────────────────────────
+function PerAgentTable({ agents }: { agents: import('@/api').AgentResult[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-border-default">
+            <th className="text-left p-2 text-text-muted font-normal">Agent</th>
+            <th className="text-right p-2 text-text-muted font-normal">Accuracy</th>
+            <th className="text-right p-2 text-text-muted font-normal">Pass</th>
+            <th className="text-right p-2 text-text-muted font-normal">Fail</th>
+          </tr>
+        </thead>
+        <tbody>
+          {agents.map((a) => (
+            <tr key={a.agent} className="border-b border-border-default hover:bg-background-muted">
+              <td className="p-2 text-text-default font-medium">{a.agent}</td>
+              <td className={`p-2 text-right font-medium ${kpiColor(a.accuracy)}`}>
+                {formatPercent(a.accuracy)}
+              </td>
+              <td className="p-2 text-right text-green-400">{a.pass}</td>
+              <td className="p-2 text-right text-red-400">{a.fail}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 function RunDetailPanel({
-  results,
-  metrics,
+  runDetail,
+  isRunning,
   onClose,
+  onRerun,
+  onEdit,
 }: {
-  results: RunResult[];
-  metrics: { accuracy: number; agentAccuracy: number; modeAccuracy: number; total: number };
+  runDetail: import('@/api').EvalRunDetail | null;
+  isRunning: boolean;
   onClose: () => void;
+  onRerun?: () => void;
+  onEdit?: () => void;
 }) {
+  const [tab, setTab] = useState<RunDetailTab>('overview');
+
+  const failureCount = runDetail?.failures.length ?? 0;
+  const passCount = (runDetail?.totalCases ?? 0) - failureCount;
+
+  const tabs: { key: RunDetailTab; label: string; count?: number }[] = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'matrix', label: 'Confusion Matrix' },
+    { key: 'failures', label: 'Failures', count: failureCount },
+  ];
+
   return (
     <div className="space-y-4">
+      {/* Breadcrumb header */}
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-semibold text-text-default">Run Results</h4>
-        <button
-          type="button"
-          onClick={onClose}
-          className="text-xs text-text-muted hover:text-text-default"
-        >
-          ✕ Close
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-sm text-text-muted hover:text-text-default transition-colors"
+          >
+            ← Back to Datasets
+          </button>
+          <span className="text-text-muted">/</span>
+          <h4 className="text-sm font-semibold text-text-default">
+            {runDetail?.datasetName ?? 'Running...'}
+          </h4>
+          {runDetail && (
+            <span className="text-xs bg-background-muted text-text-muted px-2 py-0.5 rounded-full border border-border-default">
+              {runDetail.totalCases} cases
+            </span>
+          )}
+        </div>
+        <div className="flex gap-2">
+          {onEdit && (
+            <button
+              type="button"
+              onClick={onEdit}
+              className="px-3 py-1.5 rounded border border-border-default text-text-default text-xs hover:bg-background-muted transition-colors"
+            >
+              Edit Dataset
+            </button>
+          )}
+          {onRerun && (
+            <button
+              type="button"
+              onClick={onRerun}
+              disabled={isRunning}
+              className="px-3 py-1.5 rounded bg-background-accent text-text-on-accent text-xs font-medium disabled:opacity-50 transition-colors"
+            >
+              {isRunning ? '⏳ Running...' : '▶ Re-run'}
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* KPI row */}
-      <div className="grid grid-cols-4 gap-3">
-        <div className="rounded-lg bg-background-muted p-3 text-center">
-          <div className="text-lg font-bold text-text-default">
-            {formatPercent(metrics.accuracy)}
+      {/* Progress bar (shown while running) */}
+      {isRunning && (
+        <div className="rounded-lg border border-border-default bg-background-muted p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs text-text-muted">Running evaluation...</span>
+            <span className="text-xs text-text-muted">⏳</span>
           </div>
-          <div className="text-xs text-text-muted">Overall</div>
-        </div>
-        <div className="rounded-lg bg-background-muted p-3 text-center">
-          <div className="text-lg font-bold text-text-default">
-            {formatPercent(metrics.agentAccuracy)}
+          <div className="w-full bg-background-default rounded-full h-2 overflow-hidden">
+            <div
+              className="h-full bg-background-accent rounded-full animate-pulse"
+              style={{ width: '60%' }}
+            />
           </div>
-          <div className="text-xs text-text-muted">Agent</div>
         </div>
-        <div className="rounded-lg bg-background-muted p-3 text-center">
-          <div className="text-lg font-bold text-text-default">
-            {formatPercent(metrics.modeAccuracy)}
-          </div>
-          <div className="text-xs text-text-muted">Mode</div>
-        </div>
-        <div className="rounded-lg bg-background-muted p-3 text-center">
-          <div className="text-lg font-bold text-text-default">{metrics.total}</div>
-          <div className="text-xs text-text-muted">Cases</div>
-        </div>
-      </div>
+      )}
 
-      {/* Confusion matrix */}
-      <div>
-        <h5 className="text-xs font-medium text-text-muted mb-2">Confusion Matrix</h5>
-        <ConfusionMatrix results={results} />
-      </div>
+      {runDetail && (
+        <>
+          {/* KPI row */}
+          <div className="grid grid-cols-4 gap-3">
+            <div className="rounded-lg bg-background-muted p-3 text-center">
+              <div className={`text-lg font-bold ${kpiColor(runDetail.overallAccuracy)}`}>
+                {formatPercent(runDetail.overallAccuracy)}
+              </div>
+              <div className="text-xs text-text-muted">Overall</div>
+            </div>
+            <div className="rounded-lg bg-background-muted p-3 text-center">
+              <div className={`text-lg font-bold ${kpiColor(runDetail.agentAccuracy)}`}>
+                {formatPercent(runDetail.agentAccuracy)}
+              </div>
+              <div className="text-xs text-text-muted">Agent</div>
+            </div>
+            <div className="rounded-lg bg-background-muted p-3 text-center">
+              <div className={`text-lg font-bold ${kpiColor(runDetail.modeAccuracy)}`}>
+                {formatPercent(runDetail.modeAccuracy)}
+              </div>
+              <div className="text-xs text-text-muted">Mode</div>
+            </div>
+            <div className="rounded-lg bg-background-muted p-3 text-center">
+              <div className="text-lg font-bold text-text-default">{runDetail.totalCases}</div>
+              <div className="text-xs text-text-muted">Cases</div>
+              <div className="text-[10px] text-text-muted mt-0.5">
+                {passCount} pass · {failureCount} fail
+              </div>
+            </div>
+          </div>
 
-      {/* Results table */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b border-border-default">
-              <th className="text-left p-2 text-text-muted font-normal">Status</th>
-              <th className="text-left p-2 text-text-muted font-normal">Input</th>
-              <th className="text-left p-2 text-text-muted font-normal">Expected</th>
-              <th className="text-left p-2 text-text-muted font-normal">Actual</th>
-              <th className="text-right p-2 text-text-muted font-normal">Conf.</th>
-            </tr>
-          </thead>
-          <tbody>
-            {results.map((r, i) => (
-              <tr
-                key={`result-${r.input.slice(0, 20)}-${i}`}
-                className="border-b border-border-default hover:bg-background-muted"
+          {/* Tab bar */}
+          <div className="flex gap-1 border-b border-border-default">
+            {tabs.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setTab(t.key)}
+                className={`px-4 py-2 text-xs font-medium border-b-2 transition-colors ${
+                  tab === t.key
+                    ? 'border-text-default text-text-default'
+                    : 'border-transparent text-text-muted hover:text-text-default'
+                }`}
               >
-                <td className="p-2">
-                  {r.fullyCorrect ? (
-                    <span className="text-text-success">✓</span>
-                  ) : r.agentCorrect ? (
-                    <span className="text-text-warning">◐</span>
-                  ) : (
-                    <span className="text-text-danger">✗</span>
-                  )}
-                </td>
-                <td className="p-2 text-text-default max-w-[300px] truncate" title={r.input}>
-                  {r.input}
-                </td>
-                <td className="p-2 text-text-muted whitespace-nowrap">
-                  {r.expectedAgent} / {r.expectedMode}
-                </td>
-                <td className="p-2 text-text-default whitespace-nowrap">
-                  {r.actualAgent} / {r.actualMode}
-                </td>
-                <td className="p-2 text-right text-text-muted">{formatPercent(r.confidence)}</td>
-              </tr>
+                {t.label}
+                {t.count != null && (
+                  <span
+                    className={`ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] ${
+                      t.key === 'failures' && t.count > 0
+                        ? 'bg-red-500/20 text-red-400'
+                        : 'bg-background-muted text-text-muted'
+                    }`}
+                  >
+                    {t.count}
+                  </span>
+                )}
+              </button>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </div>
+
+          {/* Tab content */}
+          {tab === 'overview' && (
+            <div className="space-y-4">
+              <div>
+                <h5 className="text-xs font-medium text-text-muted mb-2 uppercase tracking-wide">
+                  Per-Agent Breakdown
+                </h5>
+                <PerAgentTable agents={runDetail.perAgent} />
+              </div>
+              <div className="flex gap-4 text-xs text-text-muted">
+                <span>Duration: {(runDetail.durationMs / 1000).toFixed(1)}s</span>
+                <span>Version: {runDetail.gooseVersion}</span>
+                {runDetail.versionTag && <span>Tag: {runDetail.versionTag}</span>}
+                <span>Started: {formatDate(runDetail.startedAt)}</span>
+              </div>
+            </div>
+          )}
+
+          {tab === 'matrix' && <ApiConfusionMatrix matrix={runDetail.confusionMatrix} />}
+
+          {tab === 'failures' &&
+            (failureCount === 0 ? (
+              <div className="flex flex-col items-center justify-center h-32 text-text-muted">
+                <span className="text-2xl mb-2">🎉</span>
+                <p className="text-sm">All cases passed — no failures!</p>
+              </div>
+            ) : (
+              <FailuresTable failures={runDetail.failures} />
+            ))}
+        </>
+      )}
     </div>
   );
 }
@@ -324,7 +446,7 @@ function DatasetEditor({
   };
 
   const parseYamlToCases = (
-    yaml: string,
+    yaml: string
   ): Array<{
     input: string;
     expectedAgent: string;
@@ -332,40 +454,19 @@ function DatasetEditor({
     tags: string[];
   }> => {
     try {
-      // Try parsing as object with test_cases key
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(
-          JSON.stringify(
-            // Simple YAML parsing: extract entries manually
-            null,
-          ),
-        );
-      } catch {
-        // ignore
-      }
-      // Use regex-based extraction for YAML since we don't have a YAML parser in the browser
+      // Regex-based extraction for YAML (no YAML parser in browser)
       const entries: Array<{
         input: string;
         expectedAgent: string;
         expectedMode: string;
         tags: string[];
       }> = [];
-      // Split on "- input:" to get individual entries
       const blocks = yaml.split(/(?=- input:)/);
       for (const block of blocks) {
-        const inputMatch = block.match(
-          /- input:\s*"?([^"\n]+)"?/,
-        );
-        const agentMatch = block.match(
-          /expected_agent:\s*"?([^"\n]+)"?/,
-        );
-        const modeMatch = block.match(
-          /expected_mode:\s*"?([^"\n]+)"?/,
-        );
-        const tagsMatch = block.match(
-          /tags:\s*\[([^\]]*)\]/,
-        );
+        const inputMatch = block.match(/- input:\s*"?([^"\n]+)"?/);
+        const agentMatch = block.match(/expected_agent:\s*"?([^"\n]+)"?/);
+        const modeMatch = block.match(/expected_mode:\s*"?([^"\n]+)"?/);
+        const tagsMatch = block.match(/tags:\s*\[([^\]]*)\]/);
         if (inputMatch) {
           entries.push({
             input: inputMatch[1].trim(),
@@ -459,7 +560,7 @@ function DatasetEditor({
                       expectedAgent: c.expectedAgent,
                       expectedMode: c.expectedMode,
                       tags: c.tags.join(', '),
-                    })),
+                    }))
                   );
                 }
                 setYamlMode(false);
@@ -490,24 +591,24 @@ function DatasetEditor({
       </div>
 
       <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-xs text-text-muted mb-1">Name</label>
+        <label className="block">
+          <span className="block text-xs text-text-muted mb-1">Name</span>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g., Core Routing Tests"
             className="w-full px-3 py-2 rounded-lg border border-border-default bg-background-default text-text-default text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
-        </div>
-        <div>
-          <label className="block text-xs text-text-muted mb-1">Description</label>
+        </label>
+        <label className="block">
+          <span className="block text-xs text-text-muted mb-1">Description</span>
           <input
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Optional description"
             className="w-full px-3 py-2 rounded-lg border border-border-default bg-background-default text-text-default text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
-        </div>
+        </label>
       </div>
 
       {yamlMode ? (
@@ -579,16 +680,14 @@ function DatasetEditor({
 
 export default function DatasetsTab() {
   const [datasets, setDatasets] = useState<EvalDatasetSummary[]>([]);
-  const [runs, setRuns] = useState<RunSummary[]>([]);
+  const [runs, setRuns] = useState<EvalRunSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [editDataset, setEditDataset] = useState<EvalDataset | null>(null);
   const [runningDataset, setRunningDataset] = useState<string | null>(null);
-  const [activeRunResults, setActiveRunResults] = useState<{
-    results: RunResult[];
-    metrics: { accuracy: number; agentAccuracy: number; modeAccuracy: number; total: number };
-  } | null>(null);
+  const [activeRunDetail, setActiveRunDetail] = useState<EvalRunDetail | null>(null);
+  const [activeRunDatasetId, setActiveRunDatasetId] = useState<string | null>(null);
   const [view, setView] = useState<'datasets' | 'history'>('datasets');
 
   const fetchAll = useCallback(async () => {
@@ -596,7 +695,7 @@ export default function DatasetsTab() {
     try {
       const [dsResp, runsResp] = await Promise.all([listEvalDatasets(), listEvalRuns()]);
       setDatasets((dsResp.data as EvalDatasetSummary[]) ?? []);
-      setRuns((runsResp.data as RunSummary[]) ?? []);
+      setRuns((runsResp.data as EvalRunSummary[]) ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load data');
     } finally {
@@ -637,30 +736,16 @@ export default function DatasetsTab() {
 
   const handleRunEval = async (datasetId: string) => {
     setRunningDataset(datasetId);
+    setActiveRunDatasetId(datasetId);
+    setActiveRunDetail(null);
     setError(null);
     try {
       const resp = await runEval({ body: { datasetId } });
-      const run = resp.data as {
-        results: RunResult[];
-        metrics: {
-          overallAccuracy: number;
-          agentAccuracy: number;
-          modeAccuracy: number;
-          total: number;
-        };
-      };
-      setActiveRunResults({
-        results: run.results ?? [],
-        metrics: {
-          accuracy: run.metrics?.overallAccuracy ?? 0,
-          agentAccuracy: run.metrics?.agentAccuracy ?? 0,
-          modeAccuracy: run.metrics?.modeAccuracy ?? 0,
-          total: run.metrics?.total ?? 0,
-        },
-      });
-      await fetchAll(); // refresh runs list
+      setActiveRunDetail((resp.data as EvalRunDetail) ?? null);
+      await fetchAll();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Eval run failed');
+      setActiveRunDatasetId(null);
     } finally {
       setRunningDataset(null);
     }
@@ -679,12 +764,17 @@ export default function DatasetsTab() {
     );
   }
 
-  if (activeRunResults) {
+  if (activeRunDetail || activeRunDatasetId) {
     return (
       <RunDetailPanel
-        results={activeRunResults.results}
-        metrics={activeRunResults.metrics}
-        onClose={() => setActiveRunResults(null)}
+        runDetail={activeRunDetail}
+        isRunning={runningDataset !== null}
+        onClose={() => {
+          setActiveRunDetail(null);
+          setActiveRunDatasetId(null);
+        }}
+        onRerun={activeRunDatasetId ? () => handleRunEval(activeRunDatasetId) : undefined}
+        onEdit={activeRunDatasetId ? () => handleEdit(activeRunDatasetId) : undefined}
       />
     );
   }
@@ -832,13 +922,13 @@ export default function DatasetsTab() {
                 <div className="flex items-center gap-3">
                   <StatusBadge status={run.status} />
                   <span className="text-text-default font-medium">{run.datasetName}</span>
-                  <AccuracyBadge value={run.accuracy} />
+                  <AccuracyBadge value={run.overallAccuracy} />
                   <span className="text-xs text-text-muted">{run.totalCases} cases</span>
                 </div>
                 <div className="flex gap-4 mt-1 text-xs text-text-muted">
                   <span>Agent: {formatPercent(run.agentAccuracy)}</span>
                   <span>Mode: {formatPercent(run.modeAccuracy)}</span>
-                  <span>{formatDate(run.createdAt)}</span>
+                  <span>{formatDate(run.startedAt)}</span>
                 </div>
               </div>
             </div>

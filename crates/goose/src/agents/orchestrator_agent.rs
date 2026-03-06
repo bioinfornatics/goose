@@ -215,6 +215,36 @@ impl OrchestratorAgent {
     pub async fn route(&self, user_message: &str) -> OrchestratorPlan {
         let span = Span::current();
 
+        // Layer 0-1: Try fast-path (feedback + high-confidence semantic)
+        // This avoids the LLM call entirely for clear-cut routing decisions.
+        if let Some(fast_decision) = self.intent_router.route_fast(user_message) {
+            span.record("orchestrator.strategy", "fast");
+            span.record("orchestrator.is_compound", false);
+            span.record("orchestrator.task_count", 1i64);
+            span.record(
+                "orchestrator.primary_agent",
+                fast_decision.agent_name.as_str(),
+            );
+            span.record(
+                "orchestrator.primary_mode",
+                fast_decision.mode_slug.as_str(),
+            );
+            span.record(
+                "orchestrator.primary_confidence",
+                fast_decision.confidence as f64,
+            );
+            info!(
+                agent = %fast_decision.agent_name,
+                mode = %fast_decision.mode_slug,
+                confidence = %fast_decision.confidence,
+                reasoning = %fast_decision.reasoning,
+                "Fast-path routing (feedback or high-confidence semantic)"
+            );
+            return OrchestratorPlan::single(fast_decision);
+        }
+
+        // Layer 2: LLM orchestrator — the primary brain for all ambiguous routing.
+        // This is the MAIN routing path. It understands intent, not just keywords.
         if is_orchestrator_enabled() {
             match self.route_with_llm(user_message).await {
                 Ok(plan) => {
@@ -249,16 +279,17 @@ impl OrchestratorAgent {
                     return plan;
                 }
                 Err(e) => {
-                    span.record("orchestrator.strategy", "keyword_fallback");
-                    warn!(error = %e, "LLM routing failed, falling back to keyword matching");
+                    span.record("orchestrator.strategy", "semantic_fallback");
+                    warn!(error = %e, "LLM routing failed, falling back to semantic + default");
                 }
             }
         } else {
-            span.record("orchestrator.strategy", "keyword");
+            span.record("orchestrator.strategy", "semantic_only");
         }
 
-        // Fallback to keyword-based IntentRouter (always single-task)
-        let decision = self.intent_router.route(user_message);
+        // Layer 3: Fallback — semantic (lower threshold) + default agent.
+        // Only reached when LLM is disabled or fails.
+        let decision = self.intent_router.route_fallback(user_message);
         span.record("orchestrator.is_compound", false);
         span.record("orchestrator.task_count", 1i64);
         span.record("orchestrator.primary_agent", decision.agent_name.as_str());

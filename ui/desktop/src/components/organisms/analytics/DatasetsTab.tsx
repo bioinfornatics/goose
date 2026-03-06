@@ -516,7 +516,7 @@ export default function DatasetsTab() {
 
   const handleEdit = async (id: string) => {
     try {
-      const resp = await getEvalDataset({ path: { dataset_id: id } });
+      const resp = await getEvalDataset({ path: { id } });
       setEditDataset(resp.data as EvalDataset);
       setEditing(id);
     } catch (e) {
@@ -528,7 +528,7 @@ export default function DatasetsTab() {
     if (editing === 'new') {
       await createEvalDataset({ body: req });
     } else if (editing) {
-      await updateEvalDataset({ path: { dataset_id: editing }, body: req });
+      await updateEvalDataset({ path: { id: editing }, body: req });
     }
     setEditing(null);
     setEditDataset(null);
@@ -537,7 +537,7 @@ export default function DatasetsTab() {
 
   const handleDelete = async (id: string) => {
     if (!confirm('Delete this dataset? This cannot be undone.')) return;
-    await deleteEvalDataset({ path: { dataset_id: id } });
+    await deleteEvalDataset({ path: { id } });
     await fetchAll();
   };
 
@@ -545,7 +545,7 @@ export default function DatasetsTab() {
     setRunningDataset(datasetId);
     setError(null);
     try {
-      const resp = await runEval({ body: { dataset_id: datasetId } });
+      const resp = await runEval({ body: { datasetId } });
       const run = resp.data as {
         results: RunResult[];
         metrics: {

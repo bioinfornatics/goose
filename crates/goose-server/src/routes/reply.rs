@@ -397,7 +397,16 @@ pub async fn reply(
                 .join(" ");
 
             if !user_text.is_empty() {
-                let provider = Arc::new(tokio::sync::Mutex::new(agent.provider().await.ok()));
+                let provider_result = agent.provider().await;
+                match &provider_result {
+                    Ok(_) => {
+                        tracing::info!("Orchestrator routing: provider available for LLM routing")
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Orchestrator routing: provider NOT available — LLM routing will be skipped, falling back to semantic-only")
+                    }
+                }
+                let provider = Arc::new(tokio::sync::Mutex::new(provider_result.ok()));
                 let mut router = OrchestratorAgent::new(provider);
 
                 state

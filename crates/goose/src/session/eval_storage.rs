@@ -521,6 +521,7 @@ impl<'a> EvalStorage<'a> {
                 input: c.input.clone(),
                 expected_agent: c.expected_agent.clone(),
                 expected_mode: c.expected_mode.clone(),
+                also_acceptable: Vec::new(),
                 tags: c.tags.clone(),
             })
             .collect();

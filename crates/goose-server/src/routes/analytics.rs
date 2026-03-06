@@ -176,7 +176,7 @@ async fn eval_routing(
     let router = IntentRouter::new();
     let results = evaluate(&router, &test_set);
     let metrics = compute_metrics(&results);
-    let report = goose::agents::routing_eval::format_report(&metrics, &results);
+    let report = goose::agents::routing_eval::format_report(&results, &metrics);
 
     Ok(Json(EvalResponse {
         metrics,

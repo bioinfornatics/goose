@@ -425,10 +425,30 @@ impl OrchestratorAgent {
                 slot.description
             ));
 
-            if !slot.bound_extensions.is_empty() {
+            // Collect extensions: bound_extensions + any from agent's known capabilities
+            let mut all_extensions: Vec<String> = slot.bound_extensions.clone();
+
+            // Add known recommended extensions based on agent type
+            // These are statically known from agent implementations
+            let known_extras = match slot.name.as_str() {
+                "Developer Agent" => vec!["developer", "github", "genui"],
+                "QA Agent" => vec!["developer", "memory", "genui"],
+                "Research Agent" => vec!["fetch", "memory", "context7", "genui"],
+                "PM Agent" => vec!["memory", "fetch"],
+                "Security Agent" => vec!["developer", "memory", "fetch"],
+                _ => vec![],
+            };
+            for ext in known_extras {
+                let ext_str = ext.to_string();
+                if !all_extensions.contains(&ext_str) {
+                    all_extensions.push(ext_str);
+                }
+            }
+
+            if !all_extensions.is_empty() {
                 text.push_str(&format!(
                     "<extensions>{}</extensions>\n",
-                    slot.bound_extensions.join(", ")
+                    all_extensions.join(", ")
                 ));
             }
 

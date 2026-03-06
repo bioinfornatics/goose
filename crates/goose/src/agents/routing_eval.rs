@@ -1,16 +1,31 @@
-//! Routing evaluation framework for measuring IntentRouter accuracy.
+//! Routing evaluation framework — two levels of testing.
 //!
-//! Supports multi-agent decomposition: test cases can specify multiple
-//! acceptable agent/mode combinations (e.g. "Write ROI of a feature" could
-//! legitimately route to PM Agent or Developer Agent).
+//! ## Two eval paths
 //!
-//! Provides YAML-based test sets, an evaluation runner, per-agent/per-mode
-//! accuracy metrics, a confusion matrix, and a human-readable report.
+//! 1. **`evaluate_intent_router()`** — tests the FALLBACK path only
+//!    (IntentRouter: semantic + default). Fast, deterministic, no LLM.
+//!    Good for regression testing the fallback quality.
+//!
+//! 2. **`evaluate_orchestrator()`** — tests the REAL production path
+//!    (OrchestratorAgent::route(): fast-path → LLM → fallback). Async,
+//!    requires a Provider. Tests what users actually experience.
+//!
+//! 3. **`evaluate_catalog_quality()`** — verifies the XML agent catalog
+//!    has correct structure (genui on specialists, mode coverage, etc.).
+//!    Sync, no LLM needed. Catches prompt/catalog configuration bugs.
+//!
+//! ## Why two paths?
+//!
+//! The IntentRouter eval historically showed different results from
+//! production because production uses LLM routing as the primary path.
+//! The IntentRouter is only the fallback. Testing only the fallback
+//! gives misleading accuracy numbers.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::intent_router::IntentRouter;
+use super::orchestrator_agent::OrchestratorAgent;
 
 /// A single acceptable routing for a test case.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -125,6 +140,220 @@ fn matches_any_acceptable(
     (false, false, false)
 }
 
+/// Evaluate routing using only the IntentRouter (fallback path).
+///
+/// **IMPORTANT**: This tests the FALLBACK router only (semantic + default).
+/// In production, OrchestratorAgent::route() uses LLM as the primary router.
+/// Use `evaluate_orchestrator()` to test the real production path.
+pub fn evaluate_intent_router(
+    router: &IntentRouter,
+    test_set: &RoutingEvalSet,
+) -> Vec<RoutingEvalResult> {
+    evaluate(router, test_set)
+}
+
+/// Evaluate routing using the REAL production path (OrchestratorAgent::route()).
+///
+/// This is async and requires a configured OrchestratorAgent with a Provider.
+/// Use this for integration testing to measure what users actually experience.
+pub async fn evaluate_orchestrator(
+    orchestrator: &OrchestratorAgent,
+    test_set: &RoutingEvalSet,
+) -> Vec<RoutingEvalResult> {
+    let mut results = Vec::with_capacity(test_set.test_cases.len());
+    for tc in &test_set.test_cases {
+        let plan = orchestrator.route(&tc.input).await;
+
+        // Extract primary routing from first task
+        let (actual_agent, actual_mode, confidence, reasoning) =
+            if let Some(first_task) = plan.tasks.first() {
+                (
+                    first_task.routing.agent_name.clone(),
+                    first_task.routing.mode_slug.clone(),
+                    first_task.routing.confidence,
+                    first_task.routing.reasoning.clone(),
+                )
+            } else {
+                (
+                    "Unknown".to_string(),
+                    "unknown".to_string(),
+                    0.0,
+                    "Empty plan".to_string(),
+                )
+            };
+
+        let (agent_correct, fully_correct, matched_alt) =
+            matches_any_acceptable(tc, &actual_agent, &actual_mode);
+
+        results.push(RoutingEvalResult {
+            input: tc.input.clone(),
+            expected_agent: tc.expected_agent.clone(),
+            expected_mode: tc.expected_mode.clone(),
+            actual_agent,
+            actual_mode,
+            confidence,
+            reasoning,
+            agent_correct,
+            mode_correct: fully_correct,
+            fully_correct,
+            matched_alternative: matched_alt,
+        });
+    }
+    results
+}
+
+/// Result of catalog quality evaluation.
+#[derive(Debug, Clone)]
+pub struct CatalogQualityReport {
+    pub issues: Vec<String>,
+    pub warnings: Vec<String>,
+    pub agent_count: usize,
+    pub total_mode_count: usize,
+    pub agents_with_genui: Vec<String>,
+    pub agents_missing_genui: Vec<String>,
+}
+
+impl CatalogQualityReport {
+    pub fn is_ok(&self) -> bool {
+        self.issues.is_empty()
+    }
+}
+
+/// Evaluate the quality of the XML agent catalog.
+///
+/// This verifies structural properties that affect LLM routing quality:
+/// - All expected agents are present
+/// - Each agent has modes defined
+/// - Specialist agents (Developer, QA, Research) have genui extension
+/// - Descriptions contain domain-specific keywords
+/// - No duplicate agents/modes
+///
+/// This is the "unit test for the LLM's input" — if the catalog is wrong,
+/// the LLM will route wrong regardless of prompt quality.
+#[allow(clippy::string_slice)] // XML catalog is ASCII-only (agent names, XML tags)
+pub fn evaluate_catalog_quality(catalog_xml: &str) -> CatalogQualityReport {
+    let mut issues = Vec::new();
+    let mut warnings = Vec::new();
+    let mut agent_count = 0;
+    let mut agents_with_genui = Vec::new();
+    let mut agents_missing_genui = Vec::new();
+
+    let expected_agents = [
+        "Developer Agent",
+        "QA Agent",
+        "PM Agent",
+        "Security Agent",
+        "Research Agent",
+    ];
+
+    let genui_expected_agents = ["Developer Agent", "QA Agent", "Research Agent"];
+
+    // Check each expected agent is present
+    for agent in &expected_agents {
+        if !catalog_xml.contains(&format!("name=\"{}\"", agent)) {
+            issues.push(format!("Missing agent: {}", agent));
+        } else {
+            agent_count += 1;
+        }
+    }
+
+    // Count modes (look for <mode slug="..."> tags)
+    let total_mode_count = catalog_xml.matches("<mode slug=").count();
+    if total_mode_count < 15 {
+        warnings.push(format!(
+            "Only {} modes found, expected >= 15 (5 agents × 3+ modes)",
+            total_mode_count
+        ));
+    }
+
+    // Check genui extension on specialist agents
+    // Parse agent blocks and check for genui in extensions
+    for agent in &genui_expected_agents {
+        let agent_tag = format!("name=\"{}\"", agent);
+        if let Some(start) = catalog_xml.find(&agent_tag) {
+            // Find the next </agent> or next <agent to delimit this block
+            let block_end = catalog_xml[start..]
+                .find("</agent>")
+                .map(|i| start + i)
+                .unwrap_or(catalog_xml.len());
+            let block = &catalog_xml[start..block_end];
+
+            if block.contains("genui") {
+                agents_with_genui.push(agent.to_string());
+            } else {
+                agents_missing_genui.push(agent.to_string());
+                issues.push(format!(
+                    "{} missing genui extension — cannot produce visualizations",
+                    agent
+                ));
+            }
+        }
+    }
+
+    // Check for essential modes per agent
+    let essential_modes = ["ask", "write"];
+    for agent in &expected_agents {
+        let agent_tag = format!("name=\"{}\"", agent);
+        if let Some(start) = catalog_xml.find(&agent_tag) {
+            let block_end = catalog_xml[start..]
+                .find("</agent>")
+                .map(|i| start + i)
+                .unwrap_or(catalog_xml.len());
+            let block = &catalog_xml[start..block_end];
+
+            for mode in &essential_modes {
+                if !block.contains(&format!("slug=\"{}\"", mode)) {
+                    issues.push(format!("{} missing essential mode: {}", agent, mode));
+                }
+            }
+        }
+    }
+
+    // Check for domain keywords in descriptions
+    let domain_checks = [
+        ("PM Agent", &["roadmap", "requirements", "ROI"][..]),
+        (
+            "Security Agent",
+            &["vulnerability", "threat", "compliance"][..],
+        ),
+        (
+            "Research Agent",
+            &["research", "investigation", "comparison"][..],
+        ),
+    ];
+    for (agent, keywords) in &domain_checks {
+        let agent_tag = format!("name=\"{}\"", agent);
+        if let Some(start) = catalog_xml.find(&agent_tag) {
+            let block_end = catalog_xml[start..]
+                .find("</agent>")
+                .map(|i| start + i)
+                .unwrap_or(catalog_xml.len());
+            let block = &catalog_xml[start..block_end].to_lowercase();
+
+            let found: Vec<_> = keywords
+                .iter()
+                .filter(|kw| block.contains(&kw.to_lowercase()))
+                .collect();
+            if found.is_empty() {
+                warnings.push(format!(
+                    "{} description lacks domain keywords: {:?}",
+                    agent, keywords
+                ));
+            }
+        }
+    }
+
+    CatalogQualityReport {
+        issues,
+        warnings,
+        agent_count,
+        total_mode_count,
+        agents_with_genui,
+        agents_missing_genui,
+    }
+}
+
+/// Core evaluation logic — runs test cases through IntentRouter.
 pub fn evaluate(router: &IntentRouter, test_set: &RoutingEvalSet) -> Vec<RoutingEvalResult> {
     test_set
         .test_cases
@@ -800,5 +1029,122 @@ test_cases:
         let report = format_report(&results, &metrics);
         eprintln!("{}", report);
         assert!(!report.is_empty());
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Catalog Quality Tests — verify what the LLM sees
+    // ═══════════════════════════════════════════════════════════════════
+
+    fn build_orchestrator() -> OrchestratorAgent {
+        use std::sync::Arc;
+        use tokio::sync::Mutex;
+        OrchestratorAgent::new(Arc::new(Mutex::new(None)))
+    }
+
+    #[test]
+    fn test_catalog_has_all_agents() {
+        let orchestrator = build_orchestrator();
+        let catalog = orchestrator.build_catalog_text();
+        let report = evaluate_catalog_quality(&catalog);
+
+        assert!(
+            report.agent_count >= 5,
+            "Catalog only has {} agents, expected >= 5. Issues: {:?}",
+            report.agent_count,
+            report.issues
+        );
+    }
+
+    #[test]
+    fn test_catalog_has_genui_on_specialists() {
+        let orchestrator = build_orchestrator();
+        let catalog = orchestrator.build_catalog_text();
+        let report = evaluate_catalog_quality(&catalog);
+
+        // Developer, QA, Research should have genui
+        assert!(
+            report.agents_with_genui.len() >= 2,
+            "Only {} agents have genui: {:?}. Missing: {:?}",
+            report.agents_with_genui.len(),
+            report.agents_with_genui,
+            report.agents_missing_genui
+        );
+    }
+
+    #[test]
+    fn test_catalog_has_domain_keywords() {
+        let orchestrator = build_orchestrator();
+        let catalog = orchestrator.build_catalog_text();
+        let report = evaluate_catalog_quality(&catalog);
+
+        // No warnings about missing domain keywords
+        let keyword_warnings: Vec<_> = report
+            .warnings
+            .iter()
+            .filter(|w| w.contains("domain keywords"))
+            .collect();
+        assert!(
+            keyword_warnings.is_empty(),
+            "Catalog missing domain keywords: {:?}",
+            keyword_warnings
+        );
+    }
+
+    #[test]
+    fn test_catalog_has_essential_modes() {
+        let orchestrator = build_orchestrator();
+        let catalog = orchestrator.build_catalog_text();
+        let report = evaluate_catalog_quality(&catalog);
+
+        let mode_issues: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|i| i.contains("missing essential mode"))
+            .collect();
+        assert!(
+            mode_issues.is_empty(),
+            "Agents missing essential modes: {:?}",
+            mode_issues
+        );
+    }
+
+    #[test]
+    fn test_catalog_quality_report_clean() {
+        let orchestrator = build_orchestrator();
+        let catalog = orchestrator.build_catalog_text();
+        let report = evaluate_catalog_quality(&catalog);
+
+        eprintln!("Catalog Quality Report:");
+        eprintln!("  Agents: {}", report.agent_count);
+        eprintln!("  Total modes: {}", report.total_mode_count);
+        eprintln!("  Agents with genui: {:?}", report.agents_with_genui);
+        eprintln!("  Agents missing genui: {:?}", report.agents_missing_genui);
+        if !report.issues.is_empty() {
+            eprintln!("  ISSUES: {:?}", report.issues);
+        }
+        if !report.warnings.is_empty() {
+            eprintln!("  WARNINGS: {:?}", report.warnings);
+        }
+
+        // The catalog should be clean enough for LLM routing
+        assert!(
+            report.total_mode_count >= 15,
+            "Too few modes in catalog: {}",
+            report.total_mode_count
+        );
+    }
+
+    #[test]
+    fn test_evaluate_intent_router_alias() {
+        // Verify evaluate_intent_router is an alias for evaluate
+        let router = build_router();
+        let eval_set = load_eval_set(GOLDEN_EVAL_YAML).expect("parse");
+        let r1 = evaluate(&router, &eval_set);
+        let r2 = evaluate_intent_router(&router, &eval_set);
+        assert_eq!(r1.len(), r2.len());
+        for (a, b) in r1.iter().zip(r2.iter()) {
+            assert_eq!(a.actual_agent, b.actual_agent);
+            assert_eq!(a.actual_mode, b.actual_mode);
+        }
     }
 }

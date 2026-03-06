@@ -9,13 +9,18 @@
 </agent_catalog>
 
 <routing_rules>
-<agent_selection title="WHO does the work">
-- Goose Agent — General-purpose: conversations, explanations, file exploration, visualization, app creation
+<agent_selection title="WHO does the work — domain expertise is the primary signal">
+- Goose Agent — General-purpose: conversations, explanations, file exploration, app creation
 - Developer Agent — Code: writing, debugging, fixing, deploying, CI/CD, DevOps, infrastructure
 - QA Agent — Quality: test design, test coverage, bug investigation, code quality review
-- PM Agent — Product: requirements, user stories, roadmaps, prioritization, stakeholder analysis
+- PM Agent — Product: requirements, user stories, roadmaps, prioritization, ROI, KPIs, stakeholder analysis
 - Security Agent — Security: vulnerability analysis, threat modeling, compliance, penetration testing
 - Research Agent — Research: technology comparison, SOTA analysis, documentation synthesis
+
+IMPORTANT: All specialist agents have visualization/charting tools available.
+When a request involves domain expertise (ROI, security metrics, test results, code analysis),
+route to the specialist agent for that domain — NOT to Goose Agent.
+Goose Agent is for general-purpose tasks with no clear domain.
 </agent_selection>
 
 <mode_selection title="HOW to behave">
@@ -38,8 +43,12 @@
 3. Create, implement, fix, or modify → write mode
 4. Review, audit, or evaluate → review mode
 5. Bug reports, errors, or diagnostics → Developer Agent debug mode
-6. Charts, dashboards, or visualizations → prefer a mode whose use_when mentions visualize/chart/dashboard
+6. DOMAIN FIRST, then format: "Create a chart about ROI" → PM Agent (ROI is PM domain),
+   "Visualize test coverage" → QA Agent (test coverage is QA domain),
+   "Dashboard of vulnerabilities" → Security Agent (security domain).
+   Only use Goose Agent for visualization when there is NO clear domain specialization.
 7. Prefer specialist agents over Goose Agent when the domain is clear.
+   The domain of the CONTENT being worked on determines the agent, not the output format.
 8. When ambiguous between modes, prefer the safest non-destructive mode (ask > plan > review > write).
 </heuristics>
 </routing_rules>

@@ -30,6 +30,10 @@ use crate::state::AppState;
 #[derive(Deserialize, ToSchema)]
 struct InspectRequest {
     message: String,
+    /// Optional session ID to get the LLM provider from an active session.
+    /// If provided, enables full LLM-based routing (matching production behavior).
+    /// If omitted, falls back to semantic-only routing.
+    session_id: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -121,7 +125,31 @@ async fn inspect_routing(
 
     // Use OrchestratorAgent for routing (matches production /reply path).
     // This gives us the full 3-layer routing: feedback → semantic fast-path → LLM → fallback.
-    let provider = Arc::new(tokio::sync::Mutex::new(None));
+    // If a session_id is provided, get the LLM provider from that session's agent
+    // so the LLM orchestrator can classify the message (same as /reply does).
+    // Without a session_id, falls back to semantic-only routing (no LLM).
+    let provider_arc: Option<Arc<dyn goose::providers::base::Provider>> =
+        if let Some(ref sid) = req.session_id {
+            match state.get_agent(sid.clone()).await {
+                Ok(agent) => {
+                    let mut p = agent.provider().await.ok();
+                    if p.is_none() {
+                        if let Ok(session) =
+                            state.session_manager().get_session(sid, false).await
+                        {
+                            let _ = agent.restore_provider_from_session(&session).await;
+                            p = agent.provider().await.ok();
+                        }
+                    }
+                    p
+                }
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
+
+    let provider = Arc::new(tokio::sync::Mutex::new(provider_arc));
     let mut router = OrchestratorAgent::new(provider);
     state
         .agent_slot_registry

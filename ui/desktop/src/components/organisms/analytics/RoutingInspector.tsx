@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { listSessions } from '@/api';
 import { client } from '@/api/client.gen';
 
 interface ModeScoreView {
@@ -34,11 +35,34 @@ interface FlatScore {
   matchedKeywords: string[];
 }
 
-export default function RoutingInspector() {
+interface RoutingInspectorProps {
+  sessionId?: string;
+}
+
+export default function RoutingInspector({ sessionId: propSessionId }: RoutingInspectorProps = {}) {
   const [message, setMessage] = useState('');
   const [result, setResult] = useState<InspectResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resolvedSessionId, setResolvedSessionId] = useState<string | undefined>(propSessionId);
+
+  // Auto-detect the most recent session for LLM-based routing
+  useEffect(() => {
+    if (propSessionId) {
+      setResolvedSessionId(propSessionId);
+      return;
+    }
+    listSessions()
+      .then((resp) => {
+        const sessions = resp.data?.sessions;
+        if (sessions && sessions.length > 0) {
+          setResolvedSessionId(sessions[0].id);
+        }
+      })
+      .catch(() => {
+        // No sessions available — will fall back to semantic-only routing
+      });
+  }, [propSessionId]);
 
   const handleSubmit = async () => {
     if (!message.trim()) return;
@@ -61,7 +85,7 @@ export default function RoutingInspector() {
       const resp = await fetch(`${baseUrl}/analytics/routing/inspect`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ message: message.trim() }),
+        body: JSON.stringify({ message: message.trim(), session_id: resolvedSessionId }),
       });
       if (!resp.ok) {
         throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
@@ -91,7 +115,7 @@ export default function RoutingInspector() {
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-2">
+      <div className="flex gap-2 items-center">
         <input
           type="text"
           value={message}
@@ -108,6 +132,16 @@ export default function RoutingInspector() {
         >
           {loading ? 'Inspecting…' : 'Inspect'}
         </button>
+        <span
+          className={`text-xs px-2 py-1 rounded ${resolvedSessionId ? 'bg-background-success-muted text-text-default' : 'bg-background-warning-muted text-text-default'}`}
+          title={
+            resolvedSessionId
+              ? `Session: ${resolvedSessionId}`
+              : 'No session — semantic-only routing'
+          }
+        >
+          {resolvedSessionId ? '🧠 LLM' : '📊 Semantic'}
+        </span>
       </div>
 
       {error && (

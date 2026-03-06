@@ -508,9 +508,12 @@ impl<'a> EvalStorage<'a> {
 
     // ── Run eval ───────────────────────────────────────────────────
 
-    pub async fn run_eval(&self, req: RunEvalRequest) -> Result<EvalRunDetail> {
+    pub async fn run_eval(
+        &self,
+        req: RunEvalRequest,
+        router: &IntentRouter,
+    ) -> Result<EvalRunDetail> {
         let dataset = self.get_dataset(&req.dataset_id).await?;
-        let router = IntentRouter::new();
         let goose_version = env!("CARGO_PKG_VERSION").to_string();
 
         // Build eval set from stored cases
@@ -531,7 +534,7 @@ impl<'a> EvalStorage<'a> {
         };
 
         let start = std::time::Instant::now();
-        let results = routing_eval::evaluate(&router, &eval_set);
+        let results = routing_eval::evaluate(router, &eval_set);
         let metrics = routing_eval::compute_metrics(&results);
         let duration_ms = start.elapsed().as_millis() as i64;
 

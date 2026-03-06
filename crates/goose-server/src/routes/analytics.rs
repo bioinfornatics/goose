@@ -413,8 +413,17 @@ pub async fn run_eval(
         .await
         .map_err(|e| ErrorResponse::internal(e.to_string()))?;
     let store = EvalStorage::new(pool);
+
+    // Use OrchestratorAgent with configured slots (matches production routing)
+    let provider = Arc::new(tokio::sync::Mutex::new(None));
+    let mut router = OrchestratorAgent::new(provider);
+    state
+        .agent_slot_registry
+        .configure_orchestrator(&mut router)
+        .await;
+
     let run = store
-        .run_eval(req)
+        .run_eval(req, router.intent_router())
         .await
         .map_err(|e| ErrorResponse::internal(e.to_string()))?;
     Ok(Json(run))

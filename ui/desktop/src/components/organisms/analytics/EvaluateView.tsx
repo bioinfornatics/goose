@@ -4,30 +4,36 @@ import { PageHeader } from '@/components/molecules/design-system/page-header';
 import { TabBar } from '@/components/molecules/design-system/tab-bar';
 import DatasetsTab from './DatasetsTab';
 import EvalOverviewTab from './EvalOverviewTab';
-import EvalRunner from './EvalRunner';
 import RoutingInspector from './RoutingInspector';
-import RunHistoryTab from './RunHistoryTab';
-import TopicsTab from './TopicsTab';
+
+function ProductionPlaceholder() {
+  return (
+    <div className="text-center py-16">
+      <h3 className="text-lg font-semibold mb-2">🏭 Production Routing Capture</h3>
+      <p className="text-muted-foreground">
+        Coming soon — auto-capture routing decisions from real sessions.
+      </p>
+      <p className="text-muted-foreground">Flag misroutes to generate organic training data.</p>
+    </div>
+  );
+}
 
 const TAB_GROUPS = [
   {
     tabs: [
-      { id: 'overview', label: 'Overview' },
-      { id: 'datasets', label: 'Datasets' },
-      { id: 'runs', label: 'Run History' },
-      { id: 'topics', label: 'Topics' },
-      { id: 'inspector', label: 'Routing Inspector' },
-      { id: 'eval-runner', label: 'Eval Runner' },
+      { id: 'inspector', label: '🔍 Inspector' },
+      { id: 'datasets', label: '📋 Datasets & Runs' },
+      { id: 'dashboard', label: '📊 Dashboard' },
+      { id: 'production', label: '🏭 Production' },
     ],
   },
 ];
 
 const COMPONENTS: Record<string, React.FC> = {
-  overview: EvalOverviewTab,
-  datasets: DatasetsTab,
-  topics: TopicsTab,
   inspector: RoutingInspector,
-  'eval-runner': EvalRunner,
+  datasets: DatasetsTab,
+  dashboard: EvalOverviewTab,
+  production: ProductionPlaceholder,
 };
 
 type EvaluateLocationState = {
@@ -50,7 +56,7 @@ function getEvaluateState(state: unknown): EvaluateLocationState {
 export default function EvaluateView() {
   const location = useLocation();
   const evalState = useMemo(() => getEvaluateState(location.state), [location.state]);
-  const [activeTab, setActiveTab] = useState(evalState.tab || 'overview');
+  const [activeTab, setActiveTab] = useState(evalState.tab || 'inspector');
   const ActiveComponent = COMPONENTS[activeTab];
 
   return (
@@ -66,11 +72,7 @@ export default function EvaluateView() {
         />
       </div>
       <div className="flex-1 overflow-y-auto px-6 py-4">
-        {activeTab === 'runs' ? (
-          <RunHistoryTab initialRunId={evalState.runId} />
-        ) : (
-          ActiveComponent && <ActiveComponent />
-        )}
+        {ActiveComponent && <ActiveComponent />}
       </div>
     </div>
   );

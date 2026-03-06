@@ -1,0 +1,309 @@
+# Golden Routing Evaluation Dataset
+# Tests that the LLM orchestrator routes messages to the correct agent and mode.
+# Each test case includes primary expected routing and acceptable alternatives.
+#
+# Agents: Goose Agent, Developer Agent, QA Agent, PM Agent, Security Agent, Research Agent
+# Universal modes: ask, plan, write, review, debug
+# Goose-specific: app_maker, app_iterator, genui
+
+test_cases:
+
+  # ─────────────────────────────────────────────
+  # Developer Agent — coding, architecture, DevOps
+  # ─────────────────────────────────────────────
+
+  - input: "Write a Python function that sorts a list of dictionaries by a nested key"
+    expected_agent: "Developer Agent"
+    expected_mode: "write"
+    tags: ["coding", "python"]
+
+  - input: "Fix the null pointer exception in the UserService.java file"
+    expected_agent: "Developer Agent"
+    expected_mode: "debug"
+    tags: ["coding", "debug", "java"]
+
+  - input: "Review my pull request for the authentication module"
+    expected_agent: "Developer Agent"
+    expected_mode: "review"
+    tags: ["coding", "review"]
+
+  - input: "Design a microservices architecture for an e-commerce platform"
+    expected_agent: "Developer Agent"
+    expected_mode: "plan"
+    tags: ["architecture", "design"]
+
+  - input: "Set up a CI/CD pipeline with GitHub Actions for a Rust project"
+    expected_agent: "Developer Agent"
+    expected_mode: "write"
+    tags: ["devops", "ci-cd"]
+
+  - input: "How do I configure Nginx as a reverse proxy for my Node.js app?"
+    expected_agent: "Developer Agent"
+    expected_mode: "ask"
+    tags: ["devops", "infrastructure"]
+
+  - input: "Refactor this React component to use hooks instead of class components"
+    expected_agent: "Developer Agent"
+    expected_mode: "write"
+    tags: ["coding", "frontend", "react"]
+
+  - input: "Create a REST API endpoint for user registration with input validation"
+    expected_agent: "Developer Agent"
+    expected_mode: "write"
+    tags: ["coding", "backend", "api"]
+
+  - input: "Why is my Docker container running out of memory?"
+    expected_agent: "Developer Agent"
+    expected_mode: "debug"
+    tags: ["devops", "docker", "debug"]
+
+  - input: "Plan the database schema migration from PostgreSQL to MongoDB"
+    expected_agent: "Developer Agent"
+    expected_mode: "plan"
+    tags: ["architecture", "database"]
+
+  # ─────────────────────────────────────────────
+  # QA Agent — testing, quality, bug investigation
+  # ─────────────────────────────────────────────
+
+  - input: "Write unit tests for the payment processing module"
+    expected_agent: "QA Agent"
+    expected_mode: "write"
+    tags: ["testing", "unit-tests"]
+
+  - input: "Create a test strategy for the new checkout flow"
+    expected_agent: "QA Agent"
+    expected_mode: "plan"
+    tags: ["testing", "strategy"]
+
+  - input: "Our integration tests are flaky — 3 out of 10 runs fail randomly"
+    expected_agent: "QA Agent"
+    expected_mode: "debug"
+    tags: ["testing", "flaky-tests", "debug"]
+
+  - input: "Review the test coverage for the authentication module and identify gaps"
+    expected_agent: "QA Agent"
+    expected_mode: "review"
+    tags: ["testing", "coverage"]
+
+  - input: "What's the best approach for end-to-end testing a mobile app?"
+    expected_agent: "QA Agent"
+    expected_mode: "ask"
+    tags: ["testing", "e2e", "mobile"]
+
+  - input: "Investigate why the login test fails only on CI but passes locally"
+    expected_agent: "QA Agent"
+    expected_mode: "debug"
+    tags: ["testing", "ci", "debug"]
+
+  # ─────────────────────────────────────────────
+  # PM Agent — product, requirements, roadmaps
+  # ─────────────────────────────────────────────
+
+  - input: "Write a PRD for a new social login feature"
+    expected_agent: "PM Agent"
+    expected_mode: "write"
+    tags: ["product", "prd"]
+
+  - input: "Create a product roadmap for Q3 2025"
+    expected_agent: "PM Agent"
+    expected_mode: "plan"
+    tags: ["product", "roadmap"]
+
+  - input: "Prioritize these 10 feature requests using the RICE framework"
+    expected_agent: "PM Agent"
+    expected_mode: "write"
+    tags: ["product", "prioritization", "rice"]
+
+  - input: "Review these user stories for completeness and acceptance criteria"
+    expected_agent: "PM Agent"
+    expected_mode: "review"
+    tags: ["product", "user-stories"]
+
+  - input: "What's the difference between MoSCoW and RICE prioritization?"
+    expected_agent: "PM Agent"
+    expected_mode: "ask"
+    tags: ["product", "prioritization"]
+
+  - input: "Create a cost-benefit analysis for migrating to a new payment provider"
+    expected_agent: "PM Agent"
+    expected_mode: "write"
+    tags: ["product", "cost-benefit", "analysis"]
+
+  - input: "Define KPIs and OKRs for the new onboarding feature"
+    expected_agent: "PM Agent"
+    expected_mode: "write"
+    tags: ["product", "kpis", "okrs"]
+
+  - input: "Create a random chart showing ROI and KPI for a set of new features"
+    expected_agent: "PM Agent"
+    expected_mode: "write"
+    tags: ["product", "roi", "visualization"]
+
+  - input: "Plan a phased rollout strategy for the new pricing model"
+    expected_agent: "PM Agent"
+    expected_mode: "plan"
+    tags: ["product", "rollout", "strategy"]
+
+  - input: "Write release notes for version 2.5 targeting both technical and non-technical audiences"
+    expected_agent: "PM Agent"
+    expected_mode: "write"
+    tags: ["product", "release-notes"]
+
+  # ─────────────────────────────────────────────
+  # Security Agent — threats, vulnerabilities, compliance
+  # ─────────────────────────────────────────────
+
+  - input: "Perform a threat model for our user authentication system"
+    expected_agent: "Security Agent"
+    expected_mode: "write"
+    tags: ["security", "threat-model"]
+
+  - input: "Review this code for SQL injection vulnerabilities"
+    expected_agent: "Security Agent"
+    expected_mode: "review"
+    tags: ["security", "code-review", "sql-injection"]
+
+  - input: "Check our API endpoints for OWASP Top 10 compliance"
+    expected_agent: "Security Agent"
+    expected_mode: "review"
+    tags: ["security", "owasp", "compliance"]
+
+  - input: "How should we implement API key rotation?"
+    expected_agent: "Security Agent"
+    expected_mode: "ask"
+    tags: ["security", "api-keys"]
+
+  - input: "Plan a security audit for our microservices infrastructure"
+    expected_agent: "Security Agent"
+    expected_mode: "plan"
+    tags: ["security", "audit"]
+
+  - input: "Debug why our JWT tokens are being rejected after the cert rotation"
+    expected_agent: "Security Agent"
+    expected_mode: "debug"
+    tags: ["security", "jwt", "debug"]
+
+  # ─────────────────────────────────────────────
+  # Research Agent — investigation, comparison, explanation
+  # ─────────────────────────────────────────────
+
+  - input: "Compare Kubernetes vs Docker Swarm for container orchestration"
+    expected_agent: "Research Agent"
+    expected_mode: "write"
+    tags: ["research", "comparison", "infrastructure"]
+
+  - input: "Explain how Rust's borrow checker works"
+    expected_agent: "Research Agent"
+    expected_mode: "ask"
+    tags: ["research", "explanation", "rust"]
+
+  - input: "What's the current state of the art in LLM routing?"
+    expected_agent: "Research Agent"
+    expected_mode: "ask"
+    tags: ["research", "sota", "llm"]
+
+  - input: "Summarize the key findings from the latest OWASP report"
+    expected_agent: "Research Agent"
+    expected_mode: "write"
+    tags: ["research", "summary", "security"]
+
+  - input: "Benchmark React vs Svelte vs Vue for our use case"
+    expected_agent: "Research Agent"
+    expected_mode: "write"
+    tags: ["research", "benchmark", "frontend"]
+
+  - input: "Research the pros and cons of GraphQL vs REST for mobile APIs"
+    expected_agent: "Research Agent"
+    expected_mode: "write"
+    tags: ["research", "api", "comparison"]
+
+  # ─────────────────────────────────────────────
+  # Goose Agent — general, apps, conversations
+  # ─────────────────────────────────────────────
+
+  - input: "Hello, how are you today?"
+    expected_agent: "Goose Agent"
+    expected_mode: "ask"
+    tags: ["general", "greeting"]
+
+  - input: "What's the weather like in San Francisco?"
+    expected_agent: "Goose Agent"
+    expected_mode: "ask"
+    tags: ["general", "chitchat"]
+
+  - input: "Create an interactive dashboard app for tracking expenses"
+    expected_agent: "Goose Agent"
+    expected_mode: "app_maker"
+    tags: ["app", "genui"]
+
+  - input: "Build a simple todo list web application"
+    expected_agent: "Goose Agent"
+    expected_mode: "app_maker"
+    tags: ["app", "genui"]
+
+  - input: "Help me plan my weekend trip to New York"
+    expected_agent: "Goose Agent"
+    expected_mode: "plan"
+    tags: ["general", "planning"]
+
+  - input: "Summarize this long email thread for me"
+    expected_agent: "Goose Agent"
+    expected_mode: "ask"
+    tags: ["general", "summarization"]
+
+  # ─────────────────────────────────────────────
+  # Ambiguous / Cross-domain — tests routing intelligence
+  # ─────────────────────────────────────────────
+
+  - input: "Write a technical blog post about our new authentication system"
+    expected_agent: "Developer Agent"
+    expected_mode: "write"
+    also_acceptable:
+      - agent: "PM Agent"
+        mode: "write"
+      - agent: "Research Agent"
+        mode: "write"
+    tags: ["ambiguous", "writing", "technical"]
+
+  - input: "Review the performance of our API endpoints"
+    expected_agent: "Developer Agent"
+    expected_mode: "review"
+    also_acceptable:
+      - agent: "QA Agent"
+        mode: "review"
+    tags: ["ambiguous", "performance"]
+
+  - input: "Create a data visualization showing test coverage trends"
+    expected_agent: "QA Agent"
+    expected_mode: "write"
+    also_acceptable:
+      - agent: "PM Agent"
+        mode: "write"
+      - agent: "Goose Agent"
+        mode: "app_maker"
+    tags: ["ambiguous", "visualization", "testing"]
+
+  - input: "Plan the migration strategy for our legacy system"
+    expected_agent: "Developer Agent"
+    expected_mode: "plan"
+    also_acceptable:
+      - agent: "PM Agent"
+        mode: "plan"
+    tags: ["ambiguous", "migration", "planning"]
+
+  - input: "What security implications should we consider for the new feature?"
+    expected_agent: "Security Agent"
+    expected_mode: "ask"
+    also_acceptable:
+      - agent: "PM Agent"
+        mode: "ask"
+    tags: ["ambiguous", "security", "product"]
+
+  - input: "Debug why our deployment pipeline is failing on the staging environment"
+    expected_agent: "Developer Agent"
+    expected_mode: "debug"
+    also_acceptable:
+      - agent: "QA Agent"
+        mode: "debug"
+    tags: ["ambiguous", "devops", "debug"]

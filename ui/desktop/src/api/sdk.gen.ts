@@ -204,7 +204,7 @@ export const updateWorkingDir = <ThrowOnError extends boolean = false>(options: 
 });
 
 /**
- * ACP v0.2.0 GET /agents — one manifest per agent persona
+ * ACP v0.2.0 GET /agents — one manifest per agent persona (runtime-aware).
  */
 export const listAgents = <ThrowOnError extends boolean = false>(options?: Options<ListAgentsData, ThrowOnError>) => (options?.client ?? client).get<ListAgentsResponses, unknown, ThrowOnError>({ url: '/agents', ...options });
 
@@ -273,7 +273,7 @@ export const createSession = <ThrowOnError extends boolean = false>(options: Opt
 });
 
 /**
- * ACP v0.2.0 GET /agents/{name}
+ * ACP v0.2.0 GET /agents/{name} (runtime-aware).
  */
 export const getAgent = <ThrowOnError extends boolean = false>(options: Options<GetAgentData, ThrowOnError>) => (options.client ?? client).get<GetAgentResponses, GetAgentErrors, ThrowOnError>({ url: '/agents/{name}', ...options });
 

@@ -6,7 +6,6 @@ use axum::{
     Json, Router,
 };
 use goose::agents::{
-    intent_router::IntentRouter,
     orchestrator_agent::OrchestratorAgent,
     routing_eval::{
         compute_metrics, evaluate, load_eval_set, RoutingEvalMetrics, RoutingEvalResult,
@@ -206,14 +205,21 @@ async fn inspect_routing(
 }
 
 async fn eval_routing(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Json(req): Json<EvalRequest>,
 ) -> Result<Json<EvalResponse>, ErrorResponse> {
     let test_set = load_eval_set(&req.yaml)
         .map_err(|e| ErrorResponse::bad_request(format!("invalid eval YAML: {e}")))?;
 
-    let router = IntentRouter::new();
-    let results = evaluate(&router, &test_set);
+    // Use OrchestratorAgent with configured slots (matches production routing)
+    let provider = Arc::new(tokio::sync::Mutex::new(None));
+    let mut router = OrchestratorAgent::new(provider);
+    state
+        .agent_slot_registry
+        .configure_orchestrator(&mut router)
+        .await;
+
+    let results = evaluate(router.intent_router(), &test_set);
     let metrics = compute_metrics(&results);
     let report = goose::agents::routing_eval::format_report(&results, &metrics);
 
@@ -224,11 +230,10 @@ async fn eval_routing(
     }))
 }
 
-async fn catalog(State(_state): State<Arc<AppState>>) -> Json<CatalogResponse> {
-    let router = IntentRouter::new();
+async fn catalog(State(state): State<Arc<AppState>>) -> Json<CatalogResponse> {
+    let slots = state.agent_slot_registry.configured_slots().await;
 
-    let agents = router
-        .slots()
+    let agents = slots
         .iter()
         .map(|slot| CatalogAgent {
             name: slot.name.clone(),

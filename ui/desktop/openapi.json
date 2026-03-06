@@ -1014,7 +1014,7 @@
         "tags": [
           "ACP Discovery"
         ],
-        "summary": "ACP v0.2.0 GET /agents — one manifest per agent persona",
+        "summary": "ACP v0.2.0 GET /agents — one manifest per agent persona (runtime-aware).",
         "operationId": "list_agents",
         "responses": {
           "200": {
@@ -1385,7 +1385,7 @@
         "tags": [
           "ACP Discovery"
         ],
-        "summary": "ACP v0.2.0 GET /agents/{name}",
+        "summary": "ACP v0.2.0 GET /agents/{name} (runtime-aware).",
         "operationId": "get_agent",
         "parameters": [
           {

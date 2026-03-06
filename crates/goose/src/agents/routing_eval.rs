@@ -107,7 +107,13 @@ pub struct ConfusionEntry {
 }
 
 pub fn load_eval_set(yaml: &str) -> Result<RoutingEvalSet, serde_yaml::Error> {
-    serde_yaml::from_str(yaml)
+    // Accept both formats:
+    // 1. Struct with `test_cases` key: { test_cases: [...] }
+    // 2. Bare array of test cases: [...]
+    serde_yaml::from_str::<RoutingEvalSet>(yaml).or_else(|_| {
+        let cases: Vec<RoutingEvalCase> = serde_yaml::from_str(yaml)?;
+        Ok(RoutingEvalSet { test_cases: cases })
+    })
 }
 
 /// Check if the actual routing matches the primary or any alternative routing.

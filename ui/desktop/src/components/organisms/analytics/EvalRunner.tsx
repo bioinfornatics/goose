@@ -53,15 +53,26 @@ interface EvalResponse {
 
 const EXAMPLE_YAML = `# Eval test set — YAML format
 # Each entry has an input message and the expected routing
+# Use actual agent names: Goose Agent, Developer Agent, QA Agent, PM Agent, Security Agent, Research Agent
+# Use actual mode slugs: ask, plan, write, review, debug
 - input: "Write a Python script to sort a list"
-  expected_agent: developer
-  expected_mode: code
-- input: "Summarize this document for me"
-  expected_agent: default
-  expected_mode: chat
+  expected_agent: "Developer Agent"
+  expected_mode: write
+- input: "Hello, how are you?"
+  expected_agent: "Goose Agent"
+  expected_mode: ask
 - input: "Create a REST API with Express"
-  expected_agent: developer
-  expected_mode: code
+  expected_agent: "Developer Agent"
+  expected_mode: write
+- input: "Write user stories for the checkout feature"
+  expected_agent: "PM Agent"
+  expected_mode: write
+- input: "Scan this code for SQL injection vulnerabilities"
+  expected_agent: "Security Agent"
+  expected_mode: review
+- input: "Write integration tests for the payment gateway"
+  expected_agent: "QA Agent"
+  expected_mode: write
 `;
 
 export default function EvalRunner() {

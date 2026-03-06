@@ -323,20 +323,95 @@ function DatasetEditor({
     setRows(updated);
   };
 
+  const parseYamlToCases = (
+    yaml: string,
+  ): Array<{
+    input: string;
+    expectedAgent: string;
+    expectedMode: string;
+    tags: string[];
+  }> => {
+    try {
+      // Try parsing as object with test_cases key
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(
+          JSON.stringify(
+            // Simple YAML parsing: extract entries manually
+            null,
+          ),
+        );
+      } catch {
+        // ignore
+      }
+      // Use regex-based extraction for YAML since we don't have a YAML parser in the browser
+      const entries: Array<{
+        input: string;
+        expectedAgent: string;
+        expectedMode: string;
+        tags: string[];
+      }> = [];
+      // Split on "- input:" to get individual entries
+      const blocks = yaml.split(/(?=- input:)/);
+      for (const block of blocks) {
+        const inputMatch = block.match(
+          /- input:\s*"?([^"\n]+)"?/,
+        );
+        const agentMatch = block.match(
+          /expected_agent:\s*"?([^"\n]+)"?/,
+        );
+        const modeMatch = block.match(
+          /expected_mode:\s*"?([^"\n]+)"?/,
+        );
+        const tagsMatch = block.match(
+          /tags:\s*\[([^\]]*)\]/,
+        );
+        if (inputMatch) {
+          entries.push({
+            input: inputMatch[1].trim(),
+            expectedAgent: agentMatch ? agentMatch[1].trim() : '',
+            expectedMode: modeMatch ? modeMatch[1].trim() : '',
+            tags: tagsMatch
+              ? tagsMatch[1]
+                  .split(',')
+                  .map((t) => t.trim().replace(/"/g, ''))
+                  .filter(Boolean)
+              : [],
+          });
+        }
+      }
+      return entries;
+    } catch {
+      return [];
+    }
+  };
+
   const handleSave = async () => {
     setSaving(true);
     try {
-      const cases = rows
-        .filter((r) => r.input.trim())
-        .map((r) => ({
-          input: r.input.trim(),
-          expectedAgent: r.expectedAgent.trim(),
-          expectedMode: r.expectedMode.trim(),
-          tags: r.tags
-            .split(',')
-            .map((t) => t.trim())
-            .filter(Boolean),
-        }));
+      let cases: Array<{
+        input: string;
+        expectedAgent: string;
+        expectedMode: string;
+        tags: string[];
+      }>;
+
+      if (yamlMode && yamlText.trim()) {
+        // Parse YAML text back into cases
+        cases = parseYamlToCases(yamlText);
+      } else {
+        cases = rows
+          .filter((r) => r.input.trim())
+          .map((r) => ({
+            input: r.input.trim(),
+            expectedAgent: r.expectedAgent.trim(),
+            expectedMode: r.expectedMode.trim(),
+            tags: r.tags
+              .split(',')
+              .map((t) => t.trim())
+              .filter(Boolean),
+          }));
+      }
       await onSave({ name, description, cases });
     } finally {
       setSaving(false);
@@ -372,7 +447,26 @@ function DatasetEditor({
         <div className="flex gap-2">
           <button
             type="button"
-            onClick={generateYaml}
+            onClick={() => {
+              if (yamlMode) {
+                // Parse YAML back to table rows
+                const parsed = parseYamlToCases(yamlText);
+                if (parsed.length > 0) {
+                  setRows(
+                    parsed.map((c) => ({
+                      id: `row-${Date.now()}-${Math.random()}`,
+                      input: c.input,
+                      expectedAgent: c.expectedAgent,
+                      expectedMode: c.expectedMode,
+                      tags: c.tags.join(', '),
+                    })),
+                  );
+                }
+                setYamlMode(false);
+              } else {
+                generateYaml();
+              }
+            }}
             className="px-3 py-1.5 rounded border border-border-default text-text-default text-xs hover:bg-background-muted transition-colors"
           >
             {yamlMode ? 'Table View' : 'YAML View'}

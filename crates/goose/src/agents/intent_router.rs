@@ -424,6 +424,8 @@ impl IntentRouter {
     pub fn route(&self, user_message: &str) -> RoutingDecision {
         let span = Span::current();
 
+        debug!("IntentRouter::route() called directly (production code should prefer OrchestratorAgent::route)");
+
         let decision = if let Some(fast) = self.route_fast(user_message) {
             span.record("router.strategy", "fast");
             fast

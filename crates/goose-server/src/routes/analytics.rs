@@ -7,6 +7,7 @@ use axum::{
 };
 use goose::agents::{
     intent_router::IntentRouter,
+    orchestrator_agent::OrchestratorAgent,
     routing_eval::{
         compute_metrics, evaluate, load_eval_set, RoutingEvalMetrics, RoutingEvalResult,
     },
@@ -111,17 +112,27 @@ pub struct ListRunsQuery {
 // ── Routing Inspector endpoints ────────────────────────────────────
 
 async fn inspect_routing(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Json(req): Json<InspectRequest>,
 ) -> Result<Json<InspectResponse>, ErrorResponse> {
     if req.message.trim().is_empty() {
         return Err(ErrorResponse::bad_request("message must not be empty"));
     }
 
-    let router = IntentRouter::new();
-    let decision = router.route(&req.message);
+    // Use OrchestratorAgent for routing (matches production /reply path).
+    // This gives us the full 3-layer routing: feedback → semantic fast-path → LLM → fallback.
+    let provider = Arc::new(tokio::sync::Mutex::new(None));
+    let mut router = OrchestratorAgent::new(provider);
+    state
+        .agent_slot_registry
+        .configure_orchestrator(&mut router)
+        .await;
+
+    let plan = router.route(&req.message).await;
+    let decision = plan.primary_routing().clone();
 
     let all_scores = router
+        .intent_router()
         .slots()
         .iter()
         .map(|slot| {
@@ -129,7 +140,8 @@ async fn inspect_routing(
                 .modes
                 .iter()
                 .map(|mode| {
-                    let (score, matched) = router.score_mode_detail(&req.message, mode);
+                    let (score, matched) =
+                        router.intent_router().score_mode_detail(&req.message, mode);
                     ModeScoreView {
                         slug: mode.slug.clone(),
                         name: mode.name.clone(),
@@ -147,6 +159,7 @@ async fn inspect_routing(
         .collect();
 
     let mode_name = router
+        .intent_router()
         .slots()
         .iter()
         .find(|s| s.name == decision.agent_name)

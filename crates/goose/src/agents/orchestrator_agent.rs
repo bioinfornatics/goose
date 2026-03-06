@@ -173,6 +173,11 @@ impl OrchestratorAgent {
             .find(|s| s.name == agent_name)
     }
 
+    /// Read-only access to the inner IntentRouter (for scoring, slot inspection, etc.).
+    pub fn intent_router(&self) -> &IntentRouter {
+        &self.intent_router
+    }
+
     /// Expose the inner IntentRouter for state synchronization (enable/disable, extensions).
     pub fn intent_router_mut(&mut self) -> &mut IntentRouter {
         &mut self.intent_router

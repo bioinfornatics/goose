@@ -134,9 +134,7 @@ async fn inspect_routing(
                 Ok(agent) => {
                     let mut p = agent.provider().await.ok();
                     if p.is_none() {
-                        if let Ok(session) =
-                            state.session_manager().get_session(sid, false).await
-                        {
+                        if let Ok(session) = state.session_manager().get_session(sid, false).await {
                             let _ = agent.restore_provider_from_session(&session).await;
                             p = agent.provider().await.ok();
                         }

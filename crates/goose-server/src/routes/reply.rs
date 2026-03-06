@@ -849,6 +849,26 @@ pub async fn reply(
                         Ok(Some(Ok(AgentEvent::Message(message)))) => {
                             for content in &message.content {
                                 track_tool_telemetry(content, all_messages.messages());
+
+                                // Emit tool call activity events for the sidebar
+                                if let MessageContent::ToolRequest(tool_req) = content {
+                                    if let Ok(ref call) = tool_req.tool_call {
+                                        // Strip extension prefix (e.g. "apps__create_app" → "create_app")
+                                        let display_name = call.name
+                                            .split("__")
+                                            .last()
+                                            .unwrap_or(&call.name);
+                                        stream_activity(
+                                            &tx,
+                                            &cancel_token,
+                                            "tool",
+                                            serde_json::json!({
+                                                "phase": "tool",
+                                                "text": display_name,
+                                            }),
+                                        ).await;
+                                    }
+                                }
                             }
 
                             // Attach routing info to assistant messages for persistence

@@ -98,7 +98,7 @@ impl IntentRouter {
         let pm_modes = pm.to_agent_modes();
         slots.push(AgentSlot {
             name: "PM Agent".into(),
-            description: "Product manager for requirements gathering, user stories, PRDs, product requirements documents, roadmaps, release planning, prioritization frameworks like RICE MoSCoW, feature scoping, stakeholder communication, acceptance criteria, sprint planning, phased rollout strategy, competitive analysis from product perspective"
+            description: "Product manager for requirements gathering, user stories, PRDs, product requirements documents, roadmaps, release planning, prioritization frameworks like RICE MoSCoW, feature scoping, stakeholder communication, acceptance criteria, sprint planning, phased rollout strategy, competitive analysis from product perspective, ROI analysis, return on investment, cost-benefit analysis, business case, OKRs, KPIs, metrics definition, go-to-market strategy, feature prioritization, backlog grooming"
                 .into(),
             modes: pm_modes,
             default_mode: pm.default_mode().into(),
@@ -568,8 +568,23 @@ impl IntentRouter {
             .to_lowercase()
             .replace(|c: char| !c.is_alphanumeric() && c != ' ', "");
         let name_trimmed = name_clean.trim();
+
+        // Common verbs that are also mode names — these should have reduced weight
+        // because they appear in natural language without implying a specific agent.
+        // "Write ROI of a feature" doesn't mean "use Write mode" — it means PM work.
+        const COMMON_VERB_MODES: &[&str] = &["write", "review", "debug", "plan", "ask"];
+        let is_common_verb = COMMON_VERB_MODES
+            .iter()
+            .any(|v| name_trimmed.eq_ignore_ascii_case(v));
+
         if !name_trimmed.is_empty() && message_lower.contains(name_trimmed) {
-            score += 0.1;
+            if is_common_verb && total_matched == 0 {
+                // Mode name is a common verb and ONLY match — heavily penalize.
+                // "Write ROI" matching Write mode shouldn't win over PM's domain keywords.
+                score += 0.02;
+            } else {
+                score += 0.1;
+            }
             total_matched += 1;
         }
 
@@ -889,6 +904,34 @@ custom_modes:
             decision.reasoning
         );
         assert!(decision.confidence >= 0.9);
+    }
+
+    #[test]
+    fn test_write_roi_routes_to_pm_not_qa() {
+        let router = IntentRouter::new();
+        let decision = router.route("Write ROI of a feature");
+        // "ROI" is a PM domain term; "Write" is just a common verb.
+        // Should NOT route to QA Agent's Write mode.
+        assert_ne!(
+            decision.agent_name, "QA Agent",
+            "ROI analysis is PM work, not QA. Got: {} / {} ({})",
+            decision.agent_name, decision.mode_slug, decision.reasoning
+        );
+    }
+
+    #[test]
+    fn test_common_verb_penalty_does_not_affect_real_write() {
+        let router = IntentRouter::new();
+        let decision =
+            router.route("write unit tests for the authentication module and check coverage");
+        // "write unit tests" + "coverage" should still route to QA or Developer
+        assert!(
+            decision.agent_name == "QA Agent" || decision.agent_name == "Developer Agent",
+            "Writing unit tests should route to QA or Developer: {} / {} ({})",
+            decision.agent_name,
+            decision.mode_slug,
+            decision.reasoning
+        );
     }
 
     #[test]

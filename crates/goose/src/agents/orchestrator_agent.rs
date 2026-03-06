@@ -245,7 +245,20 @@ impl OrchestratorAgent {
 
         // Layer 2: LLM orchestrator — the primary brain for all ambiguous routing.
         // This is the MAIN routing path. It understands intent, not just keywords.
-        if is_orchestrator_enabled() {
+        let orchestrator_enabled = is_orchestrator_enabled();
+        let provider_available = {
+            let guard = self.provider.lock().await;
+            guard.is_some()
+        };
+        info!(
+            orchestrator_enabled,
+            provider_available, "Orchestrator routing: checking LLM availability"
+        );
+
+        if orchestrator_enabled {
+            if !provider_available {
+                warn!("Orchestrator enabled but provider is None — LLM routing will be skipped");
+            }
             match self.route_with_llm(user_message).await {
                 Ok(plan) => {
                     let primary = plan.primary_routing();

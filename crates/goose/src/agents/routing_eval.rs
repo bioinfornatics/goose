@@ -1141,6 +1141,81 @@ test_cases:
     }
 
     #[test]
+    fn test_load_eval_set_bare_array_format() {
+        let yaml = r#"
+- input: "Write a Python script"
+  expected_agent: "Developer Agent"
+  expected_mode: "write"
+- input: "Plan my roadmap"
+  expected_agent: "PM Agent"
+  expected_mode: "plan"
+"#;
+        let result = load_eval_set(yaml);
+        assert!(
+            result.is_ok(),
+            "Bare array format should parse: {:?}",
+            result.err()
+        );
+        let eval_set = result.unwrap();
+        assert_eq!(eval_set.test_cases.len(), 2);
+        assert_eq!(eval_set.test_cases[0].input, "Write a Python script");
+        assert_eq!(eval_set.test_cases[0].expected_agent, "Developer Agent");
+        assert_eq!(eval_set.test_cases[1].expected_agent, "PM Agent");
+    }
+
+    #[test]
+    fn test_load_eval_set_struct_format() {
+        let yaml = r#"
+test_cases:
+  - input: "Write a Python script"
+    expected_agent: "Developer Agent"
+    expected_mode: "write"
+  - input: "Plan my roadmap"
+    expected_agent: "PM Agent"
+    expected_mode: "plan"
+"#;
+        let result = load_eval_set(yaml);
+        assert!(
+            result.is_ok(),
+            "Struct format should parse: {:?}",
+            result.err()
+        );
+        let eval_set = result.unwrap();
+        assert_eq!(eval_set.test_cases.len(), 2);
+    }
+
+    #[test]
+    fn test_load_eval_set_invalid_yaml() {
+        let yaml = "this is not valid yaml: [[[";
+        let result = load_eval_set(yaml);
+        assert!(result.is_err(), "Invalid YAML should error");
+    }
+
+    #[test]
+    fn test_load_eval_set_with_also_acceptable() {
+        let yaml = r#"
+- input: "Review security of the auth module"
+  expected_agent: "Security Agent"
+  expected_mode: "review"
+  also_acceptable:
+    - agent: "Developer Agent"
+      mode: "review"
+    - agent: "QA Agent"
+      mode: "review"
+"#;
+        let result = load_eval_set(yaml);
+        assert!(result.is_ok(), "YAML with also_acceptable should parse");
+        let eval_set = result.unwrap();
+        assert_eq!(eval_set.test_cases.len(), 1);
+        let case = &eval_set.test_cases[0];
+        assert!(
+            !case.also_acceptable.is_empty(),
+            "should have also_acceptable entries"
+        );
+        assert_eq!(case.also_acceptable.len(), 2);
+    }
+
+    #[test]
     fn test_evaluate_intent_router_alias() {
         // Verify evaluate_intent_router is an alias for evaluate
         let router = build_router();

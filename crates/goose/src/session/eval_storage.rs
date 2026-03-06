@@ -1248,3 +1248,63 @@ impl<'a> EvalStorage<'a> {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{Datelike, Timelike};
+
+    #[test]
+    fn test_parse_sqlite_timestamp_sqlite_format() {
+        let dt = parse_sqlite_timestamp("2026-03-06 14:30:00");
+        assert_eq!(dt.year(), 2026);
+        assert_eq!(dt.month(), 3);
+        assert_eq!(dt.day(), 6);
+        assert_eq!(dt.hour(), 14);
+        assert_eq!(dt.minute(), 30);
+        assert_eq!(dt.second(), 0);
+        // Must NOT be epoch 0
+        assert_ne!(dt.timestamp(), 0, "Should not fall back to epoch 0");
+    }
+
+    #[test]
+    fn test_parse_sqlite_timestamp_rfc3339_format() {
+        let dt = parse_sqlite_timestamp("2026-03-06T14:30:00Z");
+        assert_eq!(dt.year(), 2026);
+        assert_eq!(dt.month(), 3);
+        assert_eq!(dt.day(), 6);
+        assert_eq!(dt.hour(), 14);
+        assert_eq!(dt.minute(), 30);
+        assert_eq!(dt.second(), 0);
+        assert_ne!(dt.timestamp(), 0, "Should not fall back to epoch 0");
+    }
+
+    #[test]
+    fn test_parse_sqlite_timestamp_invalid_string() {
+        let before = Utc::now();
+        let dt = parse_sqlite_timestamp("garbage");
+        let after = Utc::now();
+        // Should fallback to Utc::now(), not epoch 0
+        assert_ne!(
+            dt.timestamp(),
+            0,
+            "Invalid input should not produce epoch 0"
+        );
+        assert!(
+            dt >= before && dt <= after,
+            "Fallback should be approximately Utc::now()"
+        );
+    }
+
+    #[test]
+    fn test_parse_sqlite_timestamp_empty_string() {
+        let before = Utc::now();
+        let dt = parse_sqlite_timestamp("");
+        let after = Utc::now();
+        assert_ne!(dt.timestamp(), 0, "Empty input should not produce epoch 0");
+        assert!(
+            dt >= before && dt <= after,
+            "Fallback should be approximately Utc::now()"
+        );
+    }
+}

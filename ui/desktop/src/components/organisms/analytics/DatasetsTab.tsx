@@ -289,6 +289,27 @@ function DatasetEditor({
   const [yamlMode, setYamlMode] = useState(false);
   const [yamlText, setYamlText] = useState('');
 
+  // Sync state when dataset prop changes (e.g., switching from "new" to editing existing)
+  useEffect(() => {
+    setName(dataset?.name ?? '');
+    setDescription(dataset?.description ?? '');
+    if (dataset?.cases && dataset.cases.length > 0) {
+      setRows(
+        dataset.cases.map((tc) => ({
+          id: tc.id,
+          input: tc.input,
+          expectedAgent: tc.expectedAgent,
+          expectedMode: tc.expectedMode,
+          tags: (tc.tags ?? []).join(', '),
+        }))
+      );
+    } else {
+      setRows([emptyRow()]);
+    }
+    setYamlMode(false);
+    setYamlText('');
+  }, [dataset]);
+
   const addRow = () => setRows([...rows, emptyRow()]);
 
   const removeRow = (idx: number) => {

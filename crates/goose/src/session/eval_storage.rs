@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
 use std::collections::HashMap;
@@ -7,6 +7,15 @@ use utoipa::ToSchema;
 
 use crate::agents::intent_router::IntentRouter;
 use crate::agents::routing_eval::{self, RoutingEvalCase, RoutingEvalSet};
+
+/// Parse SQLite TIMESTAMP string (YYYY-MM-DD HH:MM:SS) into DateTime<Utc>.
+/// Falls back to Utc::now() on parse failure instead of epoch 0.
+fn parse_sqlite_timestamp(s: &str) -> DateTime<Utc> {
+    NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")
+        .map(|dt| dt.and_utc())
+        .or_else(|_| s.parse::<DateTime<Utc>>())
+        .unwrap_or_else(|_| Utc::now())
+}
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -344,9 +353,9 @@ impl<'a> EvalStorage<'a> {
                 tags,
                 case_count,
                 last_run_accuracy: last_run.as_ref().map(|r| r.0),
-                last_run_at: last_run.and_then(|r| r.1.parse::<DateTime<Utc>>().ok()),
-                created_at: created_at.parse().unwrap_or_default(),
-                updated_at: updated_at.parse().unwrap_or_default(),
+                last_run_at: last_run.map(|r| parse_sqlite_timestamp(&r.1)),
+                created_at: parse_sqlite_timestamp(&created_at),
+                updated_at: parse_sqlite_timestamp(&updated_at),
             });
         }
 
@@ -391,8 +400,8 @@ impl<'a> EvalStorage<'a> {
             description: row.2,
             tags,
             cases,
-            created_at: row.4.parse().unwrap_or_default(),
-            updated_at: row.5.parse().unwrap_or_default(),
+            created_at: parse_sqlite_timestamp(&row.4),
+            updated_at: parse_sqlite_timestamp(&row.5),
         })
     }
 
@@ -727,7 +736,7 @@ impl<'a> EvalStorage<'a> {
                 dataset_name: r.2,
                 version_tag: r.3,
                 goose_version: r.4,
-                started_at: r.5.parse().unwrap_or_default(),
+                started_at: parse_sqlite_timestamp(&r.5),
                 duration_ms: r.6,
                 total_cases: r.7,
                 correct: r.8,
@@ -844,7 +853,7 @@ impl<'a> EvalStorage<'a> {
             dataset_name: row.2,
             version_tag: row.3,
             goose_version: row.4,
-            started_at: started_at_row.parse().unwrap_or_default(),
+            started_at: parse_sqlite_timestamp(&started_at_row),
             duration_ms: row.5,
             total_cases: row.6,
             correct: row.7,

@@ -397,7 +397,18 @@ pub async fn reply(
                 .join(" ");
 
             if !user_text.is_empty() {
-                let provider_result = agent.provider().await;
+                // Ensure provider is available for LLM-based orchestrator routing.
+                // The provider may be None if this agent was freshly created by
+                // get_or_create_agent() without restore_provider_from_session().
+                let mut provider_result = agent.provider().await;
+                if provider_result.is_err() {
+                    tracing::info!("Orchestrator routing: provider not yet set, attempting to restore from session");
+                    if let Err(e) = agent.restore_provider_from_session(&session).await {
+                        tracing::warn!(error = %e, "Failed to restore provider from session");
+                    } else {
+                        provider_result = agent.provider().await;
+                    }
+                }
                 match &provider_result {
                     Ok(_) => {
                         tracing::info!("Orchestrator routing: provider available for LLM routing")

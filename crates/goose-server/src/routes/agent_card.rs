@@ -1,5 +1,4 @@
 use axum::{extract::State, routing::get, Json, Router};
-use goose::agents::intent_router::IntentRouter;
 use goose::registry::formats::{
     A2aAgentCapabilities, A2aAgentCard, A2aAgentExtension, A2aAgentInterface, A2aAgentProvider,
     A2aAgentSkill,
@@ -29,11 +28,11 @@ pub async fn agent_card(State(state): State<Arc<AppState>>) -> Json<A2aAgentCard
 }
 
 async fn build_dynamic_agent_card(state: &AppState) -> A2aAgentCard {
-    let router = IntentRouter::new();
+    let slots = state.agent_slot_registry.configured_slots().await;
 
-    let skills: Vec<A2aAgentSkill> = router
-        .slots()
+    let skills: Vec<A2aAgentSkill> = slots
         .iter()
+        .filter(|slot| slot.enabled)
         .flat_map(|slot| {
             let agent_name = slot.name.clone();
             slot.modes
@@ -100,6 +99,7 @@ fn slugify(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use goose::agents::intent_router::IntentRouter;
 
     fn build_test_card() -> A2aAgentCard {
         // Build card without AppState — use empty extensions

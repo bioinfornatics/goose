@@ -32,7 +32,10 @@ use axum::response::Json;
 use axum::Router;
 use futures::StreamExt;
 use goose::a2a_compat::message::{a2a_message_to_goose, goose_message_to_a2a};
+use goose::agents::intent_router::AgentSlot;
+#[cfg(test)]
 use goose::agents::intent_router::IntentRouter;
+
 use goose::agents::{AgentEvent, SessionConfig};
 use goose::execution::pool::{InstanceStatus, PoolEvent, SpawnConfig};
 use serde::{Deserialize, Serialize};
@@ -47,8 +50,13 @@ use crate::state::AppState;
 
 /// Build the A2A sub-router and nest it under `/a2a`.
 pub fn routes(state: Arc<AppState>) -> Router {
+    // Get runtime-configured slots (respects enabled/disabled state and remote agents)
+    let slots = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(state.agent_slot_registry.configured_slots())
+    });
+
     // --- Main aggregated A2A endpoint (all personas) ---
-    let main_card = build_a2a_agent_card();
+    let main_card = build_a2a_agent_card_from_slots(&slots);
     let main_store = InMemoryTaskStore::new();
     let main_executor = GooseServerExecutor {
         state: state.clone(),
@@ -65,7 +73,7 @@ pub fn routes(state: Arc<AppState>) -> Router {
 
     // --- Per-persona A2A endpoints ---
     let mut persona_router = Router::new();
-    for (slug, card) in build_all_persona_cards() {
+    for (slug, card) in build_all_persona_cards_from_slots(&slots) {
         let persona_store = InMemoryTaskStore::new();
         let persona_executor = GooseServerExecutor {
             state: state.clone(),
@@ -687,8 +695,9 @@ pub struct PersonaSummary {
     ),
     tag = "A2A Instances"
 )]
-pub async fn list_personas() -> Json<Vec<PersonaSummary>> {
-    let cards = build_all_persona_cards();
+pub async fn list_personas(State(state): State<Arc<AppState>>) -> Json<Vec<PersonaSummary>> {
+    let slots = state.agent_slot_registry.configured_slots().await;
+    let cards = build_all_persona_cards_from_slots(&slots);
     let summary: Vec<PersonaSummary> = cards
         .into_iter()
         .map(|(slug, card)| PersonaSummary {
@@ -701,12 +710,33 @@ pub async fn list_personas() -> Json<Vec<PersonaSummary>> {
     Json(summary)
 }
 
-/// Build the main (aggregated) A2A AgentCard with skills from ALL personas.
-fn build_a2a_agent_card() -> AgentCard {
-    let router = IntentRouter::new();
-    let skills: Vec<AgentSkill> = router
-        .slots()
+/// Build a per-persona AgentCard from a single slot.
+fn build_persona_card(slot: &AgentSlot) -> AgentCard {
+    let skills: Vec<AgentSkill> = slot
+        .modes
         .iter()
+        .filter(|mode| !mode.is_internal)
+        .map(|mode| AgentSkill {
+            id: format!("{}.{}", slugify(&slot.name), mode.slug),
+            name: mode.name.clone(),
+            description: mode.description.clone(),
+            tags: mode
+                .tool_groups
+                .iter()
+                .map(|tg| format!("{tg:?}"))
+                .collect(),
+            ..Default::default()
+        })
+        .collect();
+
+    build_card_base(&slot.name, &slot.description, skills)
+}
+
+/// Build the main (aggregated) A2A AgentCard from runtime-configured slots.
+fn build_a2a_agent_card_from_slots(slots: &[AgentSlot]) -> AgentCard {
+    let skills: Vec<AgentSkill> = slots
+        .iter()
+        .filter(|slot| slot.enabled)
         .flat_map(|slot| {
             let agent_name = slot.name.clone();
             slot.modes
@@ -734,33 +764,9 @@ fn build_a2a_agent_card() -> AgentCard {
     )
 }
 
-/// Build a per-persona AgentCard from a single IntentRouter slot.
-fn build_persona_card(slot: &goose::agents::intent_router::AgentSlot) -> AgentCard {
-    let skills: Vec<AgentSkill> = slot
-        .modes
-        .iter()
-        .filter(|mode| !mode.is_internal)
-        .map(|mode| AgentSkill {
-            id: format!("{}.{}", slugify(&slot.name), mode.slug),
-            name: mode.name.clone(),
-            description: mode.description.clone(),
-            tags: mode
-                .tool_groups
-                .iter()
-                .map(|tg| format!("{tg:?}"))
-                .collect(),
-            ..Default::default()
-        })
-        .collect();
-
-    build_card_base(&slot.name, &slot.description, skills)
-}
-
-/// Build all persona cards keyed by slug.
-fn build_all_persona_cards() -> Vec<(String, AgentCard)> {
-    let router = IntentRouter::new();
-    router
-        .slots()
+/// Build all persona cards from runtime-configured slots.
+fn build_all_persona_cards_from_slots(slots: &[AgentSlot]) -> Vec<(String, AgentCard)> {
+    slots
         .iter()
         .filter(|slot| slot.enabled)
         .map(|slot| {
@@ -769,6 +775,20 @@ fn build_all_persona_cards() -> Vec<(String, AgentCard)> {
             (slug, card)
         })
         .collect()
+}
+
+/// Static fallback — uses default IntentRouter (for tests only).
+#[cfg(test)]
+fn build_a2a_agent_card() -> AgentCard {
+    let router = IntentRouter::new();
+    build_a2a_agent_card_from_slots(router.slots())
+}
+
+/// Static fallback — uses default IntentRouter (for tests only).
+#[cfg(test)]
+fn build_all_persona_cards() -> Vec<(String, AgentCard)> {
+    let router = IntentRouter::new();
+    build_all_persona_cards_from_slots(router.slots())
 }
 
 /// Common AgentCard builder with shared metadata.

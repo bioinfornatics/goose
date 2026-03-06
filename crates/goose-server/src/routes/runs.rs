@@ -33,7 +33,7 @@ use goose::conversation::message::{ActionRequiredData, Message, MessageContent};
 use goose::permission::permission_confirmation::PrincipalType;
 use goose::permission::{Permission, PermissionConfirmation};
 
-use crate::routes::acp_discovery::resolve_mode_to_agent;
+use crate::routes::acp_discovery::resolve_mode_to_agent_from_slots;
 use crate::state::AppState;
 
 // ── RunStore ─────────────────────────────────────────────────────────
@@ -551,7 +551,8 @@ pub async fn list_runs(
 // ── Mode + Extension binding ────────────────────────────────────────
 
 async fn apply_agent_bindings(state: &AppState, agent: &goose::agents::Agent, agent_name: &str) {
-    if let Some((slot_name, mode_slug)) = resolve_mode_to_agent(agent_name) {
+    let slots = state.agent_slot_registry.configured_slots().await;
+    if let Some((slot_name, mode_slug)) = resolve_mode_to_agent_from_slots(&slots, agent_name) {
         // Apply bound extensions from the AgentSlotRegistry
         let bound = state
             .agent_slot_registry

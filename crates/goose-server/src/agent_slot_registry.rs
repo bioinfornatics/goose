@@ -505,6 +505,91 @@ impl AgentSlotRegistry {
         self.enabled_agents.read().await.keys().cloned().collect()
     }
 
+    /// Returns IntentRouter slots with runtime state applied:
+    /// enabled/disabled from registry, bound extensions, plus any remote A2A agents.
+    /// This is the single source of truth for A2A/ACP discovery endpoints.
+    pub async fn configured_slots(&self) -> Vec<goose::agents::intent_router::AgentSlot> {
+        use goose::agents::intent_router::{AgentSlot, IntentRouter};
+        use goose::registry::manifest::AgentMode;
+
+        let base_router = IntentRouter::new();
+        let enabled = self.enabled_agents.read().await;
+        let extensions = self.bound_extensions.read().await;
+        let strategies = self.delegation_strategies.read().await;
+        let cards = self.agent_cards.read().await;
+
+        let mut slots: Vec<AgentSlot> = base_router
+            .slots()
+            .iter()
+            .map(|slot| {
+                let is_enabled = enabled.get(&slot.name).copied().unwrap_or(true);
+                let bound = extensions
+                    .get(&slot.name)
+                    .map(|s| s.iter().cloned().collect())
+                    .unwrap_or_default();
+                AgentSlot {
+                    name: slot.name.clone(),
+                    description: slot.description.clone(),
+                    modes: slot.modes.clone(),
+                    default_mode: slot.default_mode.clone(),
+                    enabled: is_enabled,
+                    bound_extensions: bound,
+                }
+            })
+            .collect();
+
+        // Add remote A2A agents that aren't builtins
+        for (name, strategy) in strategies.iter() {
+            if matches!(strategy, SlotDelegation::RemoteA2A { .. })
+                && !slots.iter().any(|s| &s.name == name)
+            {
+                let mut modes = vec![AgentMode {
+                    slug: "default".to_string(),
+                    name: "Default".to_string(),
+                    description: format!("Remote A2A agent: {name}"),
+                    instructions: None,
+                    instructions_file: None,
+                    tool_groups: Vec::new(),
+                    when_to_use: None,
+                    is_internal: false,
+                    deprecated: None,
+                }];
+
+                // Enrich from cached agent card if available
+                if let Some(cached) = cards.get(name) {
+                    modes = cached
+                        .card
+                        .skills
+                        .iter()
+                        .map(|skill| AgentMode {
+                            slug: skill.id.clone(),
+                            name: skill.name.clone(),
+                            description: skill.description.clone(),
+                            instructions: None,
+                            instructions_file: None,
+                            tool_groups: Vec::new(),
+                            when_to_use: None,
+                            is_internal: false,
+                            deprecated: None,
+                        })
+                        .collect();
+                }
+
+                let is_enabled = enabled.get(name).copied().unwrap_or(true);
+                slots.push(AgentSlot {
+                    name: name.clone(),
+                    description: "Remote A2A agent".to_string(),
+                    modes,
+                    default_mode: "default".to_string(),
+                    enabled: is_enabled,
+                    bound_extensions: Vec::new(),
+                });
+            }
+        }
+
+        slots
+    }
+
     pub async fn unregister_agent(&self, name: &str) {
         self.enabled_agents.write().await.remove(name);
         self.delegation_strategies.write().await.remove(name);

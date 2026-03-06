@@ -17,6 +17,8 @@ use axum::{Json, Router};
 use goose::acp_compat::{
     AcpSession, AgentDependency, AgentManifest, AgentMetadata, AgentModeInfo, Link, Person,
 };
+use goose::agents::intent_router::AgentSlot;
+#[cfg(test)]
 use goose::agents::intent_router::IntentRouter;
 
 use crate::state::AppState;
@@ -53,11 +55,17 @@ fn slugify_agent_name(name: &str) -> String {
         .to_string()
 }
 
-/// Resolve a mode slug to its parent agent.
+/// Resolve a mode slug to its parent agent using runtime-configured slots.
+/// Falls back to static IntentRouter if no slots provided.
 /// e.g. "write" → Some(("Developer Agent", "write"))
-pub fn resolve_mode_to_agent(mode_slug: &str) -> Option<(String, String)> {
-    let router = IntentRouter::new();
-    for slot in router.slots() {
+pub fn resolve_mode_to_agent_from_slots(
+    slots: &[AgentSlot],
+    mode_slug: &str,
+) -> Option<(String, String)> {
+    for slot in slots {
+        if !slot.enabled {
+            continue;
+        }
         for mode in &slot.modes {
             if mode.slug == mode_slug {
                 return Some((slot.name.clone(), mode.slug.clone()));
@@ -67,14 +75,24 @@ pub fn resolve_mode_to_agent(mode_slug: &str) -> Option<(String, String)> {
     None
 }
 
+/// Resolve a mode slug to its parent agent (static fallback for sync callers).
+#[cfg(test)]
+pub fn resolve_mode_to_agent(mode_slug: &str) -> Option<(String, String)> {
+    let router = IntentRouter::new();
+    let slots: Vec<AgentSlot> = router.slots().to_vec();
+    resolve_mode_to_agent_from_slots(&slots, mode_slug)
+}
+
 /// Build one AgentManifest per agent persona (NOT per mode).
 ///
 /// Each agent lists its modes in the `modes` field, aligned with ACP SessionMode.
-fn build_agent_manifests() -> Vec<AgentManifest> {
-    let router = IntentRouter::new();
+fn build_agent_manifests_from_slots(slots: &[AgentSlot]) -> Vec<AgentManifest> {
     let mut manifests = Vec::new();
 
-    for slot in router.slots() {
+    for slot in slots {
+        if !slot.enabled {
+            continue;
+        }
         let slug = slugify_agent_name(&slot.name);
 
         let modes: Vec<AgentModeInfo> = slot
@@ -162,20 +180,28 @@ fn build_agent_manifests() -> Vec<AgentManifest> {
     manifests
 }
 
-/// ACP v0.2.0 GET /agents — one manifest per agent persona
+/// Static fallback for sync callers (tests).
+#[cfg(test)]
+fn build_agent_manifests() -> Vec<AgentManifest> {
+    let router = IntentRouter::new();
+    build_agent_manifests_from_slots(router.slots())
+}
+
+/// ACP v0.2.0 GET /agents — one manifest per agent persona (runtime-aware).
 #[utoipa::path(get, path = "/agents",
     tag = "ACP Discovery",
     responses(
         (status = 200, description = "List available agents", body = AgentsListResponse),
     )
 )]
-async fn list_agents() -> Json<AgentsListResponse> {
+async fn list_agents(State(state): State<Arc<AppState>>) -> Json<AgentsListResponse> {
+    let slots = state.agent_slot_registry.configured_slots().await;
     Json(AgentsListResponse {
-        agents: build_agent_manifests(),
+        agents: build_agent_manifests_from_slots(&slots),
     })
 }
 
-/// ACP v0.2.0 GET /agents/{name}
+/// ACP v0.2.0 GET /agents/{name} (runtime-aware).
 #[utoipa::path(get, path = "/agents/{name}",
     tag = "ACP Discovery",
     params(("name" = String, Path, description = "Agent slug (e.g. goose-agent, developer-agent)")),
@@ -185,9 +211,11 @@ async fn list_agents() -> Json<AgentsListResponse> {
     )
 )]
 async fn get_agent(
+    State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
 ) -> Result<Json<AgentManifest>, axum::http::StatusCode> {
-    build_agent_manifests()
+    let slots = state.agent_slot_registry.configured_slots().await;
+    build_agent_manifests_from_slots(&slots)
         .into_iter()
         .find(|a| a.name == name)
         .map(Json)

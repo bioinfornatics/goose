@@ -49,7 +49,7 @@ vi.mock('@/contexts/ModelAndProviderContext', () => ({
 }));
 
 import { createNode, flowToPipeline, pipelineToYaml } from '../serialization';
-import type { NodeKind } from '../types';
+import type { NodeKind, TriggerConfig } from '../types';
 import { defaultConfig } from '../types';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -65,7 +65,7 @@ describe('Level 1: Unit Tests', () => {
     });
 
     it('returns trigger config with manual event', () => {
-      const config = defaultConfig('trigger');
+      const config = defaultConfig('trigger') as TriggerConfig;
       expect(config.event).toBe('manual');
     });
 
@@ -132,7 +132,8 @@ describe('Level 1: Unit Tests', () => {
 
     it('assigns default config for the node kind', () => {
       const node = createNode('trigger' as NodeKind, { x: 0, y: 0 });
-      expect(node.data.config.event).toBe('manual');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((node.data.config as any).event).toBe('manual');
     });
 
     it('sets label from palette name', () => {
@@ -176,8 +177,8 @@ describe('Level 1: Unit Tests', () => {
         description: '',
       });
       expect(pipeline.nodes).toHaveLength(1);
-      expect(pipeline.nodes[0].config.agent).toBe('developer');
-      expect(pipeline.nodes[0].config.mode).toBe('write');
+      expect((pipeline.nodes[0].config as any).agent).toBe('developer');
+      expect((pipeline.nodes[0].config as any).mode).toBe('write');
     });
 
     it('converts edges to depends arrays on nodes', () => {
@@ -189,7 +190,7 @@ describe('Level 1: Unit Tests', () => {
           data: {
             kind: 'trigger' as NodeKind,
             label: 'Start',
-            config: { event: 'manual' },
+            config: { event: 'manual' } as any,
           },
         },
         {
@@ -199,10 +200,10 @@ describe('Level 1: Unit Tests', () => {
           data: {
             kind: 'agent' as NodeKind,
             label: 'Agent',
-            config: { agent: 'dev', prompt: 'test' },
+            config: { agent: 'dev', prompt: 'test' } as any,
           },
         },
-      ];
+      ] as any[];
       const edges = [{ id: 'e1', source: 'a', target: 'b' }];
       const pipeline = flowToPipeline(nodes, edges, {
         name: 'edge-test',
@@ -263,8 +264,8 @@ describe('Level 2: Integration Tests', () => {
 
     expect(pipeline.nodes).toHaveLength(2);
     const agentNode = pipeline.nodes.find((n) => n.type === 'agent');
-    expect(agentNode?.config.agent).toBe('developer');
-    expect(agentNode?.config.mode).toBe('write');
+    expect((agentNode?.config as any).agent).toBe('developer');
+    expect((agentNode?.config as any).mode).toBe('write');
     // Agent depends on trigger
     expect(agentNode?.depends).toContain(trigger.id);
   });
@@ -317,7 +318,7 @@ describe('Level 2: Integration Tests', () => {
       name: 'a2a-test',
       description: '',
     });
-    expect(pipeline.nodes[0].config.agent_card_url).toBe(
+    expect((pipeline.nodes[0].config as any).agent_card_url).toBe(
       'https://remote.example.com/.well-known/agent.json'
     );
   });
@@ -335,7 +336,7 @@ describe('Level 2: Integration Tests', () => {
       name: 'effort-test',
       description: '',
     });
-    expect(pipeline.nodes[0].config.reasoning_effort).toBe('high');
+    expect((pipeline.nodes[0].config as any).reasoning_effort).toBe('high');
   });
 
   it('preserves node positions in serialized pipeline', () => {
@@ -369,6 +370,105 @@ describe('Level 2: Integration Tests', () => {
     // YAML contains key metadata
     expect(yaml).toContain('kind: Pipeline');
     expect(yaml).toContain('all-kinds');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Level 2b: A2A Integration Tests — discovery + serialization
+// ═══════════════════════════════════════════════════════════════════
+describe('Level 2b: A2A Integration Tests', () => {
+  it('A2A node with discovered card preserves card data', () => {
+    const a2a = createNode('a2a' as NodeKind, { x: 0, y: 0 });
+    a2a.data.config = {
+      agent_card_url: 'https://remote.example.com/.well-known/agent.json',
+      task: 'deploy service',
+      discovered_card: {
+        name: 'Deploy Agent',
+        description: 'Handles deployments',
+        url: 'https://remote.example.com',
+        skills: [
+          { id: 'deploy', name: 'Deploy', description: 'Deploy to env' },
+          { id: 'rollback', name: 'Rollback', description: 'Rollback deployment' },
+        ],
+      },
+      selected_skills: ['deploy'],
+    };
+
+    const pipeline = flowToPipeline([a2a], [], {
+      name: 'a2a-discovery-test',
+      description: '',
+    });
+
+    const config = pipeline.nodes[0].config as any;
+    expect(config.agent_card_url).toBe('https://remote.example.com/.well-known/agent.json');
+    expect(config.discovered_card.name).toBe('Deploy Agent');
+    expect(config.discovered_card.skills).toHaveLength(2);
+    expect(config.selected_skills).toEqual(['deploy']);
+  });
+
+  it('A2A node without discovered card still serializes', () => {
+    const a2a = createNode('a2a' as NodeKind, { x: 0, y: 0 });
+    a2a.data.config = {
+      agent_card_url: 'https://api.example.com/agent',
+      task: 'run tests',
+    };
+
+    const pipeline = flowToPipeline([a2a], [], {
+      name: 'a2a-no-card',
+      description: '',
+    });
+
+    const config = pipeline.nodes[0].config as any;
+    expect(config.agent_card_url).toBe('https://api.example.com/agent');
+    expect(config.task).toBe('run tests');
+    expect(config.discovered_card).toBeUndefined();
+  });
+
+  it('DiscoverAgentResponse format matches expected structure', () => {
+    const mockResponse = {
+      name: 'Code Review Agent',
+      description: 'Reviews code for quality',
+      url: 'https://review.example.com',
+      skills: [
+        { id: 'review', name: 'Code Review', description: 'Reviews code quality' },
+        { id: 'lint', name: 'Lint Check', description: 'Checks code style' },
+      ],
+      protocol_version: '0.2.1',
+    };
+
+    expect(mockResponse.name).toBe('Code Review Agent');
+    expect(mockResponse.skills).toHaveLength(2);
+    expect(mockResponse.skills[0].id).toBe('review');
+    expect(mockResponse.protocol_version).toBe('0.2.1');
+  });
+
+  it('A2A node in DAG with dependencies serializes correctly', () => {
+    const trigger = createNode('trigger' as NodeKind, { x: 0, y: 0 });
+    trigger.id = 'a2a_trigger';
+    const local = createNode('agent' as NodeKind, { x: 200, y: 0 });
+    local.id = 'a2a_local';
+    local.data.config = { agent: 'developer', prompt: 'prepare data' };
+    const remote = createNode('a2a' as NodeKind, { x: 400, y: 0 });
+    remote.id = 'a2a_remote';
+    remote.data.config = {
+      agent_card_url: 'https://remote.example.com/agent',
+      task: 'process prepared data',
+    };
+
+    const edges = [
+      { id: 'e1', source: trigger.id, target: local.id },
+      { id: 'e2', source: local.id, target: remote.id },
+    ];
+
+    const pipeline = flowToPipeline([trigger, local, remote], edges, {
+      name: 'hybrid-pipeline',
+      description: 'Mix of local and remote agents',
+    });
+
+    expect(pipeline.nodes).toHaveLength(3);
+    const remoteNode = pipeline.nodes.find((n) => n.id === 'a2a_remote');
+    expect(remoteNode?.depends).toContain('a2a_local');
+    expect(remoteNode?.type).toBe('a2a');
   });
 });
 

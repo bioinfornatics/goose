@@ -108,10 +108,14 @@ pub fn routes(state: Arc<AppState>) -> Router {
         )
         .with_state(instance_state);
 
-    // Compose: /a2a/instances/* + /a2a/agents/* + /a2a/*
+    // --- Discovery route ---
+    let discover_router = Router::new().route("/discover", axum::routing::post(discover_agent));
+
+    // Compose: /a2a/instances/* + /a2a/agents/* + /a2a/discover + /a2a/*
     Router::new()
         .nest("/a2a", instance_router)
         .nest("/a2a", list_personas_router)
+        .nest("/a2a", discover_router)
         .nest("/a2a", persona_router)
         .nest("/a2a", main_router)
 }
@@ -677,8 +681,87 @@ pub async fn stream_instance_events(
 // Agent Card builders
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// A2A Discovery — fetch remote agent cards
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct DiscoverAgentRequest {
+    pub url: String,
+}
+
+#[derive(Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DiscoverAgentResponse {
+    pub name: String,
+    pub description: String,
+    pub version: Option<String>,
+    pub protocol_version: Option<String>,
+    pub skills: Vec<DiscoveredSkill>,
+    pub url: String,
+}
+
+#[derive(Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DiscoveredSkill {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub tags: Vec<String>,
+}
+
+/// Discover a remote A2A agent by fetching its agent card.
+#[utoipa::path(
+    post,
+    path = "/a2a/discover",
+    request_body = DiscoverAgentRequest,
+    responses(
+        (status = 200, description = "Agent card discovered", body = DiscoverAgentResponse),
+        (status = 400, description = "Invalid URL"),
+        (status = 502, description = "Failed to reach remote agent")
+    ),
+    tag = "A2A Discovery"
+)]
+pub async fn discover_agent(
+    axum::extract::Json(req): axum::extract::Json<DiscoverAgentRequest>,
+) -> Result<Json<DiscoverAgentResponse>, StatusCode> {
+    let url = req.url.trim().to_string();
+    if url.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let mut client = a2a::client::A2AClient::new(&url);
+    client.fetch_agent_card().await.map_err(|e| {
+        warn!("Failed to discover agent at {url}: {e}");
+        StatusCode::BAD_GATEWAY
+    })?;
+
+    let card = client.agent_card().ok_or_else(|| {
+        warn!("Agent card was None after fetch for {url}");
+        StatusCode::BAD_GATEWAY
+    })?;
+
+    let skills: Vec<DiscoveredSkill> = card
+        .skills
+        .iter()
+        .map(|s| DiscoveredSkill {
+            id: s.id.clone(),
+            name: s.name.clone(),
+            description: s.description.clone(),
+            tags: s.tags.clone(),
+        })
+        .collect();
+
+    Ok(Json(DiscoverAgentResponse {
+        name: card.name.clone(),
+        description: card.description.clone(),
+        version: card.version.clone(),
+        protocol_version: card.protocol_version.clone(),
+        skills,
+        url,
+    }))
+}
+
 /// Summary for the /a2a/agents listing endpoint.
-#[derive(Serialize, utoipa::ToSchema)]
+#[derive(Serialize, Deserialize, utoipa::ToSchema)]
 pub struct PersonaSummary {
     pub slug: String,
     pub name: String,
@@ -951,5 +1034,88 @@ mod tests {
         assert_eq!(slugify("Goose Agent"), "goose-agent");
         assert_eq!(slugify("Developer Agent"), "developer-agent");
         assert_eq!(slugify("QA Agent"), "qa-agent");
+    }
+
+    // --- A2A Discovery tests ---
+
+    #[test]
+    fn test_discover_request_deserialization() {
+        let json = r#"{"url": "https://example.com/.well-known/agent.json"}"#;
+        let req: DiscoverAgentRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.url, "https://example.com/.well-known/agent.json");
+    }
+
+    #[test]
+    fn test_discover_response_serialization() {
+        let response = DiscoverAgentResponse {
+            name: "Test Agent".to_string(),
+            description: "A test agent".to_string(),
+            url: "https://example.com".to_string(),
+            version: None,
+            protocol_version: Some("1.0".to_string()),
+            skills: vec![
+                DiscoveredSkill {
+                    id: "skill1".to_string(),
+                    name: "Skill One".to_string(),
+                    description: "Does thing one".to_string(),
+                    tags: vec!["coding".to_string()],
+                },
+                DiscoveredSkill {
+                    id: "skill2".to_string(),
+                    name: "Skill Two".to_string(),
+                    description: String::new(),
+                    tags: vec![],
+                },
+            ],
+        };
+
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(json.contains("Test Agent"));
+        assert!(json.contains("skill1"));
+        assert!(json.contains("Skill Two"));
+        assert!(json.contains("1.0"));
+
+        let parsed: DiscoverAgentResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.name, "Test Agent");
+        assert_eq!(parsed.skills.len(), 2);
+        assert_eq!(parsed.skills[0].id, "skill1");
+        assert!(parsed.skills[1].description.is_empty());
+    }
+
+    #[test]
+    fn test_discover_response_empty_skills() {
+        let response = DiscoverAgentResponse {
+            name: "Minimal Agent".to_string(),
+            description: String::new(),
+            url: "https://min.example.com".to_string(),
+            version: None,
+            protocol_version: None,
+            skills: vec![],
+        };
+
+        let json = serde_json::to_string(&response).unwrap();
+        let parsed: DiscoverAgentResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.name, "Minimal Agent");
+        assert!(parsed.skills.is_empty());
+        assert!(parsed.protocol_version.is_none());
+    }
+
+    #[test]
+    fn test_persona_summary_serialization() {
+        let summary = PersonaSummary {
+            slug: "developer".to_string(),
+            name: "Developer Agent".to_string(),
+            description: "Writes code".to_string(),
+            skills_count: 5,
+        };
+
+        let json = serde_json::to_string(&summary).unwrap();
+        assert!(json.contains("developer"));
+        assert!(json.contains("Developer Agent"));
+        assert!(json.contains("5"));
+
+        let parsed: PersonaSummary = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.slug, "developer");
+        assert_eq!(parsed.skills_count, 5);
     }
 }

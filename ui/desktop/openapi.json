@@ -37,6 +37,43 @@
         }
       }
     },
+    "/a2a/discover": {
+      "post": {
+        "tags": [
+          "A2A Discovery"
+        ],
+        "summary": "Discover a remote A2A agent by fetching its agent card.",
+        "operationId": "discover_agent",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiscoverAgentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Agent card discovered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscoverAgentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid URL"
+          },
+          "502": {
+            "description": "Failed to reach remote agent"
+          }
+        }
+      }
+    },
     "/a2a/instances": {
       "get": {
         "tags": [
@@ -7484,6 +7521,77 @@
           "sessions": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "DiscoverAgentRequest": {
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "DiscoverAgentResponse": {
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "skills",
+          "url"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string",
+            "nullable": true
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiscoveredSkill"
+            }
+          },
+          "url": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "DiscoveredSkill": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "tags"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

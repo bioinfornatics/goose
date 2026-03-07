@@ -594,6 +594,26 @@ export type DirectoryUsage = {
     sessions: number;
 };
 
+export type DiscoverAgentRequest = {
+    url: string;
+};
+
+export type DiscoverAgentResponse = {
+    description: string;
+    name: string;
+    protocol_version?: string | null;
+    skills: Array<DiscoveredSkill>;
+    url: string;
+    version?: string | null;
+};
+
+export type DiscoveredSkill = {
+    description: string;
+    id: string;
+    name: string;
+    tags: Array<string>;
+};
+
 export type DownloadProgress = {
     /**
      * Bytes downloaded so far
@@ -2699,6 +2719,33 @@ export type ListPersonasResponses = {
 };
 
 export type ListPersonasResponse = ListPersonasResponses[keyof ListPersonasResponses];
+
+export type DiscoverAgentData = {
+    body: DiscoverAgentRequest;
+    path?: never;
+    query?: never;
+    url: '/a2a/discover';
+};
+
+export type DiscoverAgentErrors = {
+    /**
+     * Invalid URL
+     */
+    400: unknown;
+    /**
+     * Failed to reach remote agent
+     */
+    502: unknown;
+};
+
+export type DiscoverAgentResponses = {
+    /**
+     * Agent card discovered
+     */
+    200: DiscoverAgentResponse;
+};
+
+export type DiscoverAgentResponse2 = DiscoverAgentResponses[keyof DiscoverAgentResponses];
 
 export type ListInstancesData = {
     body?: never;

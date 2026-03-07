@@ -1,6 +1,6 @@
 import { Loader2, Settings2, Wrench, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import { agentCatalog } from '@/api/sdk.gen';
+import { agentCatalog, discoverAgent, listPersonas } from '@/api/sdk.gen';
 import type { CatalogAgent, CatalogAgentMode } from '@/api/types.gen';
 import type {
   A2aConfig,
@@ -510,15 +510,175 @@ function A2aFields({
   onUpdate: PropertiesPanelProps['onUpdate'];
 }) {
   const config = data.config as A2aConfig;
+  const [discovering, setDiscovering] = useState(false);
+  const [discoverError, setDiscoverError] = useState<string | null>(null);
+  const [personas, setPersonas] = useState<
+    Array<{ slug: string; name: string; description: string; skills_count: number }>
+  >([]);
+  const [source, setSource] = useState<'url' | 'local'>(config.agent_card_url ? 'url' : 'local');
+
+  useEffect(() => {
+    listPersonas().then((res) => {
+      if (res.data) setPersonas(res.data as typeof personas);
+    });
+  }, []);
+
+  const handleDiscover = async () => {
+    if (!config.agent_card_url) return;
+    setDiscovering(true);
+    setDiscoverError(null);
+    try {
+      const res = await discoverAgent({ body: { url: config.agent_card_url } });
+      if (res.data) {
+        const card = res.data as {
+          name: string;
+          description: string;
+          url: string;
+          skills: Array<{ id: string; name: string; description: string }>;
+        };
+        updateConfig<A2aConfig>(data, onUpdate, nodeId, {
+          discovered_card: {
+            name: card.name,
+            description: card.description,
+            url: card.url,
+            skills: card.skills,
+          },
+          selected_skills: card.skills.map((s) => s.id),
+        });
+      } else {
+        setDiscoverError('Failed to discover agent');
+      }
+    } catch {
+      setDiscoverError('Could not reach agent at this URL');
+    } finally {
+      setDiscovering(false);
+    }
+  };
+
+  const handlePersonaSelect = (slug: string) => {
+    const persona = personas.find((p) => p.slug === slug);
+    if (persona) {
+      updateConfig<A2aConfig>(data, onUpdate, nodeId, {
+        agent_card_url: `/a2a/${slug}`,
+        discovered_card: {
+          name: persona.name,
+          description: persona.description,
+          url: `/a2a/${slug}`,
+          skills: [],
+        },
+      });
+    }
+  };
+
+  const toggleSkill = (skillId: string) => {
+    const current = config.selected_skills || [];
+    const next = current.includes(skillId)
+      ? current.filter((s) => s !== skillId)
+      : [...current, skillId];
+    updateConfig<A2aConfig>(data, onUpdate, nodeId, { selected_skills: next });
+  };
+
   return (
     <>
-      <FieldLabel>Agent Card URL</FieldLabel>
-      <TextInput
-        value={config.agent_card_url}
-        onChange={(v) => updateConfig<A2aConfig>(data, onUpdate, nodeId, { agent_card_url: v })}
-        placeholder="https://remote-agent.example.com/.well-known/agent.json"
-      />
-      <div className="mt-2">
+      {/* Source toggle */}
+      <div className="flex gap-1 mb-3 rounded-md bg-bgApp p-0.5">
+        <button
+          type="button"
+          className={`flex-1 text-xs py-1 rounded ${source === 'url' ? 'bg-bgSubtle font-medium shadow-sm' : 'text-textSubtle'}`}
+          onClick={() => setSource('url')}
+        >
+          Remote URL
+        </button>
+        <button
+          type="button"
+          className={`flex-1 text-xs py-1 rounded ${source === 'local' ? 'bg-bgSubtle font-medium shadow-sm' : 'text-textSubtle'}`}
+          onClick={() => setSource('local')}
+        >
+          Local Persona
+        </button>
+      </div>
+
+      {source === 'url' ? (
+        <>
+          <FieldLabel>Agent Card URL</FieldLabel>
+          <div className="flex gap-1">
+            <TextInput
+              value={config.agent_card_url}
+              onChange={(v) =>
+                updateConfig<A2aConfig>(data, onUpdate, nodeId, {
+                  agent_card_url: v,
+                  discovered_card: undefined,
+                })
+              }
+              placeholder="https://remote-agent.example.com"
+            />
+            <button
+              type="button"
+              onClick={handleDiscover}
+              disabled={discovering || !config.agent_card_url}
+              className="shrink-0 px-2 py-1 text-xs rounded bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-40"
+            >
+              {discovering ? '...' : 'Discover'}
+            </button>
+          </div>
+          {discoverError && <p className="text-xs text-red-500 mt-1">{discoverError}</p>}
+        </>
+      ) : (
+        <>
+          <FieldLabel>Local Persona</FieldLabel>
+          <SelectInput
+            value={
+              config.agent_card_url?.startsWith('/a2a/')
+                ? config.agent_card_url.replace('/a2a/', '')
+                : ''
+            }
+            onChange={handlePersonaSelect}
+            options={[
+              { value: '', label: 'Select a persona...' },
+              ...personas.map((p) => ({
+                value: p.slug,
+                label: `${p.name} (${p.skills_count} skills)`,
+              })),
+            ]}
+          />
+        </>
+      )}
+
+      {/* Discovered card display */}
+      {config.discovered_card && (
+        <div className="mt-3 p-2 rounded border border-teal-300 dark:border-teal-700 bg-teal-50 dark:bg-teal-950/30">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">{config.discovered_card.name}</span>
+            <span className="text-xs text-teal-600 dark:text-teal-400">✓ connected</span>
+          </div>
+          {config.discovered_card.description && (
+            <p className="text-xs text-textSubtle mt-1">{config.discovered_card.description}</p>
+          )}
+          {config.discovered_card.skills.length > 0 && (
+            <div className="mt-2">
+              <FieldLabel>Skills</FieldLabel>
+              <div className="space-y-1 mt-1">
+                {config.discovered_card.skills.map((skill) => (
+                  <label key={skill.id} className="flex items-start gap-2 text-xs cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config.selected_skills?.includes(skill.id) ?? true}
+                      onChange={() => toggleSkill(skill.id)}
+                      className="mt-0.5"
+                    />
+                    <div>
+                      <span className="font-medium">{skill.name}</span>
+                      {skill.description && <p className="text-textSubtle">{skill.description}</p>}
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="mt-3">
         <FieldLabel>Task Prompt</FieldLabel>
         <TextArea
           value={config.task}

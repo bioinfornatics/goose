@@ -115,12 +115,36 @@ function BaseNode({ data, selected }: NodeProps & { data: DagNodeData }) {
           </div>
         )}
 
-        {/* A2A node: show truncated URL */}
-        {data.kind === 'a2a' && (data.config as { agent_card_url?: string }).agent_card_url && (
-          <div className="mt-1 text-[10px] text-text-muted truncate">
-            {(data.config as { agent_card_url?: string }).agent_card_url}
-          </div>
-        )}
+        {/* A2A node: show discovered agent or URL */}
+        {data.kind === 'a2a' &&
+          (() => {
+            const a2aConf = data.config as {
+              agent_card_url?: string;
+              discovered_card?: { name: string; skills: unknown[] };
+            };
+            if (a2aConf.discovered_card) {
+              return (
+                <div className="flex flex-wrap gap-1 mt-1">
+                  <span className="px-1.5 py-0.5 text-[9px] font-medium rounded-full bg-teal-100 dark:bg-teal-900 text-teal-700 dark:text-teal-300 truncate max-w-[140px]">
+                    {a2aConf.discovered_card.name}
+                  </span>
+                  {a2aConf.discovered_card.skills.length > 0 && (
+                    <span className="px-1.5 py-0.5 text-[9px] font-medium rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
+                      {a2aConf.discovered_card.skills.length} skills
+                    </span>
+                  )}
+                </div>
+              );
+            }
+            if (a2aConf.agent_card_url) {
+              return (
+                <div className="mt-1 text-[10px] text-text-muted truncate">
+                  {a2aConf.agent_card_url}
+                </div>
+              );
+            }
+            return null;
+          })()}
 
         {data.condition && (
           <div className="mt-1 text-xs text-text-muted truncate">when: {data.condition}</div>

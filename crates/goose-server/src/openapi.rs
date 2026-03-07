@@ -503,6 +503,7 @@ derive_utoipa!(PromptArgument as PromptArgumentSchema);
         super::routes::a2a::get_instance_result,
         super::routes::a2a::stream_instance_events,
         super::routes::a2a::list_personas,
+        super::routes::a2a::discover_agent,
         // Pipeline Management (TODO: frontend agent WIP)
             super::routes::pipeline::list_pipelines_handler,
             super::routes::pipeline::get_pipeline_handler,
@@ -793,6 +794,9 @@ derive_utoipa!(PromptArgument as PromptArgumentSchema);
         super::routes::a2a::InstanceResponse,
         super::routes::a2a::InstanceResultResponse,
         super::routes::a2a::PersonaSummary,
+        super::routes::a2a::DiscoverAgentRequest,
+        super::routes::a2a::DiscoverAgentResponse,
+        super::routes::a2a::DiscoveredSkill,
         // TODO: Pipeline Management types — frontend agent WIP, missing utoipa annotations
             super::routes::pipeline::SavePipelineRequest,
             super::routes::pipeline::SavePipelineResponse,

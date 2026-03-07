@@ -41,10 +41,19 @@ export interface HumanConfig {
   default_action?: 'approve' | 'reject' | 'skip';
 }
 
+export interface DiscoveredCard {
+  name: string;
+  description: string;
+  url: string;
+  skills: Array<{ id: string; name: string; description: string }>;
+}
+
 export interface A2aConfig {
   agent_card_url: string;
   task: string;
   timeout?: number;
+  discovered_card?: DiscoveredCard;
+  selected_skills?: string[];
 }
 
 export type NodeConfig =

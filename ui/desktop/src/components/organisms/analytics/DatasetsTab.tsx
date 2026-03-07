@@ -926,9 +926,23 @@ export default function DatasetsTab() {
 
     try {
       const baseUrl = client.getConfig().baseUrl || '';
+      // Build headers with auth secret (same pattern as RoutingInspector)
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const rawHeaders = client.getConfig().headers;
+      if (rawHeaders) {
+        const h = rawHeaders as Record<string, string>;
+        const secretKey =
+          typeof h.get === 'function'
+            ? (h as unknown as globalThis.Headers).get('X-Secret-Key')
+            : h['X-Secret-Key'];
+        if (secretKey) {
+          headers['X-Secret-Key'] = secretKey;
+        }
+      }
+
       const resp = await fetch(`${baseUrl}/analytics/eval/run/stream`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ dataset_id: datasetId }),
       });
 

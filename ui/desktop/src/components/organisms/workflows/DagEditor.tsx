@@ -15,9 +15,10 @@ import {
   useReactFlow,
 } from '@xyflow/react';
 import type React from 'react';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { client } from '@/api/client.gen';
 import '@xyflow/react/dist/style.css';
-import { FileJson, FileText, Redo2, Save, Undo2 } from 'lucide-react';
+import { FileJson, FileText, Play, Redo2, Save, Square, Undo2 } from 'lucide-react';
 import { nodeTypes } from './nodes';
 import { NodePalette } from './panels/NodePalette';
 import { PropertiesPanel } from './panels/PropertiesPanel';
@@ -76,6 +77,145 @@ function DagEditorInner({
       setHistoryIdx((prev) => prev + 1);
     }
   }, [history, historyIdx, setNodes, setEdges]);
+
+  // Pipeline execution state
+  const [running, setRunning] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Update a single node's status
+  const updateNodeStatus = useCallback(
+    (nodeId: string, status: DagNodeData['status'], output?: string) => {
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.id === nodeId
+            ? { ...n, data: { ...n.data, status, ...(output !== undefined && { output }) } }
+            : n
+        )
+      );
+    },
+    [setNodes]
+  );
+
+  // Reset all node statuses
+  const resetNodeStatuses = useCallback(() => {
+    setNodes((nds) =>
+      nds.map((n) => ({ ...n, data: { ...n.data, status: 'idle' as const, output: undefined } }))
+    );
+  }, [setNodes]);
+
+  // Run pipeline via SSE
+  const handleRun = useCallback(async () => {
+    if (running) {
+      // Stop the current run
+      abortRef.current?.abort();
+      return;
+    }
+
+    // Save first (to ensure pipeline exists on disk)
+    const pipeline = flowToPipeline(nodes, edges, pipelineMeta);
+    const yaml = pipelineToYaml(pipeline);
+    const json = pipelineToJson(pipeline);
+    onSave?.(yaml, json);
+
+    setRunning(true);
+    setRunError(null);
+    resetNodeStatuses();
+
+    const abort = new AbortController();
+    abortRef.current = abort;
+
+    try {
+      const baseUrl = client.getConfig().baseUrl || '';
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const rawHeaders = client.getConfig().headers;
+      if (rawHeaders) {
+        const h = rawHeaders as Record<string, string>;
+        const secretKey =
+          typeof h.get === 'function'
+            ? (h as unknown as globalThis.Headers).get('X-Secret-Key')
+            : h['X-Secret-Key'];
+        if (secretKey) {
+          headers['X-Secret-Key'] = secretKey;
+        }
+      }
+
+      const resp = await fetch(
+        `${baseUrl}/pipelines/${encodeURIComponent(pipelineMeta.name)}/run`,
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ max_concurrency: 4 }),
+          signal: abort.signal,
+        }
+      );
+
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`Pipeline execution failed: ${resp.status} ${text}`);
+      }
+
+      // Read SSE stream
+      const reader = resp.body?.getReader();
+      const decoder = new TextDecoder();
+      if (!reader) throw new Error('No response body');
+
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue;
+          const jsonStr = line.slice(5).trim();
+          if (!jsonStr || jsonStr === '[DONE]') continue;
+
+          try {
+            const event = JSON.parse(jsonStr);
+            switch (event.event) {
+              case 'node_started':
+                updateNodeStatus(event.node_id, 'running');
+                break;
+              case 'node_completed':
+                updateNodeStatus(event.node_id, 'success', event.output);
+                break;
+              case 'node_failed':
+                updateNodeStatus(event.node_id, 'error', event.error);
+                break;
+              case 'node_skipped':
+                updateNodeStatus(event.node_id, 'skipped');
+                break;
+              case 'run_completed':
+                break;
+              case 'run_failed':
+                setRunError(event.error || 'Pipeline execution failed');
+                break;
+            }
+          } catch {
+            // Skip malformed JSON lines
+          }
+        }
+      }
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name !== 'AbortError') {
+        setRunError(err.message);
+      }
+    } finally {
+      setRunning(false);
+      abortRef.current = null;
+    }
+  }, [running, nodes, edges, pipelineMeta, onSave, resetNodeStatuses, updateNodeStatus]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
 
   // Connect nodes
   const onConnect: OnConnect = useCallback(
@@ -289,6 +429,34 @@ function DagEditorInner({
                 Save
               </button>
 
+              <div className="w-px h-5 bg-border-muted mx-1" />
+
+              {/* Run / Stop */}
+              <button
+                type="button"
+                onClick={handleRun}
+                disabled={nodes.length === 0}
+                className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium
+                           transition-all disabled:opacity-30 ${
+                             running
+                               ? 'bg-red-600 text-white hover:bg-red-700'
+                               : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                           }`}
+                title={running ? 'Stop execution' : 'Run pipeline'}
+              >
+                {running ? (
+                  <>
+                    <Square size={12} />
+                    Stop
+                  </>
+                ) : (
+                  <>
+                    <Play size={12} />
+                    Run
+                  </>
+                )}
+              </button>
+
               {showExport && (
                 <span className="text-xs text-text-success ml-1">
                   Copied {showExport.toUpperCase()}!
@@ -296,6 +464,22 @@ function DagEditorInner({
               )}
             </div>
           </Panel>
+
+          {/* Run error banner */}
+          {runError && (
+            <Panel position="top-center" className="mt-14">
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700 rounded-lg text-xs text-red-700 dark:text-red-300">
+                <span>{runError}</span>
+                <button
+                  type="button"
+                  onClick={() => setRunError(null)}
+                  className="ml-1 font-bold hover:opacity-70"
+                >
+                  ×
+                </button>
+              </div>
+            </Panel>
+          )}
 
           {/* Empty state */}
           {nodes.length === 0 && (

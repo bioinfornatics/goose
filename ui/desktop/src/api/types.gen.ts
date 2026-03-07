@@ -743,6 +743,20 @@ export type EvalTestCase = {
 };
 
 /**
+ * Request body for executing a pipeline.
+ */
+export type ExecutePipelineRequest = {
+    /**
+     * Maximum number of concurrent tasks (default: 4)
+     */
+    max_concurrency?: number;
+    /**
+     * Optional session ID for agent context
+     */
+    session_id?: string | null;
+};
+
+/**
  * Represents the different types of MCP extensions that can be added to the manager
  */
 export type ExtensionConfig = {
@@ -5488,6 +5502,33 @@ export type UpdatePipelineResponses = {
 };
 
 export type UpdatePipelineResponse = UpdatePipelineResponses[keyof UpdatePipelineResponses];
+
+export type ExecutePipelineData = {
+    body: ExecutePipelineRequest;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/pipelines/{id}/run';
+};
+
+export type ExecutePipelineErrors = {
+    /**
+     * Invalid pipeline
+     */
+    400: unknown;
+    /**
+     * Pipeline not found
+     */
+    404: unknown;
+};
+
+export type ExecutePipelineResponses = {
+    /**
+     * Pipeline execution started, returns SSE stream
+     */
+    200: unknown;
+};
 
 export type CreateRecipeData = {
     body: CreateRecipeRequest;

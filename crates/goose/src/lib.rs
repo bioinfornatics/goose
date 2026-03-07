@@ -20,6 +20,7 @@ pub mod oauth;
 pub mod oidc;
 pub mod permission;
 pub mod pipeline;
+pub mod pipeline_executor;
 pub mod policy;
 pub mod posthog;
 pub mod prompt_template;

@@ -510,6 +510,7 @@ derive_utoipa!(PromptArgument as PromptArgumentSchema);
             super::routes::pipeline::update_pipeline_handler,
             super::routes::pipeline::delete_pipeline_handler,
             super::routes::pipeline::validate_pipeline_handler,
+            super::routes::pipeline::execute_pipeline_handler,
     ),
     components(schemas(
         super::routes::agent_management::OrchestratorStatus,
@@ -796,6 +797,7 @@ derive_utoipa!(PromptArgument as PromptArgumentSchema);
             super::routes::pipeline::SavePipelineRequest,
             super::routes::pipeline::SavePipelineResponse,
             super::routes::pipeline::ValidatePipelineResponse,
+            super::routes::pipeline::ExecutePipelineRequest,
             goose::pipeline::Pipeline,
             goose::pipeline::PipelineNode,
             goose::pipeline::PipelineEdge,

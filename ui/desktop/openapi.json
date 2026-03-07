@@ -3856,6 +3856,45 @@
         }
       }
     },
+    "/pipelines/{id}/run": {
+      "post": {
+        "tags": [
+          "super::routes::pipeline"
+        ],
+        "operationId": "executePipeline",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecutePipelineRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Pipeline execution started, returns SSE stream"
+          },
+          "400": {
+            "description": "Invalid pipeline"
+          },
+          "404": {
+            "description": "Pipeline not found"
+          }
+        }
+      }
+    },
     "/recipes/create": {
       "post": {
         "tags": [
@@ -7952,6 +7991,22 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "ExecutePipelineRequest": {
+        "type": "object",
+        "description": "Request body for executing a pipeline.",
+        "properties": {
+          "max_concurrency": {
+            "type": "integer",
+            "description": "Maximum number of concurrent tasks (default: 4)",
+            "minimum": 0
+          },
+          "session_id": {
+            "type": "string",
+            "description": "Optional session ID for agent context",
+            "nullable": true
           }
         }
       },

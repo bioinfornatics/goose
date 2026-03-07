@@ -972,42 +972,44 @@ export default function DatasetsTab() {
           try {
             const evt = JSON.parse(payload);
 
-            if (evt.type === 'progress') {
-              const d = evt.data;
+            if (evt.type === 'progress' && evt.result) {
+              const r = evt.result;
+              const m = evt.runningMetrics;
               setStreamProgress((prev) => {
                 const results = [...(prev?.results || [])];
                 results.push({
-                  input: d.result.input,
-                  expectedAgent: d.result.expected_agent,
-                  expectedMode: d.result.expected_mode,
-                  actualAgent: d.result.actual_agent,
-                  actualMode: d.result.actual_mode,
-                  confidence: d.result.confidence,
-                  agentCorrect: d.result.agent_correct,
-                  modeCorrect: d.result.mode_correct,
-                  fullyCorrect: d.result.fully_correct,
-                  reasoning: d.result.reasoning || '',
+                  input: r.input,
+                  expectedAgent: r.expected_agent,
+                  expectedMode: r.expected_mode,
+                  actualAgent: r.actual_agent,
+                  actualMode: r.actual_mode,
+                  confidence: r.confidence,
+                  agentCorrect: r.agent_correct,
+                  modeCorrect: r.mode_correct,
+                  fullyCorrect: r.fully_correct,
+                  reasoning: r.reasoning || '',
                 });
                 return {
-                  index: d.index + 1,
-                  total: d.total,
+                  index: (evt.index ?? 0) + 1,
+                  total: evt.total ?? 0,
                   results,
-                  metrics: {
-                    overallAccuracy: d.runningMetrics.overall_accuracy,
-                    agentAccuracy: d.runningMetrics.agent_accuracy,
-                    modeAccuracy: d.runningMetrics.mode_accuracy,
-                  },
+                  metrics: m
+                    ? {
+                        overallAccuracy: m.overall_accuracy,
+                        agentAccuracy: m.agent_accuracy,
+                        modeAccuracy: m.mode_accuracy,
+                      }
+                    : (prev?.metrics ?? { overallAccuracy: 0, agentAccuracy: 0, modeAccuracy: 0 }),
                 };
               });
             } else if (evt.type === 'done') {
-              // Stream finished — use the persisted detail from the event
               if (evt.detail) {
                 setActiveRunDetail(evt.detail as EvalRunDetail);
               }
               setStreamProgress(null);
               await fetchAll();
             } else if (evt.type === 'error') {
-              setError(evt.data?.message || 'Eval streaming error');
+              setError(evt.message || evt.data?.message || 'Eval streaming error');
             }
           } catch {
             // skip malformed SSE lines

@@ -2009,6 +2009,7 @@ export type RunCreateRequest = {
 
 export type RunEvalRequest = {
     datasetId: string;
+    sessionId?: string | null;
     versionTag?: string;
 };
 

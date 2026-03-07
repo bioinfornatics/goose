@@ -8,7 +8,8 @@ use axum::{
 use goose::agents::{
     orchestrator_agent::OrchestratorAgent,
     routing_eval::{
-        compute_metrics, evaluate, load_eval_set, RoutingEvalMetrics, RoutingEvalResult,
+        compute_metrics, evaluate_orchestrator, load_eval_set, RoutingEvalMetrics,
+        RoutingEvalResult,
     },
 };
 use goose::session::eval_storage::{
@@ -211,15 +212,31 @@ async fn eval_routing(
     let test_set = load_eval_set(&req.yaml)
         .map_err(|e| ErrorResponse::bad_request(format!("invalid eval YAML: {e}")))?;
 
-    // Use OrchestratorAgent with configured slots (matches production routing)
-    let provider = Arc::new(tokio::sync::Mutex::new(None));
+    // Use OrchestratorAgent with LLM provider from session (matches production routing).
+    // Auto-detect provider from most recent session.
+    let sm = state.session_manager();
+    let sessions = sm.list_sessions().await.unwrap_or_default();
+    let mut provider_arc: Option<Arc<dyn goose::providers::base::Provider>> = None;
+    for s in sessions.iter().take(5) {
+        if let Ok(agent) = state.get_agent(s.id.clone()).await {
+            if let Ok(session) = sm.get_session(&s.id, false).await {
+                let _ = agent.restore_provider_from_session(&session).await;
+                if let Ok(p) = agent.provider().await {
+                    provider_arc = Some(p);
+                    break;
+                }
+            }
+        }
+    }
+
+    let provider = Arc::new(tokio::sync::Mutex::new(provider_arc));
     let mut router = OrchestratorAgent::new(provider);
     state
         .agent_slot_registry
         .configure_orchestrator(&mut router)
         .await;
 
-    let results = evaluate(router.intent_router(), &test_set);
+    let results = evaluate_orchestrator(&router, &test_set).await;
     let metrics = compute_metrics(&results);
     let report = goose::agents::routing_eval::format_report(&results, &metrics);
 
@@ -414,8 +431,43 @@ pub async fn run_eval(
         .map_err(|e| ErrorResponse::internal(e.to_string()))?;
     let store = EvalStorage::new(pool);
 
-    // Use OrchestratorAgent with configured slots (matches production routing)
-    let provider = Arc::new(tokio::sync::Mutex::new(None));
+    // Resolve LLM provider from session (same pattern as inspect_routing).
+    // This ensures eval uses the REAL production routing path (LLM orchestrator),
+    // not just the semantic fallback.
+    let provider_arc: Option<Arc<dyn goose::providers::base::Provider>> =
+        if let Some(ref sid) = req.session_id {
+            match state.get_agent(sid.clone()).await {
+                Ok(agent) => {
+                    let mut p = agent.provider().await.ok();
+                    if p.is_none() {
+                        if let Ok(session) = sm.get_session(sid, false).await {
+                            let _ = agent.restore_provider_from_session(&session).await;
+                            p = agent.provider().await.ok();
+                        }
+                    }
+                    p
+                }
+                Err(_) => None,
+            }
+        } else {
+            // Auto-detect: try to find the most recent session with a provider
+            let sessions = sm.list_sessions().await.unwrap_or_default();
+            let mut found = None;
+            for s in sessions.iter().take(5) {
+                if let Ok(agent) = state.get_agent(s.id.clone()).await {
+                    if let Ok(session) = sm.get_session(&s.id, false).await {
+                        let _ = agent.restore_provider_from_session(&session).await;
+                        if let Ok(p) = agent.provider().await {
+                            found = Some(p);
+                            break;
+                        }
+                    }
+                }
+            }
+            found
+        };
+
+    let provider = Arc::new(tokio::sync::Mutex::new(provider_arc));
     let mut router = OrchestratorAgent::new(provider);
     state
         .agent_slot_registry
@@ -423,7 +475,7 @@ pub async fn run_eval(
         .await;
 
     let run = store
-        .run_eval(req, router.intent_router())
+        .run_eval(req, &router)
         .await
         .map_err(|e| ErrorResponse::internal(e.to_string()))?;
     Ok(Json(run))

@@ -11601,6 +11601,10 @@
           "datasetId": {
             "type": "string"
           },
+          "sessionId": {
+            "type": "string",
+            "nullable": true
+          },
           "versionTag": {
             "type": "string"
           }

@@ -5,7 +5,7 @@ use sqlx::{Pool, Sqlite};
 use std::collections::HashMap;
 use utoipa::ToSchema;
 
-use crate::agents::intent_router::IntentRouter;
+use crate::agents::orchestrator_agent::OrchestratorAgent;
 use crate::agents::routing_eval::{self, RoutingEvalCase, RoutingEvalSet};
 
 /// Parse SQLite TIMESTAMP string (YYYY-MM-DD HH:MM:SS) into DateTime<Utc>.
@@ -189,6 +189,8 @@ pub struct RunEvalRequest {
     pub dataset_id: String,
     #[serde(default)]
     pub version_tag: String,
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -520,7 +522,7 @@ impl<'a> EvalStorage<'a> {
     pub async fn run_eval(
         &self,
         req: RunEvalRequest,
-        router: &IntentRouter,
+        orchestrator: &OrchestratorAgent,
     ) -> Result<EvalRunDetail> {
         let dataset = self.get_dataset(&req.dataset_id).await?;
         let goose_version = env!("CARGO_PKG_VERSION").to_string();
@@ -543,7 +545,7 @@ impl<'a> EvalStorage<'a> {
         };
 
         let start = std::time::Instant::now();
-        let results = routing_eval::evaluate(router, &eval_set);
+        let results = routing_eval::evaluate_orchestrator(orchestrator, &eval_set).await;
         let metrics = routing_eval::compute_metrics(&results);
         let duration_ms = start.elapsed().as_millis() as i64;
 

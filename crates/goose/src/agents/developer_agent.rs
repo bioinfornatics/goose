@@ -2,7 +2,8 @@
 ///
 /// The Developer Agent is responsible for writing, debugging, reviewing, and
 /// planning code. It uses the universal mode set (ask/plan/write/review/debug)
-/// where each mode controls behavioral stance and tool access.
+/// plus specialized app modes (app_maker/app_iterator) for building standalone
+/// HTML/CSS/JS applications.
 ///
 /// This agent replaces the former `CodingAgent` which conflated personas
 /// (PM, QA, Security) with behavioral modes.
@@ -10,27 +11,21 @@ use std::collections::HashMap;
 
 use crate::agents::universal_mode::UniversalMode;
 use crate::prompt_template;
-use crate::registry::manifest::AgentMode;
+use crate::registry::manifest::{AgentMode, ToolGroupAccess};
 
 /// Additional tool groups the Developer persona adds on top of UniversalMode defaults.
-fn developer_extra_tools(mode: &UniversalMode) -> Vec<crate::registry::manifest::ToolGroupAccess> {
-    use crate::registry::manifest::ToolGroupAccess;
+fn developer_extra_tools(mode: &UniversalMode) -> Vec<ToolGroupAccess> {
     match mode {
-        // Ask mode: developer adds code_execution for REPL exploration
         UniversalMode::Ask => vec![ToolGroupAccess::Full("code_execution".into())],
-        // Plan mode: developer can sketch in temp files
         UniversalMode::Plan => vec![ToolGroupAccess::Full("code_execution".into())],
-        // Write mode: developer adds MCP, browser, code_execution
         UniversalMode::Write => vec![
             ToolGroupAccess::Full("mcp".into()),
             ToolGroupAccess::Full("code_execution".into()),
         ],
-        // Review mode: developer adds code_execution for running checks
         UniversalMode::Review => vec![
             ToolGroupAccess::Full("command".into()),
             ToolGroupAccess::Full("code_execution".into()),
         ],
-        // Debug mode: developer adds MCP, code_execution
         UniversalMode::Debug => vec![
             ToolGroupAccess::Full("mcp".into()),
             ToolGroupAccess::Full("code_execution".into()),
@@ -39,7 +34,7 @@ fn developer_extra_tools(mode: &UniversalMode) -> Vec<crate::registry::manifest:
 }
 
 /// Recommended MCP extensions per mode.
-fn recommended_extensions(mode: &UniversalMode) -> Vec<&'static str> {
+fn universal_recommended_extensions(mode: &UniversalMode) -> Vec<&'static str> {
     match mode {
         UniversalMode::Ask => vec!["developer", "context7", "memory", "genui"],
         UniversalMode::Plan => vec!["developer", "context7", "memory", "fetch"],
@@ -63,15 +58,25 @@ fn recommended_extensions(mode: &UniversalMode) -> Vec<&'static str> {
     }
 }
 
-pub struct DeveloperAgent {
-    modes: HashMap<String, DeveloperMode>,
-    default_mode: String,
+/// A mode owned by the Developer agent.
+enum DeveloperModeKind {
+    /// Universal modes shared across agents (ask/plan/write/review/debug).
+    Universal(UniversalMode),
+    /// Custom modes specific to this agent (app_maker, app_iterator).
+    Custom {
+        slug: String,
+        name: String,
+        description: String,
+        template_file: String,
+        tool_groups: Vec<ToolGroupAccess>,
+        when_to_use: String,
+        recommended_extensions: Vec<&'static str>,
+    },
 }
 
-struct DeveloperMode {
-    mode: UniversalMode,
-    extra_tools: Vec<crate::registry::manifest::ToolGroupAccess>,
-    recommended_extensions: Vec<&'static str>,
+pub struct DeveloperAgent {
+    modes: Vec<DeveloperModeKind>,
+    default_mode: String,
 }
 
 impl Default for DeveloperAgent {
@@ -80,20 +85,49 @@ impl Default for DeveloperAgent {
     }
 }
 
+/// Stable ordering: universal modes first (ask/plan/write/review/debug),
+/// then custom modes (app_maker, app_iterator).
+const MODE_ORDER: &[&str] = &[
+    "ask",
+    "plan",
+    "write",
+    "review",
+    "debug",
+    "app_maker",
+    "app_iterator",
+];
+
 impl DeveloperAgent {
     pub fn new() -> Self {
-        let mut modes = HashMap::new();
+        let mut modes = Vec::new();
 
         for um in UniversalMode::all() {
-            modes.insert(
-                um.slug().to_string(),
-                DeveloperMode {
-                    mode: *um,
-                    extra_tools: developer_extra_tools(um),
-                    recommended_extensions: recommended_extensions(um),
-                },
-            );
+            modes.push(DeveloperModeKind::Universal(*um));
         }
+
+        modes.push(DeveloperModeKind::Custom {
+            slug: "app_maker".into(),
+            name: "App Creator".into(),
+            description: "Build standalone HTML/CSS/JS applications from a description or PRD."
+                .into(),
+            template_file: "developer/apps_create.md".into(),
+            tool_groups: vec![ToolGroupAccess::Full("apps".into())],
+            when_to_use: "User wants to create a new standalone web app, prototype, or HTML tool."
+                .into(),
+            recommended_extensions: vec!["apps"],
+        });
+
+        modes.push(DeveloperModeKind::Custom {
+            slug: "app_iterator".into(),
+            name: "App Iterator".into(),
+            description: "Improve an existing Goose app based on feedback.".into(),
+            template_file: "developer/apps_iterate.md".into(),
+            tool_groups: vec![ToolGroupAccess::Full("apps".into())],
+            when_to_use:
+                "User wants to modify, improve, or iterate on an existing Goose app with feedback."
+                    .into(),
+            recommended_extensions: vec!["apps"],
+        });
 
         Self {
             modes,
@@ -102,7 +136,10 @@ impl DeveloperAgent {
     }
 
     pub fn mode(&self, slug: &str) -> Option<&UniversalMode> {
-        self.modes.get(slug).map(|dm| &dm.mode)
+        self.modes.iter().find_map(|mk| match mk {
+            DeveloperModeKind::Universal(um) if um.slug() == slug => Some(um),
+            _ => None,
+        })
     }
 
     pub fn default_mode(&self) -> &str {
@@ -110,14 +147,15 @@ impl DeveloperAgent {
     }
 
     pub fn modes(&self) -> Vec<&str> {
-        let mut slugs: Vec<&str> = self.modes.keys().map(|s| s.as_str()).collect();
-        // Stable ordering: ask, plan, write, review, debug
-        slugs.sort_by_key(|s| {
-            UniversalMode::all()
-                .iter()
-                .position(|m| m.slug() == *s)
-                .unwrap_or(99)
-        });
+        let mut slugs: Vec<&str> = self
+            .modes
+            .iter()
+            .map(|mk| match mk {
+                DeveloperModeKind::Universal(um) => um.slug(),
+                DeveloperModeKind::Custom { slug, .. } => slug.as_str(),
+            })
+            .collect();
+        slugs.sort_by_key(|s| MODE_ORDER.iter().position(|o| o == s).unwrap_or(99));
         slugs
     }
 
@@ -126,63 +164,106 @@ impl DeveloperAgent {
         slug: &str,
         context: &HashMap<String, String>,
     ) -> anyhow::Result<String> {
-        let dm = self
+        let mk = self
             .modes
-            .get(slug)
+            .iter()
+            .find(|mk| match mk {
+                DeveloperModeKind::Universal(um) => um.slug() == slug,
+                DeveloperModeKind::Custom { slug: s, .. } => s == slug,
+            })
             .ok_or_else(|| anyhow::anyhow!("Unknown Developer Agent mode: {slug}"))?;
-        let template_name = format!("developer/{}.md", dm.mode.slug());
+        let template_name = match mk {
+            DeveloperModeKind::Universal(um) => format!("developer/{}.md", um.slug()),
+            DeveloperModeKind::Custom { template_file, .. } => template_file.clone(),
+        };
         Ok(prompt_template::render_template(&template_name, context)?)
     }
 
     pub fn to_agent_modes(&self) -> Vec<AgentMode> {
         let mut result: Vec<AgentMode> = self
             .modes
-            .values()
-            .map(|dm| {
-                let mut tool_groups = dm.mode.base_tool_groups();
-                tool_groups.extend(dm.extra_tools.clone());
-                AgentMode {
-                    slug: dm.mode.slug().to_string(),
-                    name: dm.mode.display_name().to_string(),
-                    description: dm.mode.description().to_string(),
-                    instructions: None,
-                    instructions_file: Some(format!("developer/{}.md", dm.mode.slug())),
+            .iter()
+            .map(|mk| match mk {
+                DeveloperModeKind::Universal(um) => {
+                    let mut tool_groups = um.base_tool_groups();
+                    tool_groups.extend(developer_extra_tools(um));
+                    AgentMode {
+                        slug: um.slug().to_string(),
+                        name: um.display_name().to_string(),
+                        description: um.description().to_string(),
+                        instructions: None,
+                        instructions_file: Some(format!("developer/{}.md", um.slug())),
+                        tool_groups,
+                        when_to_use: Some(um.when_to_use().to_string()),
+                        is_internal: false,
+                        deprecated: None,
+                    }
+                }
+                DeveloperModeKind::Custom {
+                    slug,
+                    name,
+                    description,
+                    template_file,
                     tool_groups,
-                    when_to_use: Some(dm.mode.when_to_use().to_string()),
+                    when_to_use,
+                    ..
+                } => AgentMode {
+                    slug: slug.clone(),
+                    name: name.clone(),
+                    description: description.clone(),
+                    instructions: None,
+                    instructions_file: Some(template_file.clone()),
+                    tool_groups: tool_groups.clone(),
+                    when_to_use: Some(when_to_use.clone()),
                     is_internal: false,
                     deprecated: None,
-                }
+                },
             })
             .collect();
-        // Stable ordering
-        result.sort_by_key(|m| {
-            UniversalMode::all()
-                .iter()
-                .position(|um| um.slug() == m.slug)
-                .unwrap_or(99)
-        });
+        result.sort_by_key(|m| MODE_ORDER.iter().position(|o| *o == m.slug).unwrap_or(99));
         result
     }
 
     pub fn recommended_extensions(&self, slug: &str) -> Vec<String> {
         self.modes
-            .get(slug)
-            .map(|dm| {
-                dm.recommended_extensions
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect()
+            .iter()
+            .find_map(|mk| match mk {
+                DeveloperModeKind::Universal(um) if um.slug() == slug => Some(
+                    universal_recommended_extensions(um)
+                        .into_iter()
+                        .map(|s| s.to_string())
+                        .collect(),
+                ),
+                DeveloperModeKind::Custom {
+                    slug: s,
+                    recommended_extensions,
+                    ..
+                } if s == slug => Some(
+                    recommended_extensions
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect(),
+                ),
+                _ => None,
             })
             .unwrap_or_default()
     }
 
-    pub fn tool_groups_for(&self, slug: &str) -> Vec<crate::registry::manifest::ToolGroupAccess> {
+    pub fn tool_groups_for(&self, slug: &str) -> Vec<ToolGroupAccess> {
         self.modes
-            .get(slug)
-            .map(|dm| {
-                let mut tg = dm.mode.base_tool_groups();
-                tg.extend(dm.extra_tools.clone());
-                tg
+            .iter()
+            .find_map(|mk| match mk {
+                DeveloperModeKind::Universal(um) if um.slug() == slug => {
+                    let mut tg = um.base_tool_groups();
+                    tg.extend(developer_extra_tools(um));
+                    Some(tg)
+                }
+                DeveloperModeKind::Custom {
+                    slug: s,
+                    tool_groups,
+                    ..
+                } if s == slug => Some(tool_groups.clone()),
+                _ => None,
             })
             .unwrap_or_default()
     }
@@ -199,11 +280,22 @@ mod tests {
     }
 
     #[test]
-    fn test_has_five_universal_modes() {
+    fn test_has_universal_and_custom_modes() {
         let agent = DeveloperAgent::new();
         let modes = agent.modes();
-        assert_eq!(modes.len(), 5);
-        assert_eq!(modes, vec!["ask", "plan", "write", "review", "debug"]);
+        assert_eq!(modes.len(), 7);
+        assert_eq!(
+            modes,
+            vec![
+                "ask",
+                "plan",
+                "write",
+                "review",
+                "debug",
+                "app_maker",
+                "app_iterator"
+            ]
+        );
     }
 
     #[test]
@@ -214,6 +306,9 @@ mod tests {
         assert!(agent.mode("plan").is_some());
         assert!(agent.mode("review").is_some());
         assert!(agent.mode("debug").is_some());
+        // Custom modes don't return UniversalMode
+        assert!(agent.mode("app_maker").is_none());
+        assert!(agent.mode("app_iterator").is_none());
         assert!(agent.mode("backend").is_none());
         assert!(agent.mode("pm").is_none());
     }
@@ -222,9 +317,20 @@ mod tests {
     fn test_to_agent_modes_ordered() {
         let agent = DeveloperAgent::new();
         let modes = agent.to_agent_modes();
-        assert_eq!(modes.len(), 5);
+        assert_eq!(modes.len(), 7);
         let slugs: Vec<&str> = modes.iter().map(|m| m.slug.as_str()).collect();
-        assert_eq!(slugs, vec!["ask", "plan", "write", "review", "debug"]);
+        assert_eq!(
+            slugs,
+            vec![
+                "ask",
+                "plan",
+                "write",
+                "review",
+                "debug",
+                "app_maker",
+                "app_iterator"
+            ]
+        );
     }
 
     #[test]
@@ -286,6 +392,66 @@ mod tests {
         let exts = agent.recommended_extensions("write");
         assert!(exts.contains(&"developer".to_string()));
         assert!(exts.contains(&"github".to_string()));
+    }
+
+    #[test]
+    fn test_app_maker_mode() {
+        let agent = DeveloperAgent::new();
+        let modes = agent.to_agent_modes();
+        let app_maker = modes.iter().find(|m| m.slug == "app_maker").unwrap();
+        assert_eq!(app_maker.name, "App Creator");
+        let tg_str = format!("{:?}", app_maker.tool_groups);
+        assert!(
+            tg_str.contains("apps"),
+            "App Creator needs apps tools: {tg_str}"
+        );
+        assert!(app_maker.when_to_use.is_some());
+    }
+
+    #[test]
+    fn test_app_iterator_mode() {
+        let agent = DeveloperAgent::new();
+        let modes = agent.to_agent_modes();
+        let app_iter = modes.iter().find(|m| m.slug == "app_iterator").unwrap();
+        assert_eq!(app_iter.name, "App Iterator");
+        let tg_str = format!("{:?}", app_iter.tool_groups);
+        assert!(
+            tg_str.contains("apps"),
+            "App Iterator needs apps tools: {tg_str}"
+        );
+    }
+
+    #[test]
+    fn test_app_mode_recommended_extensions() {
+        let agent = DeveloperAgent::new();
+        let exts = agent.recommended_extensions("app_maker");
+        assert!(exts.contains(&"apps".to_string()));
+        let exts = agent.recommended_extensions("app_iterator");
+        assert!(exts.contains(&"apps".to_string()));
+    }
+
+    #[test]
+    fn test_render_app_maker_mode() {
+        let agent = DeveloperAgent::new();
+        let ctx = HashMap::new();
+        let result = agent.render_mode("app_maker", &ctx);
+        assert!(
+            result.is_ok(),
+            "render_mode app_maker failed: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_render_app_iterator_mode() {
+        let agent = DeveloperAgent::new();
+        let ctx = HashMap::new();
+        let result = agent.render_mode("app_iterator", &ctx);
+        assert!(
+            result.is_ok(),
+            "render_mode app_iterator failed: {:?}",
+            result.err()
+        );
     }
 
     #[test]

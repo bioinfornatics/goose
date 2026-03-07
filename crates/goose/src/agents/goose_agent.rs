@@ -178,7 +178,7 @@ impl GooseAgent {
             recommended_extensions: vec!["apps".into()],
             when_to_use: "User asks to build a standalone interactive HTML/CSS/JS application, game, tool, or utility that opens in its own window".into(),
             is_internal: false,
-            deprecated: None,
+            deprecated: Some("Moved to Developer Agent — use Developer / app_maker instead".into()),
         });
 
         modes.push(BuiltinMode {
@@ -191,7 +191,9 @@ impl GooseAgent {
             recommended_extensions: vec!["apps".into()],
             when_to_use: "User asks to modify or improve an existing Goose app".into(),
             is_internal: false,
-            deprecated: None,
+            deprecated: Some(
+                "Moved to Developer Agent — use Developer / app_iterator instead".into(),
+            ),
         });
 
         modes.push(BuiltinMode {

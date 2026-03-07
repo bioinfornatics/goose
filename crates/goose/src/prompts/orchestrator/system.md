@@ -12,7 +12,8 @@
 <rule>Requirements, user stories, roadmaps → PM Agent</rule>
 <rule>Security analysis, threat modeling, compliance → Security Agent</rule>
 <rule>Technology research, SOTA analysis → Research Agent</rule>
-<rule>App/UI creation, charts, dashboards → Goose Agent app_maker or genui mode</rule>
+<rule>App/UI creation (standalone HTML/CSS/JS apps) → Developer Agent app_maker or app_iterator mode</rule>
+<rule>Charts, dashboards, data visualization → Goose Agent genui mode</rule>
 </routing_guidelines>
 
 <decision_quality>

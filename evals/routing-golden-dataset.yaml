@@ -233,13 +233,19 @@ test_cases:
     tags: ["general", "chitchat"]
 
   - input: "Create an interactive dashboard app for tracking expenses"
-    expected_agent: "Goose Agent"
+    expected_agent: "Developer Agent"
     expected_mode: "app_maker"
+    also_acceptable:
+      - agent: "Goose Agent"
+        mode: "app_maker"
     tags: ["app", "genui"]
 
   - input: "Build a simple todo list web application"
-    expected_agent: "Goose Agent"
+    expected_agent: "Developer Agent"
     expected_mode: "app_maker"
+    also_acceptable:
+      - agent: "Goose Agent"
+        mode: "app_maker"
     tags: ["app", "genui"]
 
   - input: "Help me plan my weekend trip to New York"
@@ -280,6 +286,8 @@ test_cases:
     also_acceptable:
       - agent: "PM Agent"
         mode: "write"
+      - agent: "Developer Agent"
+        mode: "app_maker"
       - agent: "Goose Agent"
         mode: "app_maker"
     tags: ["ambiguous", "visualization", "testing"]

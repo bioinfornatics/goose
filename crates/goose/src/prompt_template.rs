@@ -81,6 +81,14 @@ static TEMPLATE_REGISTRY: &[(&str, &str)] = &[
         "developer/debug.md",
         "Developer Debug — systematic diagnosis and root-cause analysis",
     ),
+    (
+        "developer/apps_create.md",
+        "Developer App Creator — build standalone HTML/CSS/JS apps",
+    ),
+    (
+        "developer/apps_iterate.md",
+        "Developer App Iterator — modify existing Goose apps based on feedback",
+    ),
     // QA Agent — universal modes
     (
         "qa/ask.md",

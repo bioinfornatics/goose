@@ -82,6 +82,7 @@ pub fn set_orchestrator_enabled(enabled: bool) {
 struct RoutingPromptContext {
     user_message: String,
     agent_catalog: String,
+    routing_guidelines: String,
 }
 
 /// A sub-task produced by compound request splitting.
@@ -410,9 +411,11 @@ impl OrchestratorAgent {
             .ok_or_else(|| anyhow::anyhow!("No provider available for LLM routing"))?;
 
         let catalog_text = self.build_catalog_text();
+        let guidelines_text = self.build_routing_guidelines();
         let context = RoutingPromptContext {
             user_message: user_message.to_string(),
             agent_catalog: catalog_text,
+            routing_guidelines: guidelines_text,
         };
 
         let splitting_prompt =
@@ -485,6 +488,35 @@ impl OrchestratorAgent {
             text.push_str("</agent>\n\n");
         }
         text
+    }
+
+    /// Build routing guidelines dynamically from the agent catalog.
+    ///
+    /// Each enabled agent contributes a `<rule>` based on its description and
+    /// each mode's `when_to_use` guidance.  This replaces the old hardcoded
+    /// `<routing_guidelines>` block in the orchestrator prompts.
+    pub fn build_routing_guidelines(&self) -> String {
+        let mut rules = Vec::new();
+
+        for slot in self.intent_router.slots().iter().filter(|s| s.enabled) {
+            // Agent-level rule from its description
+            rules.push(format!("<rule>{} — {}</rule>", slot.name, slot.description));
+
+            // Mode-level rules from when_to_use
+            for mode in &slot.modes {
+                if mode.is_internal {
+                    continue;
+                }
+                if let Some(when) = &mode.when_to_use {
+                    rules.push(format!(
+                        "<rule>{} / {} mode — {}</rule>",
+                        slot.name, mode.slug, when
+                    ));
+                }
+            }
+        }
+
+        rules.join("\n")
     }
 
     /// Parse the LLM's splitting response into an OrchestratorPlan.
@@ -1019,6 +1051,23 @@ mod tests {
         assert!(catalog.contains("</mode>"));
         assert!(catalog.contains("<modes>"));
         assert!(catalog.contains("</modes>"));
+    }
+
+    #[test]
+    fn test_build_routing_guidelines() {
+        let orch = make_orchestrator();
+        let guidelines = orch.build_routing_guidelines();
+
+        // Should contain rules for each enabled agent
+        assert!(guidelines.contains("<rule>"));
+        assert!(guidelines.contains("Goose Agent"));
+        assert!(guidelines.contains("Developer Agent"));
+
+        // Should contain mode-level rules from when_to_use
+        assert!(
+            guidelines.contains("/ ask mode"),
+            "Should have mode-level rules"
+        );
     }
 
     #[test]

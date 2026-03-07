@@ -18,6 +18,7 @@ export interface AgentConfig {
   max_turns?: number;
   provider?: string;
   model?: string;
+  reasoning_effort?: 'low' | 'medium' | 'high';
 }
 
 export interface ToolConfig {

@@ -1,5 +1,7 @@
-import { Settings2, X } from 'lucide-react';
-import type React from 'react';
+import { Loader2, Settings2, Wrench, X } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { agentCatalog } from '@/api/sdk.gen';
+import type { CatalogAgent, CatalogAgentMode } from '@/api/types.gen';
 import type {
   A2aConfig,
   AgentConfig,
@@ -12,16 +14,20 @@ import type {
   TriggerConfig,
 } from '../types';
 
-interface PropertiesPanelProps {
+/* ─── Props ─── */
+
+export interface PropertiesPanelProps {
   nodeId: string;
   data: DagNodeData;
-  onUpdate: (nodeId: string, data: Partial<DagNodeData>) => void;
-  onDelete: (nodeId: string) => void;
+  onUpdate: (id: string, partial: Partial<DagNodeData>) => void;
+  onDelete: (id: string) => void;
   onClose: () => void;
 }
 
+/* ─── Reusable form primitives ─── */
+
 function FieldLabel({ children }: { children: React.ReactNode }) {
-  return <div className="block text-xs font-medium text-text-muted mb-1">{children}</div>;
+  return <span className="block text-xs font-medium text-text-muted mb-1">{children}</span>;
 }
 
 function TextInput({
@@ -74,10 +80,12 @@ function SelectInput({
   value,
   onChange,
   options,
+  placeholder,
 }: {
   value: string;
   onChange: (v: string) => void;
   options: { value: string; label: string }[];
+  placeholder?: string;
 }) {
   return (
     <select
@@ -87,6 +95,11 @@ function SelectInput({
                  bg-background-default text-text-default
                  focus:outline-none focus:ring-1 focus:ring-border-accent"
     >
+      {placeholder && (
+        <option value="" disabled>
+          {placeholder}
+        </option>
+      )}
       {options.map((opt) => (
         <option key={opt.value} value={opt.value}>
           {opt.label}
@@ -111,7 +124,7 @@ function NumberInput({
     <input
       type="number"
       value={value ?? ''}
-      onChange={(e) => onChange(parseInt(e.target.value, 10))}
+      onChange={(e) => onChange(Number.parseInt(e.target.value, 10))}
       min={min}
       max={max}
       className="w-full px-2 py-1.5 text-sm rounded-md border border-border-default
@@ -129,6 +142,8 @@ function updateConfig<T>(
 ) {
   onUpdate(nodeId, { config: { ...data.config, ...patch } });
 }
+
+/* ─── Trigger fields ─── */
 
 function TriggerFields({
   nodeId,
@@ -171,6 +186,8 @@ function TriggerFields({
   );
 }
 
+/* ─── Agent fields (catalog-driven) ─── */
+
 function AgentFields({
   nodeId,
   data,
@@ -181,14 +198,105 @@ function AgentFields({
   onUpdate: PropertiesPanelProps['onUpdate'];
 }) {
   const config = data.config as AgentConfig;
+  const [agents, setAgents] = useState<CatalogAgent[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    agentCatalog()
+      .then((res) => {
+        if (res.data?.agents) {
+          setAgents(res.data.agents);
+        }
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  const selectedAgent = agents.find((a) => a.id === config.agent);
+  const modes: CatalogAgentMode[] = selectedAgent?.modes ?? [];
+  const selectedMode = modes.find((m) => m.slug === config.mode);
+
+  const handleAgentChange = useCallback(
+    (agentId: string) => {
+      const agent = agents.find((a) => a.id === agentId);
+      const defaultMode = agent?.default_mode ?? agent?.modes?.[0]?.slug ?? '';
+      updateConfig<AgentConfig>(data, onUpdate, nodeId, {
+        agent: agentId,
+        mode: defaultMode,
+      });
+      // Auto-set label to agent name
+      if (agent) {
+        onUpdate(nodeId, {
+          label: agent.name,
+          config: { ...data.config, agent: agentId, mode: defaultMode },
+        });
+      }
+    },
+    [agents, data, onUpdate, nodeId]
+  );
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 py-4 text-text-muted">
+        <Loader2 size={14} className="animate-spin" />
+        <span className="text-xs">Loading agents…</span>
+      </div>
+    );
+  }
+
+  const builtinAgents = agents.filter((a) => a.kind === 'builtin' && a.status === 'active');
+
   return (
     <>
-      <FieldLabel>Agent Name</FieldLabel>
-      <TextInput
+      {/* Agent selector */}
+      <FieldLabel>Agent</FieldLabel>
+      <SelectInput
         value={config.agent}
-        onChange={(v) => updateConfig<AgentConfig>(data, onUpdate, nodeId, { agent: v })}
-        placeholder="e.g., developer"
+        onChange={handleAgentChange}
+        placeholder="Select an agent…"
+        options={builtinAgents.map((a) => ({
+          value: a.id,
+          label: a.name,
+        }))}
       />
+
+      {/* Mode selector (shown when agent is selected) */}
+      {config.agent && modes.length > 0 && (
+        <div className="mt-2">
+          <FieldLabel>Mode</FieldLabel>
+          <SelectInput
+            value={config.mode ?? ''}
+            onChange={(v) => updateConfig<AgentConfig>(data, onUpdate, nodeId, { mode: v })}
+            placeholder="Select mode…"
+            options={modes.map((m) => ({
+              value: m.slug,
+              label: m.name,
+            }))}
+          />
+          {/* Mode description */}
+          {selectedMode?.description && (
+            <p className="mt-1 text-xs text-text-subtle leading-tight">
+              {selectedMode.description}
+            </p>
+          )}
+          {/* Tool groups for selected mode */}
+          {selectedMode?.tool_groups && selectedMode.tool_groups.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {selectedMode.tool_groups.map((tg) => (
+                <span
+                  key={tg}
+                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium
+                             rounded-full bg-background-muted text-text-muted"
+                >
+                  <Wrench size={8} />
+                  {tg}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Prompt */}
       <div className="mt-2">
         <FieldLabel>Prompt</FieldLabel>
         <TextArea
@@ -197,6 +305,27 @@ function AgentFields({
           placeholder="What should this agent do?"
         />
       </div>
+
+      {/* Reasoning effort */}
+      <div className="mt-2">
+        <FieldLabel>Reasoning Effort</FieldLabel>
+        <SelectInput
+          value={config.reasoning_effort ?? ''}
+          onChange={(v) =>
+            updateConfig<AgentConfig>(data, onUpdate, nodeId, {
+              reasoning_effort: (v || undefined) as AgentConfig['reasoning_effort'],
+            })
+          }
+          options={[
+            { value: '', label: 'Default (global)' },
+            { value: 'low', label: 'Low — fast, simple tasks' },
+            { value: 'medium', label: 'Medium — balanced' },
+            { value: 'high', label: 'High — deep analysis' },
+          ]}
+        />
+      </div>
+
+      {/* Max turns */}
       <div className="mt-2">
         <FieldLabel>Max Turns</FieldLabel>
         <NumberInput
@@ -206,25 +335,40 @@ function AgentFields({
           max={100}
         />
       </div>
-      <div className="mt-2">
-        <FieldLabel>Provider</FieldLabel>
-        <TextInput
-          value={config.provider ?? ''}
-          onChange={(v) => updateConfig<AgentConfig>(data, onUpdate, nodeId, { provider: v })}
-          placeholder="e.g., anthropic"
-        />
-      </div>
-      <div className="mt-2">
-        <FieldLabel>Model</FieldLabel>
-        <TextInput
-          value={config.model ?? ''}
-          onChange={(v) => updateConfig<AgentConfig>(data, onUpdate, nodeId, { model: v })}
-          placeholder="e.g., claude-sonnet-4-20250514"
-        />
-      </div>
+
+      {/* Advanced: provider/model override */}
+      <details className="mt-3">
+        <summary className="text-xs text-text-muted cursor-pointer hover:text-text-default">
+          Advanced: Override provider/model
+        </summary>
+        <div className="mt-2 space-y-2">
+          <div>
+            <FieldLabel>Provider</FieldLabel>
+            <TextInput
+              value={config.provider ?? ''}
+              onChange={(v) =>
+                updateConfig<AgentConfig>(data, onUpdate, nodeId, { provider: v || undefined })
+              }
+              placeholder="e.g., anthropic (leave empty for default)"
+            />
+          </div>
+          <div>
+            <FieldLabel>Model</FieldLabel>
+            <TextInput
+              value={config.model ?? ''}
+              onChange={(v) =>
+                updateConfig<AgentConfig>(data, onUpdate, nodeId, { model: v || undefined })
+              }
+              placeholder="e.g., claude-sonnet-4-20250514 (leave empty for default)"
+            />
+          </div>
+        </div>
+      </details>
     </>
   );
 }
+
+/* ─── Tool fields ─── */
 
 function ToolFields({
   nodeId,
@@ -245,7 +389,7 @@ function ToolFields({
         placeholder="e.g., developer"
       />
       <div className="mt-2">
-        <FieldLabel>Tool</FieldLabel>
+        <FieldLabel>Tool Name</FieldLabel>
         <TextInput
           value={config.tool}
           onChange={(v) => updateConfig<ToolConfig>(data, onUpdate, nodeId, { tool: v })}
@@ -255,6 +399,8 @@ function ToolFields({
     </>
   );
 }
+
+/* ─── Condition fields ─── */
 
 function ConditionFields({
   nodeId,
@@ -272,12 +418,14 @@ function ConditionFields({
       <TextArea
         value={config.expression}
         onChange={(v) => updateConfig<ConditionConfig>(data, onUpdate, nodeId, { expression: v })}
-        placeholder="e.g., steps.lint.exit_code == 0"
+        placeholder="e.g., steps.build.exit_code == 0"
         rows={2}
       />
     </>
   );
 }
+
+/* ─── Transform fields ─── */
 
 function TransformFields({
   nodeId,
@@ -295,12 +443,14 @@ function TransformFields({
       <TextArea
         value={config.template}
         onChange={(v) => updateConfig<TransformConfig>(data, onUpdate, nodeId, { template: v })}
-        placeholder="Transform template using {{ step.output }}"
+        placeholder={'Jinja-style template:\n{{ steps.fetch.output | json }}'}
         rows={4}
       />
     </>
   );
 }
+
+/* ─── Human-in-the-loop fields ─── */
 
 function HumanFields({
   nodeId,
@@ -318,7 +468,7 @@ function HumanFields({
       <TextArea
         value={config.prompt}
         onChange={(v) => updateConfig<HumanConfig>(data, onUpdate, nodeId, { prompt: v })}
-        placeholder="What should the human review?"
+        placeholder="Describe what needs human approval"
       />
       <div className="mt-2">
         <FieldLabel>Timeout (seconds)</FieldLabel>
@@ -329,7 +479,7 @@ function HumanFields({
         />
       </div>
       <div className="mt-2">
-        <FieldLabel>Default Action</FieldLabel>
+        <FieldLabel>Default Action (on timeout)</FieldLabel>
         <SelectInput
           value={config.default_action ?? 'skip'}
           onChange={(v) =>
@@ -338,8 +488,8 @@ function HumanFields({
             })
           }
           options={[
-            { value: 'approve', label: 'Auto-approve' },
-            { value: 'reject', label: 'Auto-reject' },
+            { value: 'approve', label: 'Approve' },
+            { value: 'reject', label: 'Reject' },
             { value: 'skip', label: 'Skip' },
           ]}
         />
@@ -347,6 +497,8 @@ function HumanFields({
     </>
   );
 }
+
+/* ─── A2A Agent fields ─── */
 
 function A2aFields({
   nodeId,
@@ -364,7 +516,7 @@ function A2aFields({
       <TextInput
         value={config.agent_card_url}
         onChange={(v) => updateConfig<A2aConfig>(data, onUpdate, nodeId, { agent_card_url: v })}
-        placeholder="https://agent.example.com/.well-known/agent.json"
+        placeholder="https://remote-agent.example.com/.well-known/agent.json"
       />
       <div className="mt-2">
         <FieldLabel>Task Prompt</FieldLabel>
@@ -386,6 +538,8 @@ function A2aFields({
   );
 }
 
+/* ─── Field component registry ─── */
+
 const FIELD_COMPONENTS: Record<
   NodeKind,
   React.FC<{ nodeId: string; data: DagNodeData; onUpdate: PropertiesPanelProps['onUpdate'] }>
@@ -398,6 +552,8 @@ const FIELD_COMPONENTS: Record<
   human: HumanFields,
   a2a: A2aFields,
 };
+
+/* ─── Main panel ─── */
 
 export function PropertiesPanel({
   nodeId,

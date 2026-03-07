@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import type React from 'react';
 import { memo } from 'react';
-import type { DagNodeData, NodeKind } from '../types';
+import type { AgentConfig, DagNodeData, NodeKind } from '../types';
 
 const KIND_COLORS: Record<NodeKind, string> = {
   trigger: '#6366f1',
@@ -100,6 +100,28 @@ function BaseNode({ data, selected }: NodeProps & { data: DagNodeData }) {
       {/* Body */}
       <div className="px-3 py-2">
         <div className="text-sm font-medium text-text-default truncate">{data.label}</div>
+
+        {/* Agent node: show mode + effort badges */}
+        {data.kind === 'agent' && (data.config as AgentConfig).mode && (
+          <div className="mt-1 flex items-center gap-1 flex-wrap">
+            <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400">
+              {(data.config as AgentConfig).mode}
+            </span>
+            {(data.config as AgentConfig).reasoning_effort && (
+              <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                {(data.config as AgentConfig).reasoning_effort}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* A2A node: show truncated URL */}
+        {data.kind === 'a2a' && (data.config as { agent_card_url?: string }).agent_card_url && (
+          <div className="mt-1 text-[10px] text-text-muted truncate">
+            {(data.config as { agent_card_url?: string }).agent_card_url}
+          </div>
+        )}
+
         {data.condition && (
           <div className="mt-1 text-xs text-text-muted truncate">when: {data.condition}</div>
         )}

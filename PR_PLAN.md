@@ -1,305 +1,180 @@
-# PR Split Plan — feature/cli-via-goosed → upstream/main
+# PR Split Plan — Revised for v1.27.2 Architecture
 
-## Context
+## Architecture Delta: Our Branch vs Upstream v1.27.2
 
-- **Source branch:** `feature/cli-via-goosed` (574 commits, 1194 files since v1.23.2)
-- **Target:** `upstream/main` (currently v1.27.2)
-- **Overlap:** 239 files modified by both us and upstream → expect merge conflicts
-- **Upstream delta:** v1.23.2 → v1.27.2 = 412 commits, 587 files changed
+### Upstream v1.27.2 Has
+- **Single Agent** model with `platform_extensions` (apps, summon, developer, chatrecall, code_execution, todo, tom)
+- **Subagent system** (`subagent_handler`) for sub-task delegation
+- **`reasoning: Option<bool>`** on ModelConfig (simple on/off)
+- **`PromptManager`** for system prompts
+- **`execution/` module** for agent lifecycle
+- **No multi-agent routing**, no specialist agents, no agent modes
+- **No pipeline/workflow**, no eval framework, no A2A crate, no agent catalog
 
-## Strategy
+### Our Branch Has (that upstream doesn't)
+- Multi-agent architecture (Developer, QA, PM, Security, Research)
+- AgentSlotRegistry with SQLite backing
+- LLM-based OrchestratorAgent routing
+- IntentRouter with semantic TF-IDF
+- Agent modes (ask, plan, write, review, debug)
+- DAG dispatch (dispatch.rs) for compound tasks
+- Pipeline model + executor + visual editor
+- A2A protocol crate for remote agents
+- ReasoningEffort enum (Low/Medium/High) with per-agent/mode overrides
+- Eval framework with SSE streaming
+- Agent catalog API + UI
 
-1. **Update local main** to upstream v1.27.2
-2. **Create fresh feature branches** from updated main (not from our messy 574-commit history)
-3. **Cherry-pick or rewrite** each PR's changes cleanly onto the fresh branch
-4. **Resolve conflicts** at PR creation time, not at merge time
-5. **Order PRs by dependency** — foundational infrastructure first, UI features last
+### Strategy: Additive PRs Only
 
-## PR Dependency Graph
+Instead of replacing upstream's architecture, we contribute **additive features** that
+enhance the existing single-agent model. Features requiring deep architectural changes
+are deferred to a design RFC.
+
+---
+
+## Revised PR Plan (5 PRs, additive)
+
+### PR-01: Dynamic Reasoning Effort (CLEANEST, START HERE)
+**Risk: 🟢 LOW** — Pure addition to existing ModelConfig, no conflicts
+
+Upstream has `reasoning: Option<bool>` (on/off). We add `ReasoningEffort` enum
+(Low/Medium/High) with provider-specific mapping and dynamic control.
+
+**Rust changes:**
+- `model.rs`: Add `ReasoningEffort` enum, `reasoning_effort: Option<ReasoningEffort>` field,
+  `parse_reasoning_effort()`, `with_reasoning_effort()` builder
+- `providers/formats/openai.rs`: Live env var check in `create_request` for O-series models
+- `providers/formats/anthropic.rs`: Live env var check → `thinking.budget_tokens` override
+- `config_management.rs`: `GET/POST /config/reasoning-effort` endpoints
+- `state.rs`: `reasoning_effort` field in AppState
+- `openapi.rs`: Register new types/paths
+
+**UI changes:**
+- `ReasoningEffortSection.tsx`: Global selector (Low/Medium/High)
+- `ReasoningEffortSelectionItem.tsx`: Radio button component
+- `ChatSettingsSection.tsx`: Wire in new section
+- `reasoningEffortUtils.ts`: Model support detection
+
+**Tests:** ~15 (Rust unit + server integration)
+**ETA:** 1-2 days
+**Conflict risk:** LOW — only touches model.rs (adds field), format files (adds logic), new routes
+
+### PR-02: Pipeline Model & Visual Editor (STANDALONE)
+**Risk: 🟡 MEDIUM** — New module, no conflicts with existing code
+
+Add pipeline YAML model, validation, CRUD API, and visual DAG editor.
+No execution engine yet (that requires dispatch infrastructure).
+
+**Rust changes:**
+- `pipeline.rs`: NEW — Pipeline, PipelineNode, NodeKind, validation, cycle detection, CRUD
+- `lib.rs`: Add `pub mod pipeline;`
+- `routes/pipeline.rs`: NEW — list, get, save, update, delete, validate endpoints
+- `routes/mod.rs`: Register pipeline routes
+- `openapi.rs`: Register pipeline types/paths
+
+**UI changes:**
+- `workflows/types.ts`: Pipeline/node types
+- `workflows/serialization.ts`: Flow ↔ Pipeline conversion
+- `workflows/DagEditor.tsx`: ReactFlow canvas with drag-drop, undo/redo, save/export
+- `workflows/nodes/index.tsx`: Styled node components
+- `workflows/panels/NodePalette.tsx`: Draggable node palette with templates
+- `workflows/panels/PropertiesPanel.tsx`: Node property editor
+- `workflows/panels/TemplateGallery.tsx`: Pre-built pipeline templates
+- `PipelineManager.tsx`: Pipeline listing CRUD
+- `WorkflowsPage.tsx`: Page wrapper
+
+**Tests:** ~50 (22 Rust unit + 9 Rust integration + 34 TypeScript)
+**ETA:** 2-3 days
+**Conflict risk:** LOW — entirely new files, only touches lib.rs and routes/mod.rs
+
+### PR-03: Pipeline Execution Engine (DEPENDS ON PR-02)
+**Risk: 🟡 MEDIUM** — Uses subagent_handler for execution
+
+Maps pipeline nodes to subagent tasks and executes via existing subagent system.
+Uses upstream's `run_subagent_task` instead of our custom dispatch.
+
+**Rust changes:**
+- `pipeline_executor.rs`: NEW — pipeline_to_tasks, execute_pipeline, PipelineEvent SSE
+- `routes/pipeline.rs`: Add `POST /pipelines/{id}/run` SSE endpoint
+
+**UI changes:**
+- `DagEditor.tsx`: Run/Stop button, SSE streaming, node status updates
+
+**Tests:** ~25 (unit + integration + E2E)
+**ETA:** 2-3 days
+**Conflict risk:** LOW — new files only, integrates with existing subagent system
+
+### PR-04: A2A Agent Discovery (STANDALONE)
+**Risk: 🟡 MEDIUM** — New crate + routes
+
+Add A2A (Agent-to-Agent) protocol support for discovering and delegating to remote agents.
+
+**Rust changes:**
+- `crates/a2a/`: NEW crate — types, client (HTTP), server (transport, task store)
+- `routes/a2a.rs`: NEW — discover endpoint, persona listing
+- `Cargo.toml`: Add a2a dependency
+
+**UI changes:**
+- Enhanced A2A node in pipeline editor (discovery + skill selector)
+
+**Tests:** ~14 (A2A server tests)
+**ETA:** 2-3 days
+**Conflict risk:** LOW — new crate, new route file
+
+### PR-05: Eval & Analytics Framework (STANDALONE)
+**Risk: 🟡 MEDIUM** — New routes + UI
+
+Add routing evaluation datasets, runs, and analytics dashboard.
+
+**Rust changes:**
+- `session/eval_storage.rs`: NEW — SQLite-backed eval storage
+- `agents/routing_eval.rs`: NEW — evaluate orchestrator with streaming
+- `routes/analytics.rs`: NEW — eval endpoints with SSE streaming
+
+**UI changes:**
+- `analytics/DatasetsTab.tsx`: Dataset CRUD, eval run with SSE, tabbed results
+
+**Tests:** ~23 (unit + integration + E2E)
+**ETA:** 2-3 days
+**Conflict risk:** LOW — entirely new files
+
+---
+
+## Dependency Graph
 
 ```
-PR-01 (Agent Infrastructure)
-  ├─ PR-02 (Routing Engine)
-  │   └─ PR-05 (Eval Framework)
-  ├─ PR-03 (Developer Agent)
-  │   └─ PR-04 (Reasoning Effort)
-  ├─ PR-06 (A2A Protocol)
-  │   └─ PR-08 (Workflow DAG Builder)
-  └─ PR-07 (Agent Catalog UI)
-      └─ PR-08 (Workflow DAG Builder)
+PR-01 Reasoning Effort    (standalone, start immediately)
+PR-02 Pipeline Model      (standalone, start immediately)
+PR-04 A2A Discovery       (standalone, start immediately)
+PR-05 Eval Framework      (standalone, start immediately)
+  │
+  └── PR-03 Pipeline Execution  (depends on PR-02)
 ```
 
-UI PRs (05, 07, 08) adapt to upstream's existing UI components — no design system PR needed.
-Design System (59 commits) stays in the parking lot.
+## Execution Order
 
----
+| Wave | PRs | Parallelizable? | ETA |
+|------|-----|-----------------|-----|
+| **Wave 1** | PR-01, PR-02, PR-04, PR-05 | YES — all independent | 2-3 days |
+| **Wave 2** | PR-03 | After PR-02 lands | 2-3 days |
 
-## PR-01: Agent Slot Registry & Multi-Agent Infrastructure
-**Risk: HIGH** (56 upstream commits in agents/, heavy overlap)
+**Total: 4-6 days**
 
-### Commits (~25)
-- Agent slot registry with SQLite backing
-- Universal modes (ask/plan/write/review) across all agents
-- CodingAgent → DeveloperAgent migration
-- QA/PM/Security/Research agent definitions
-- Extension registry refactoring (ToolRegistry, ExtensionRegistry)
-- All 6 agents as builtin in agent management
+## What's Deferred (needs RFC)
 
-### Key Files
-| File | Conflict Risk |
-|------|--------------|
-| `crates/goose/src/agents/agent.rs` | 🔴 HIGH — upstream added platform extensions |
-| `crates/goose/src/agents/mod.rs` | 🔴 HIGH |
-| `crates/goose/src/agents/goose_agent.rs` | 🟡 MEDIUM |
-| `crates/goose/src/agents/intent_router.rs` | 🟡 MEDIUM |
-| `crates/goose-server/src/routes/agent_management.rs` | 🟡 MEDIUM |
-| `crates/goose/src/registry/` | 🟢 NEW (no upstream) |
+| Feature | Why |
+|---------|-----|
+| Multi-agent routing (OrchestratorAgent, IntentRouter) | Architectural — upstream uses single-agent + subagents |
+| Agent Slot Registry | Architectural — upstream has no multi-agent slots |
+| Developer/QA/PM/Security/Research agents | Architectural — upstream has single agent with extensions |
+| Agent modes (ask/plan/write/review/debug) | Architectural — no mode concept in upstream |
+| Per-agent/mode reasoning effort overrides | Depends on agent modes (not in upstream) |
+| Design System overhaul (59 commits) | Too divergent from upstream UI |
+| Auth/Identity (31 commits) | Upstream may have different approach |
+| Sidebar/Navigation (45 commits) | UI-specific, high conflict |
 
-### Why First
-Everything depends on the agent slot registry. Routing, eval, catalog, and workflows all query `configured_slots()`.
+## Key Principle
 
----
-
-## PR-02: LLM-Primary Routing Engine
-**Risk: MEDIUM** (routing files are ours, prompts overlap)
-
-### Commits (~30)
-- Remove keyword layer, make LLM primary router
-- TF-IDF semantic router (Layer 2)
-- Routing feedback loop
-- XML-structured orchestrator prompts
-- Dynamic routing guidelines from agent catalog
-- Common verb penalty + PM enrichment
-- GraphRAG-lite knowledge extraction
-
-### Key Files
-| File | Conflict Risk |
-|------|--------------|
-| `crates/goose/src/agents/orchestrator_agent.rs` | 🟡 MEDIUM |
-| `crates/goose/src/agents/semantic_router.rs` | 🟢 NEW |
-| `crates/goose/src/prompts/orchestrator/` | 🟡 MEDIUM — upstream changed system prompt |
-| `crates/goose/src/agents/intent_router.rs` | 🟡 MEDIUM |
-
-### Depends On
-PR-01 (agent slots for catalog-driven guidelines)
-
----
-
-## PR-03: Developer Agent Modes & Apps Integration
-**Risk: LOW** (mostly new files + config changes)
-
-### Commits (~12)
-- Move app_maker/app_iterator to Developer Agent
-- Create/remove AppBuilderAgent
-- Developer ask mode gets diagnostics + figma
-- Deduplicate tool groups
-- 5 universal modes (ask/plan/write/review/debug)
-
-### Key Files
-| File | Conflict Risk |
-|------|--------------|
-| `crates/goose/src/agents/developer_agent.rs` | 🟢 NEW |
-| `crates/goose/src/agents/goose_agent.rs` | 🟡 MEDIUM |
-| `crates/goose/src/prompt_template.rs` | 🟡 MEDIUM |
-
-### Depends On
-PR-01 (universal modes definition)
-
----
-
-## PR-04: Dynamic Reasoning Effort
-**Risk: LOW** (mostly new files, minimal overlap)
-
-### Commits (~6)
-- ReasoningEffort enum + ModelConfig integration
-- OpenAI + Anthropic live env var override
-- GET/POST /config/reasoning-effort API
-- Per-agent/mode overrides API
-- Settings UI (global + per-mode)
-- Model support detection (disable UI for unsupported models)
-
-### Key Files
-| File | Conflict Risk |
-|------|--------------|
-| `crates/goose/src/model.rs` | 🟡 MEDIUM (4 upstream commits) |
-| `crates/goose/src/providers/formats/openai.rs` | 🟡 MEDIUM |
-| `crates/goose/src/providers/formats/anthropic.rs` | 🟡 MEDIUM |
-| `crates/goose-server/src/routes/config_management.rs` | 🟢 LOW |
-| `ui/desktop/src/components/settings/reasoning_effort/` | 🟢 NEW |
-
-### Depends On
-PR-03 (Developer Agent modes for per-mode effort)
-
----
-
-## PR-05: Eval & Analytics Framework
-**Risk: MEDIUM** (analytics routes overlap with upstream)
-
-### Commits (~20)
-- Routing eval with real OrchestratorAgent
-- Golden routing dataset (50 cases)
-- Streaming eval via SSE
-- DatasetsTab redesign with tabbed results
-- SQLite timestamp parsing fix
-- Dataset editor YAML bidirectional parsing
-- 23 UI tests for DatasetsTab
-
-### Key Files
-| File | Conflict Risk |
-|------|--------------|
-| `crates/goose/src/agents/routing_eval.rs` | 🟢 LOW |
-| `crates/goose/src/session/eval_storage.rs` | 🟢 LOW |
-| `crates/goose-server/src/routes/analytics.rs` | 🟡 MEDIUM |
-| `ui/desktop/src/components/organisms/analytics/DatasetsTab.tsx` | 🟢 LOW |
-| `evals/routing-golden-dataset.yaml` | 🟢 NEW |
-
-### Depends On
-PR-02 (routing engine for eval)
-
----
-
-## PR-06: A2A Protocol & Integration
-**Risk: MEDIUM** (A2A crate is ours, but routes overlap)
-
-### Commits (~30)
-- Standalone A2A protocol crate
-- A2A server routes + push notifications
-- Agent card discovery endpoint (POST /a2a/discover)
-- Per-persona A2A endpoints
-- RemoteA2AAgent delegation strategy
-- A2A dispatch in compound execution
-- Agent card UI fixes (nesting, colors, dedup, description)
-
-### Key Files
-| File | Conflict Risk |
-|------|--------------|
-| `crates/a2a/` | 🟢 NEW (entire crate) |
-| `crates/goose-server/src/routes/a2a.rs` | 🟡 MEDIUM |
-| `crates/goose/src/agents/dispatch.rs` | 🟡 MEDIUM |
-| `ui/desktop/src/components/organisms/agents/AgentsView.tsx` | 🟢 NEW |
-
-### Depends On
-PR-01 (agent slots for persona mapping)
-
----
-
-## PR-07: Agent Catalog UI
-**Risk: LOW** (mostly new UI components)
-
-### Commits (~10)
-- AgentCatalog redesign with atomic design system
-- 12 tool group colors
-- Agent card layout fixes
-- Built-in agent toggle (On/Off)
-
-### Key Files
-| File | Conflict Risk |
-|------|--------------|
-| `ui/desktop/src/components/organisms/analytics/AgentCatalog.tsx` | 🟢 NEW |
-| `ui/desktop/src/components/organisms/agents/AgentsView.tsx` | 🟢 NEW |
-
-### Depends On
-PR-01 (agent catalog API)
-
----
-
-## PR-08: Visual Workflow DAG Builder
-**Risk: LOW** (entirely new feature, no upstream overlap)
-
-### Commits (~25)
-- Pipeline executor (pipeline_to_tasks + DAG dispatch)
-- Execute endpoint (POST /pipelines/{id}/run with SSE)
-- Agent catalog binding on workflow nodes
-- A2A discovery in workflow nodes
-- Template gallery (5 templates)
-- Auto-layout, keyboard shortcuts, edge validation
-- 94 tests (22 Rust unit + 23 Rust integration + 49 TypeScript)
-
-### Key Files
-| File | Conflict Risk |
-|------|--------------|
-| `crates/goose/src/pipeline_executor.rs` | 🟢 NEW |
-| `crates/goose/src/pipeline.rs` | 🟢 LOW (existing, our additions) |
-| `crates/goose-server/src/routes/pipeline.rs` | 🟢 LOW |
-| `ui/desktop/src/components/organisms/workflows/` | 🟢 NEW |
-
-### Depends On
-PR-06 (A2A discovery), PR-07 (Agent catalog dropdown)
-
----
-
-## Execution Steps
-
-### Step 0: Prepare
-```bash
-# Update main to upstream
-git fetch upstream
-git checkout main
-git reset --hard upstream/main  # v1.27.2
-
-# Verify clean state
-cargo build
-cargo test
-```
-
-### Step 1: Create PR branches (in order)
-```bash
-# For each PR:
-git checkout -b pr/01-agent-infrastructure main
-# Cherry-pick or manually apply commits
-# Resolve conflicts
-# Run quality gates: cargo fmt, clippy, tsc, tests
-# Push and create PR
-
-git checkout -b pr/02-routing-engine main
-# Merge pr/01 first (or wait for it to land)
-# ...
-```
-
-### Step 2: Quality gate per PR
-```bash
-cargo fmt
-cargo clippy --all-targets -- -D warnings
-cargo test -p goose
-cargo test -p goose-server
-cd ui/desktop && npx tsc --noEmit && npx vitest run
-```
-
-### Step 3: PR review order (3 waves)
-1. PR-01 → land first (agent infrastructure foundation)
-2. PR-02 + PR-03 + PR-06 → can go in parallel (independent)
-3. PR-04 + PR-05 + PR-07 + PR-08 → after their dependencies land
-
----
-
-## Risk Matrix
-
-| PR | Size | Conflict Risk | Review Complexity | ETA |
-|----|------|--------------|-------------------|-----|
-| PR-01 | L | 🔴 HIGH | Hard (core infra) | 2-3 days |
-| PR-02 | L | 🟡 MEDIUM | Medium (routing) | 1-2 days |
-| PR-03 | M | 🟢 LOW | Easy | 0.5 day |
-| PR-04 | S | 🟢 LOW | Easy | 0.5 day |
-| PR-05 | M | 🟡 MEDIUM | Medium | 1 day |
-| PR-06 | L | 🟡 MEDIUM | Medium (new crate) | 1-2 days |
-| PR-07 | S | 🟢 LOW | Easy | 0.5 day |
-| PR-08 | L | 🟢 LOW | Medium (new feature) | 1 day |
-
-**Total estimated effort: 7-10 days**
-
----
-
-## Excluded from PRs (parking lot)
-
-These features from our branch are **not included** in the PR plan because they're either experimental, UI-only polish that diverges significantly from upstream's direction, or would create too many conflicts:
-
-- **Design System** (59 commits) — Heavy UI divergence from upstream, too many conflicts
-- **Auth/Identity system** (31 commits) — Full OIDC stack, needs separate discussion
-- **Sidebar navigation** (45 commits) — Heavy UI rework, likely conflicts everywhere
-- **PromptBar/UnifiedInput** (26 commits) — Core chat input rewrite, risky
-- **Activity panel** (24 commits) — Depends on sidebar + design system
-- **Observatory/Monitoring** (10 commits) — Depends on agent pool
-- **Knowledge Graph docs** (13 commits) — Documentation only, low priority
-- **CLI service subcommand** (11 commits) — Needs discussion on approach
-
-These can be separate follow-up PRs after the core 8 land.
+**Additive, not replacing.** Each PR adds new capability without modifying
+upstream's core agent architecture. The multi-agent system can be proposed
+separately via an RFC once the foundation PRs are merged.

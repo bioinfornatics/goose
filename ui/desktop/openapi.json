@@ -2911,6 +2911,56 @@
         }
       }
     },
+    "/config/reasoning-effort": {
+      "get": {
+        "tags": [
+          "super::routes::config_management"
+        ],
+        "summary": "Get the current reasoning effort override",
+        "operationId": "get_reasoning_effort",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReasoningEffortResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "super::routes::config_management"
+        ],
+        "summary": "Set the reasoning effort dynamically (affects all future LLM calls)",
+        "operationId": "set_reasoning_effort",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetReasoningEffortRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReasoningEffortResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/config/recover": {
       "post": {
         "tags": [
@@ -9609,6 +9659,14 @@
           "model_name": {
             "type": "string"
           },
+          "reasoning_effort": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ReasoningEffort"
+              }
+            ],
+            "nullable": true
+          },
           "request_params": {
             "type": "object",
             "description": "Provider-specific request parameters (e.g., anthropic_beta headers)",
@@ -10882,6 +10940,24 @@
           },
           "uri": {
             "type": "string"
+          }
+        }
+      },
+      "ReasoningEffort": {
+        "type": "string",
+        "description": "Controls how much reasoning/thinking effort the model applies.\n\nMaps to provider-specific parameters:\n- OpenAI o-series: `reasoning_effort` (\"low\"/\"medium\"/\"high\")\n- Anthropic Claude: `thinking.budget_tokens` (scaled by effort level)\n- Google Gemini: `thinkingConfig.thinkingBudget`",
+        "enum": [
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "ReasoningEffortResponse": {
+        "type": "object",
+        "properties": {
+          "level": {
+            "type": "string",
+            "nullable": true
           }
         }
       },
@@ -12178,6 +12254,16 @@
           },
           "provider": {
             "type": "string"
+          }
+        }
+      },
+      "SetReasoningEffortRequest": {
+        "type": "object",
+        "properties": {
+          "level": {
+            "type": "string",
+            "description": "\"low\", \"medium\", \"high\", or null to clear",
+            "nullable": true
           }
         }
       },

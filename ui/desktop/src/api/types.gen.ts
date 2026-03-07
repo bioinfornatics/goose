@@ -1289,6 +1289,7 @@ export type ModelConfig = {
     fast_model?: string | null;
     max_tokens?: number | null;
     model_name: string;
+    reasoning_effort?: ReasoningEffort | null;
     /**
      * Provider-specific request parameters (e.g., anthropic_beta headers)
      */
@@ -1793,6 +1794,20 @@ export type ReadResourceResponse = {
     uri: string;
 };
 
+/**
+ * Controls how much reasoning/thinking effort the model applies.
+ *
+ * Maps to provider-specific parameters:
+ * - OpenAI o-series: `reasoning_effort` ("low"/"medium"/"high")
+ * - Anthropic Claude: `thinking.budget_tokens` (scaled by effort level)
+ * - Google Gemini: `thinkingConfig.thinkingBudget`
+ */
+export type ReasoningEffort = 'low' | 'medium' | 'high';
+
+export type ReasoningEffortResponse = {
+    level?: string | null;
+};
+
 export type RecentError = {
     session_id: string;
     timestamp: string;
@@ -2178,6 +2193,13 @@ export type SetModeAgentRequest = {
 export type SetProviderRequest = {
     model: string;
     provider: string;
+};
+
+export type SetReasoningEffortRequest = {
+    /**
+     * "low", "medium", "high", or null to clear
+     */
+    level?: string | null;
 };
 
 export type SetSlashCommandRequest = {
@@ -4708,6 +4730,32 @@ export type ReadConfigResponses = {
      */
     200: unknown;
 };
+
+export type GetReasoningEffortData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/config/reasoning-effort';
+};
+
+export type GetReasoningEffortResponses = {
+    200: ReasoningEffortResponse;
+};
+
+export type GetReasoningEffortResponse = GetReasoningEffortResponses[keyof GetReasoningEffortResponses];
+
+export type SetReasoningEffortData = {
+    body: SetReasoningEffortRequest;
+    path?: never;
+    query?: never;
+    url: '/config/reasoning-effort';
+};
+
+export type SetReasoningEffortResponses = {
+    200: ReasoningEffortResponse;
+};
+
+export type SetReasoningEffortResponse = SetReasoningEffortResponses[keyof SetReasoningEffortResponses];
 
 export type RecoverConfigData = {
     body?: never;

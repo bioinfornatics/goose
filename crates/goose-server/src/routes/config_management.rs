@@ -3,7 +3,8 @@ use crate::routes::utils::check_provider_configured;
 use crate::state::AppState;
 use axum::routing::put;
 use axum::{
-    extract::Path,
+    extract::{Path, State},
+    http::StatusCode,
     routing::{delete, get, post},
     Json, Router,
 };
@@ -836,6 +837,68 @@ pub async fn configure_provider_oauth(
     Ok(Json("OAuth configuration completed".to_string()))
 }
 
+// ── Reasoning Effort ──────────────────────────────────────────────────────────
+
+#[derive(Deserialize, ToSchema)]
+pub struct SetReasoningEffortRequest {
+    /// "low", "medium", "high", or null to clear
+    pub level: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ReasoningEffortResponse {
+    pub level: Option<String>,
+}
+
+/// Get the current reasoning effort override
+#[utoipa::path(
+    get,
+    path = "/config/reasoning-effort",
+    responses((status = 200, body = ReasoningEffortResponse))
+)]
+async fn get_reasoning_effort(State(state): State<Arc<AppState>>) -> Json<ReasoningEffortResponse> {
+    let effort = state.reasoning_effort.read().await;
+    Json(ReasoningEffortResponse {
+        level: effort.as_ref().map(|e| e.to_string()),
+    })
+}
+
+/// Set the reasoning effort dynamically (affects all future LLM calls)
+#[utoipa::path(
+    post,
+    path = "/config/reasoning-effort",
+    request_body = SetReasoningEffortRequest,
+    responses((status = 200, body = ReasoningEffortResponse))
+)]
+async fn set_reasoning_effort(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<SetReasoningEffortRequest>,
+) -> Result<Json<ReasoningEffortResponse>, StatusCode> {
+    let effort = match req.level.as_deref() {
+        None | Some("") => None,
+        Some("low") => Some(goose::model::ReasoningEffort::Low),
+        Some("medium") | Some("med") => Some(goose::model::ReasoningEffort::Medium),
+        Some("high") => Some(goose::model::ReasoningEffort::High),
+        Some(_) => return Err(StatusCode::BAD_REQUEST),
+    };
+
+    // Update the shared state
+    {
+        let mut w = state.reasoning_effort.write().await;
+        *w = effort;
+    }
+
+    // Also set the env var so new providers pick it up
+    match &effort {
+        Some(e) => std::env::set_var("GOOSE_REASONING_EFFORT", e.to_string()),
+        None => std::env::remove_var("GOOSE_REASONING_EFFORT"),
+    }
+
+    Ok(Json(ReasoningEffortResponse {
+        level: effort.as_ref().map(|e| e.to_string()),
+    }))
+}
+
 pub fn routes(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/config", get(read_all_config))
@@ -854,6 +917,10 @@ pub fn routes(state: Arc<AppState>) -> Router {
         .route("/config/backup", post(backup_config))
         .route("/config/recover", post(recover_config))
         .route("/config/validate", get(validate_config))
+        .route(
+            "/config/reasoning-effort",
+            get(get_reasoning_effort).post(set_reasoning_effort),
+        )
         .route("/config/permissions", post(upsert_permissions))
         .route("/config/custom-providers", post(create_custom_provider))
         .route(

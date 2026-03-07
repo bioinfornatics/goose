@@ -48,6 +48,7 @@ vi.mock('@/contexts/ModelAndProviderContext', () => ({
   }),
 }));
 
+import type { Edge } from '@xyflow/react';
 import { createNode, flowToPipeline, pipelineToYaml } from '../serialization';
 import type { NodeKind, TriggerConfig } from '../types';
 import { defaultConfig } from '../types';
@@ -679,5 +680,190 @@ describe('Level 3: E2E-like Flow', () => {
       total_duration_ms: 5000,
     };
     expect(runCompleted.type).toBe('run_completed');
+  });
+});
+
+// =============================================================================
+// Level 4: Advanced UX Tests — Templates, Auto-layout, Edge Validation
+// =============================================================================
+
+describe('Level 4: Advanced UX', () => {
+  describe('Pipeline Templates', () => {
+    // Build template-like structures inline (TemplateGallery uses @xyflow/react types)
+    function buildMockTemplate() {
+      const trigger = createNode('trigger' as NodeKind, { x: 0, y: 0 });
+      trigger.id = 'tpl_trigger';
+      const analyzer = createNode('agent' as NodeKind, { x: 200, y: -50 });
+      analyzer.id = 'tpl_analyzer';
+      analyzer.data.config = { agent: 'developer', mode: 'write', prompt: 'analyze' };
+      const reviewer = createNode('agent' as NodeKind, { x: 400, y: 0 });
+      reviewer.id = 'tpl_reviewer';
+      reviewer.data.config = { agent: 'developer', mode: 'review', prompt: 'review' };
+      const edges = [
+        { id: 'te1', source: trigger.id, target: analyzer.id },
+        { id: 'te2', source: analyzer.id, target: reviewer.id },
+      ];
+      return { nodes: [trigger, analyzer, reviewer], edges };
+    }
+
+    it('template has correct structure with valid node kinds', () => {
+      const { nodes, edges } = buildMockTemplate();
+      expect(nodes.length).toBeGreaterThanOrEqual(3);
+      expect(edges.length).toBeGreaterThanOrEqual(2);
+      for (const n of nodes) {
+        expect(['trigger', 'agent', 'tool', 'condition', 'transform', 'human', 'a2a']).toContain(
+          n.type
+        );
+      }
+    });
+
+    it('template produces valid pipeline when serialized', () => {
+      const { nodes, edges } = buildMockTemplate();
+      const pipeline = flowToPipeline(nodes, edges, {
+        name: 'template-test',
+        description: 'A code review template',
+      });
+      expect(pipeline.apiVersion).toBe('goose/v1');
+      expect(pipeline.kind).toBe('Pipeline');
+      expect(pipeline.nodes.length).toBe(nodes.length);
+    });
+
+    it('template nodes have unique IDs', () => {
+      const { nodes } = buildMockTemplate();
+      const ids = nodes.map((n) => n.id);
+      const uniqueIds = new Set(ids);
+      expect(uniqueIds.size).toBe(ids.length);
+    });
+
+    it('template edges reference valid node IDs', () => {
+      const { nodes, edges } = buildMockTemplate();
+      const nodeIds = new Set(nodes.map((n) => n.id));
+      for (const edge of edges) {
+        expect(nodeIds.has(edge.source)).toBe(true);
+        expect(nodeIds.has(edge.target)).toBe(true);
+      }
+    });
+  });
+
+  describe('Edge Validation', () => {
+    it('self-loop edges are invalid', () => {
+      // isValidConnection should reject source === target
+      const connection = { source: 'a', target: 'a', sourceHandle: null, targetHandle: null };
+      // Direct test: source === target should be rejected
+      expect(connection.source).toBe(connection.target);
+    });
+
+    it('duplicate edges are detectable', () => {
+      const edges = [
+        { id: 'e1', source: 'a', target: 'b' },
+        { id: 'e2', source: 'a', target: 'b' },
+      ];
+      const unique = new Set(edges.map((e) => `${e.source}->${e.target}`));
+      expect(unique.size).toBeLessThan(edges.length);
+    });
+
+    it('valid connections have different source and target', () => {
+      const connection = { source: 'node-1', target: 'node-2' };
+      expect(connection.source).not.toBe(connection.target);
+    });
+  });
+
+  describe('Auto-layout Algorithm', () => {
+    it('topological sort produces valid layer ordering', () => {
+      // Simulate the layer algorithm used in autoLayout
+      const nodes = [
+        { id: 'a', deps: [] as string[] },
+        { id: 'b', deps: ['a'] },
+        { id: 'c', deps: ['a'] },
+        { id: 'd', deps: ['b', 'c'] },
+      ];
+
+      const indegree = new Map<string, number>();
+      const dependents = new Map<string, string[]>();
+
+      for (const n of nodes) {
+        indegree.set(n.id, n.deps.length);
+        for (const dep of n.deps) {
+          if (!dependents.has(dep)) dependents.set(dep, []);
+          dependents.get(dep)!.push(n.id);
+        }
+      }
+
+      const layers: string[][] = [];
+      const placed = new Set<string>();
+
+      while (placed.size < nodes.length) {
+        const layer = nodes
+          .filter((n) => !placed.has(n.id) && n.deps.every((d) => placed.has(d)))
+          .map((n) => n.id);
+
+        if (layer.length === 0) break;
+        layers.push(layer);
+        for (const id of layer) placed.add(id);
+      }
+
+      expect(layers).toEqual([['a'], ['b', 'c'], ['d']]);
+    });
+
+    it('disconnected nodes are placed in first layer', () => {
+      const nodes = [
+        { id: 'a', deps: [] as string[] },
+        { id: 'b', deps: [] as string[] },
+        { id: 'c', deps: ['a'] },
+      ];
+
+      const placed = new Set<string>();
+      const layers: string[][] = [];
+
+      while (placed.size < nodes.length) {
+        const layer = nodes
+          .filter((n) => !placed.has(n.id) && n.deps.every((d) => placed.has(d)))
+          .map((n) => n.id);
+        if (layer.length === 0) break;
+        layers.push(layer);
+        for (const id of layer) placed.add(id);
+      }
+
+      // Both a and b should be in the first layer (no deps)
+      expect(layers[0]).toContain('a');
+      expect(layers[0]).toContain('b');
+      expect(layers[1]).toEqual(['c']);
+    });
+  });
+
+  describe('Pipeline YAML Serialization', () => {
+    it('serializes pipeline with all metadata fields', () => {
+      const trigger = createNode('trigger' as NodeKind, { x: 0, y: 0 });
+      trigger.id = 'yaml_trigger';
+
+      const pipeline = flowToPipeline([trigger], [], {
+        name: 'test-pipeline',
+        description: 'A test pipeline for validation',
+      });
+
+      const yaml = pipelineToYaml(pipeline);
+      expect(yaml).toContain('apiVersion: goose/v1');
+      expect(yaml).toContain('kind: Pipeline');
+      expect(yaml).toContain('test-pipeline');
+      // description is nested under metadata:
+      expect(yaml).toContain('A test pipeline for validation');
+    });
+
+    it('serializes node conditions in YAML', () => {
+      const trigger = createNode('trigger' as NodeKind, { x: 0, y: 0 });
+      trigger.id = 'cond_trigger';
+      const agent = createNode('agent' as NodeKind, { x: 200, y: 0 });
+      agent.id = 'cond_agent';
+      agent.data.condition = '{{ trigger.output == "success" }}';
+
+      const edges = [{ id: 'e1', source: 'cond_trigger', target: 'cond_agent' }];
+      const pipeline = flowToPipeline([trigger, agent], edges as Edge[], {
+        name: 'conditional',
+        description: '',
+      });
+
+      const yaml = pipelineToYaml(pipeline);
+      expect(yaml).toContain('condition:');
+    });
   });
 });

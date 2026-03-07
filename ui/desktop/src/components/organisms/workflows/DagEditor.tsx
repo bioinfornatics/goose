@@ -18,10 +18,20 @@ import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { client } from '@/api/client.gen';
 import '@xyflow/react/dist/style.css';
-import { FileJson, FileText, Play, Redo2, Save, Square, Undo2 } from 'lucide-react';
+import {
+  FileJson,
+  FileText,
+  LayoutDashboard,
+  Play,
+  Redo2,
+  Save,
+  Square,
+  Undo2,
+} from 'lucide-react';
 import { nodeTypes } from './nodes';
 import { NodePalette } from './panels/NodePalette';
 import { PropertiesPanel } from './panels/PropertiesPanel';
+import type { PipelineTemplate } from './panels/TemplateGallery';
 import { createNode, flowToPipeline, pipelineToJson, pipelineToYaml } from './serialization';
 import type { DagNodeData, NodeKind, PipelineMetadata } from './types';
 
@@ -217,6 +227,81 @@ function DagEditorInner({
     };
   }, []);
 
+  // Load template into canvas
+  const handleTemplateSelect = useCallback(
+    (template: PipelineTemplate) => {
+      pushHistory();
+      const { nodes: tplNodes, edges: tplEdges, metadata: tplMeta } = template.build();
+      setNodes(tplNodes);
+      setEdges(tplEdges);
+      setPipelineMeta(tplMeta);
+    },
+    [pushHistory, setNodes, setEdges]
+  );
+
+  // Auto-layout (simple layered DAG layout)
+  const autoLayout = useCallback(() => {
+    pushHistory();
+    const inDegree = new Map<string, number>();
+    const children = new Map<string, string[]>();
+    for (const n of nodes) {
+      inDegree.set(n.id, 0);
+      children.set(n.id, []);
+    }
+    for (const e of edges) {
+      inDegree.set(e.target, (inDegree.get(e.target) || 0) + 1);
+      children.get(e.source)?.push(e.target);
+    }
+
+    // Topological sort into layers
+    const layers: string[][] = [];
+    const placed = new Set<string>();
+    let remaining = [...nodes.map((n) => n.id)];
+
+    while (remaining.length > 0) {
+      const layer = remaining.filter((id) => (inDegree.get(id) || 0) === 0 && !placed.has(id));
+      if (layer.length === 0) {
+        // Cycle fallback — place remaining in one layer
+        layers.push(remaining);
+        break;
+      }
+      layers.push(layer);
+      for (const id of layer) {
+        placed.add(id);
+        for (const child of children.get(id) || []) {
+          inDegree.set(child, (inDegree.get(child) || 0) - 1);
+        }
+      }
+      remaining = remaining.filter((id) => !placed.has(id));
+    }
+
+    const X_GAP = 280;
+    const Y_GAP = 120;
+    const updated = nodes.map((n) => {
+      const layerIdx = layers.findIndex((l) => l.includes(n.id));
+      const posInLayer = layers[layerIdx]?.indexOf(n.id) ?? 0;
+      const layerSize = layers[layerIdx]?.length ?? 1;
+      const yOffset = -(layerSize - 1) * Y_GAP * 0.5;
+      return {
+        ...n,
+        position: { x: layerIdx * X_GAP, y: yOffset + posInLayer * Y_GAP },
+      };
+    });
+    setNodes(updated);
+  }, [nodes, edges, pushHistory, setNodes]);
+
+  // Edge validation — prevent self-loops and duplicate edges
+  const isValidConnection = useCallback(
+    (connection: Connection | Edge) => {
+      if (connection.source === connection.target) return false;
+      const exists = edges.some(
+        (e) => e.source === connection.source && e.target === connection.target
+      );
+      return !exists;
+    },
+    [edges]
+  );
+
   // Connect nodes
   const onConnect: OnConnect = useCallback(
     (params: Connection) => {
@@ -317,10 +402,41 @@ function DagEditorInner({
     [nodes, edges, pipelineMeta]
   );
 
+  // Keyboard shortcuts (Delete, Ctrl+Z, Ctrl+Y, Ctrl+S)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const isInput =
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        e.target instanceof HTMLSelectElement;
+
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (!isInput && selectedNodeId) {
+          e.preventDefault();
+          onDeleteNode(selectedNodeId);
+        }
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        redo();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        handleSave();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [selectedNodeId, onDeleteNode, undo, redo, handleSave]);
+
   return (
     <div className="flex h-full w-full bg-background-default">
       {/* Node Palette */}
-      <NodePalette onDragStart={setDraggingKind} />
+      <NodePalette onDragStart={setDraggingKind} onTemplateSelect={handleTemplateSelect} />
 
       {/* Canvas */}
       <div className="flex-1 relative" ref={reactFlowWrapper}>
@@ -330,11 +446,13 @@ function DagEditorInner({
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          isValidConnection={isValidConnection}
           onDragOver={onDragOver}
           onDrop={onDrop}
           onNodeClick={onNodeClick}
           onPaneClick={onPaneClick}
           nodeTypes={nodeTypes}
+          defaultEdgeOptions={{ type: 'smoothstep', style: { strokeWidth: 2, stroke: '#6366f1' } }}
           fitView
           snapToGrid
           snapGrid={[20, 20]}
@@ -392,9 +510,18 @@ function DagEditorInner({
                 onClick={redo}
                 disabled={historyIdx >= history.length - 1}
                 className="p-1.5 rounded-md hover:bg-background-muted disabled:opacity-30 text-text-muted"
-                title="Redo"
+                title="Redo (Ctrl+Y)"
               >
                 <Redo2 size={14} />
+              </button>
+              <button
+                type="button"
+                onClick={autoLayout}
+                disabled={nodes.length === 0}
+                className="p-1.5 rounded-md hover:bg-background-muted disabled:opacity-30 text-text-muted"
+                title="Auto-layout"
+              >
+                <LayoutDashboard size={14} />
               </button>
 
               <div className="w-px h-5 bg-border-muted mx-1" />

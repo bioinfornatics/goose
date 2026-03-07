@@ -18,16 +18,52 @@
 ## PR Dependency Graph
 
 ```
-PR-01 (Agent Infrastructure)
-  ├─ PR-02 (Routing Engine)
-  │   └─ PR-05 (Eval Framework)
-  ├─ PR-03 (Developer Agent)
-  │   └─ PR-04 (Reasoning Effort)
-  ├─ PR-06 (A2A Protocol)
-  │   └─ PR-08 (Workflow DAG Builder)
-  └─ PR-07 (Agent Catalog UI)
-      └─ PR-08 (Workflow DAG Builder)
+PR-00 (Design System Core)
+  └─ PR-01 (Agent Infrastructure)
+      ├─ PR-02 (Routing Engine)
+      │   └─ PR-05 (Eval Framework)
+      ├─ PR-03 (Developer Agent)
+      │   └─ PR-04 (Reasoning Effort)
+      ├─ PR-06 (A2A Protocol)
+      │   └─ PR-08 (Workflow DAG Builder)
+      └─ PR-07 (Agent Catalog UI)
+          └─ PR-08 (Workflow DAG Builder)
 ```
+
+---
+
+## PR-00: Design System Core
+**Risk: HIGH** (200+ UI files touched upstream, must be carefully scoped)
+
+### Scope (Minimal viable design system for feature PRs)
+- Semantic color tokens + CSS variables
+- Essential atoms: Button, Badge, Card, Input, Toggle, Select, Skeleton
+- Essential molecules: OverlayActionCard, TabBar, PageShell
+- Icon components used by our features (~20 icons, not all 59)
+- Component registry (slim version — only components our PRs use)
+
+### NOT included (defer to PR-00b or adapt to upstream)
+- Full 44-component registry
+- WCAG contrast overhaul
+- Theme system rework
+- Sidebar/navigation components
+- PromptBar/UnifiedInput
+
+### Key Files
+| File | Conflict Risk |
+|------|--------------|
+| `ui/desktop/src/components/atoms/` | 🔴 HIGH — upstream has its own atoms |
+| `ui/desktop/src/components/molecules/` | 🟡 MEDIUM |
+| `ui/desktop/src/components/design-system/` | 🟢 NEW |
+| `ui/desktop/src/utils/` | 🟡 MEDIUM |
+
+### Strategy
+Audit which of our design tokens/components are used by PR-05 through PR-08.
+Only include those. Adapt to upstream's existing component patterns where possible.
+If upstream already has an equivalent component, use theirs instead of ours.
+
+### Why First
+PR-05 (Eval), PR-07 (Agent Catalog), PR-08 (Workflows) all render with our atoms/molecules.
 
 ---
 
@@ -262,11 +298,11 @@ cargo test -p goose-server
 cd ui/desktop && npx tsc --noEmit && npx vitest run
 ```
 
-### Step 3: PR review order
-1. PR-01 → land first (foundation)
-2. PR-02 + PR-03 + PR-06 → can go in parallel (independent)
-3. PR-04 + PR-05 + PR-07 → after their dependencies land
-4. PR-08 → last (depends on everything)
+### Step 3: PR review order (4 waves)
+1. PR-00 → land first (design system foundation for UI)
+2. PR-01 → second (agent infrastructure foundation)
+3. PR-02 + PR-03 + PR-06 → can go in parallel (independent)
+4. PR-04 + PR-05 + PR-07 + PR-08 → after their dependencies land
 
 ---
 
@@ -274,6 +310,7 @@ cd ui/desktop && npx tsc --noEmit && npx vitest run
 
 | PR | Size | Conflict Risk | Review Complexity | ETA |
 |----|------|--------------|-------------------|-----|
+| PR-00 | M | 🔴 HIGH | Medium (UI audit) | 1-2 days |
 | PR-01 | L | 🔴 HIGH | Hard (core infra) | 2-3 days |
 | PR-02 | L | 🟡 MEDIUM | Medium (routing) | 1-2 days |
 | PR-03 | M | 🟢 LOW | Easy | 0.5 day |
@@ -283,7 +320,7 @@ cd ui/desktop && npx tsc --noEmit && npx vitest run
 | PR-07 | S | 🟢 LOW | Easy | 0.5 day |
 | PR-08 | L | 🟢 LOW | Medium (new feature) | 1 day |
 
-**Total estimated effort: 7-10 days**
+**Total estimated effort: 8-12 days**
 
 ---
 
@@ -291,7 +328,7 @@ cd ui/desktop && npx tsc --noEmit && npx vitest run
 
 These features from our branch are **not included** in the PR plan because they're either experimental, UI-only polish that diverges significantly from upstream's direction, or would create too many conflicts:
 
-- **Design System overhaul** (59 commits) — Too much UI churn, upstream has its own direction
+- **Design System Full** (remaining ~30 commits after PR-00) — WCAG overhaul, full component registry, theme rework
 - **Auth/Identity system** (31 commits) — Full OIDC stack, needs separate discussion
 - **Sidebar navigation** (45 commits) — Heavy UI rework, likely conflicts everywhere
 - **PromptBar/UnifiedInput** (26 commits) — Core chat input rewrite, risky
@@ -300,4 +337,4 @@ These features from our branch are **not included** in the PR plan because they'
 - **Knowledge Graph docs** (13 commits) — Documentation only, low priority
 - **CLI service subcommand** (11 commits) — Needs discussion on approach
 
-These can be separate follow-up PRs after the core 8 land.
+These can be separate follow-up PRs after the core 9 land.

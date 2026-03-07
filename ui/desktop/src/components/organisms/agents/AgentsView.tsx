@@ -461,13 +461,12 @@ export default function AgentsView() {
                         }}
                         aria-expanded={isExpanded}
                       >
-                        <div className="space-y-1.5">
-                          {/* Row 1: Icon + Name + Badge + Actions */}
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <div className="text-gray-600 dark:text-gray-300">
-                                {getAgentIcon(agent)}
-                              </div>
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-start gap-3">
+                            <div className="mt-0.5 text-gray-600 dark:text-gray-300">
+                              {getAgentIcon(agent)}
+                            </div>
+                            <div>
                               <div className="flex items-center gap-2">
                                 <h3 className="font-semibold">{agent.name}</h3>
                                 <span
@@ -476,8 +475,12 @@ export default function AgentsView() {
                                   {kind.label}
                                 </span>
                               </div>
+                              <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2 max-w-md">
+                                {agent.description}
+                              </p>
                             </div>
-                            <div className="flex items-center gap-3 shrink-0">
+                          </div>
+                          <div className="flex items-center gap-3 shrink-0">
                             {/* Deploy button */}
                             {agent.enabled && (
                               <button
@@ -527,10 +530,6 @@ export default function AgentsView() {
                               <ChevronRight className="w-4 h-4 text-gray-400" />
                             )}
                           </div>
-                          {/* Row 2: Description — full width */}
-                          <p className="text-sm text-gray-500 dark:text-gray-400 pl-9 line-clamp-2">
-                            {agent.description}
-                          </p>
                         </div>
 
                         {/* External agent actions */}

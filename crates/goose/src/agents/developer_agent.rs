@@ -28,7 +28,10 @@ fn developer_extra_tools(um: &UniversalMode) -> Vec<ToolGroupAccess> {
             ToolGroupAccess::Full("command".into()),
             ToolGroupAccess::Full("mcp".into()),
         ],
-        UniversalMode::Ask => vec![ToolGroupAccess::Full("mcp".into())],
+        UniversalMode::Ask => vec![
+            ToolGroupAccess::Full("mcp".into()),
+            ToolGroupAccess::Full("diagnostics".into()),
+        ],
     }
 }
 
@@ -38,6 +41,7 @@ fn recommended_extensions(um: &UniversalMode) -> Vec<&'static str> {
             vec![
                 "developer",
                 "apps",
+                "figma",
                 "github",
                 "context7",
                 "memory",
@@ -45,9 +49,9 @@ fn recommended_extensions(um: &UniversalMode) -> Vec<&'static str> {
                 "fetch",
             ]
         }
-        UniversalMode::Plan => vec!["developer", "github", "memory"],
-        UniversalMode::Review => vec!["developer", "github"],
-        UniversalMode::Ask => vec!["developer"],
+        UniversalMode::Plan => vec!["developer", "figma", "github", "memory"],
+        UniversalMode::Review => vec!["developer", "figma", "github"],
+        UniversalMode::Ask => vec!["developer", "figma"],
     }
 }
 
@@ -224,8 +228,37 @@ mod tests {
         assert!(exts.contains(&"github".to_string()));
         assert!(
             exts.contains(&"apps".to_string()),
-            "write mode should recommend apps extension"
+            "write should recommend apps"
         );
+        assert!(
+            exts.contains(&"figma".to_string()),
+            "write should recommend figma"
+        );
+    }
+
+    #[test]
+    fn test_ask_mode_has_diagnostics() {
+        let agent = DeveloperAgent::new();
+        let tg = agent.tool_groups_for("ask");
+        let has_diagnostics = tg
+            .iter()
+            .any(|t| matches!(t, ToolGroupAccess::Full(n) if n == "diagnostics"));
+        assert!(
+            has_diagnostics,
+            "ask mode should have diagnostics for image_processor"
+        );
+    }
+
+    #[test]
+    fn test_figma_recommended_across_modes() {
+        let agent = DeveloperAgent::new();
+        for mode in &["ask", "plan", "write", "review"] {
+            let exts = agent.recommended_extensions(mode);
+            assert!(
+                exts.contains(&"figma".to_string()),
+                "{mode} should recommend figma"
+            );
+        }
     }
 
     #[test]

@@ -11,10 +11,12 @@ use crate::registry::manifest::{AgentMode, ToolGroupAccess};
 use serde::Serialize;
 
 fn developer_extra_tools(um: &UniversalMode) -> Vec<ToolGroupAccess> {
+    // Only list tools NOT already in UniversalMode::base_tool_groups().
+    // base_tool_groups for Write/Debug already includes: developer, read, edit, command, fetch, memory
+    // base_tool_groups for Plan/Ask already includes: read, fetch, memory
+    // base_tool_groups for Review already includes: read, command, fetch, memory
     match um {
         UniversalMode::Write | UniversalMode::Debug => vec![
-            ToolGroupAccess::Full("edit".into()),
-            ToolGroupAccess::Full("command".into()),
             ToolGroupAccess::Full("mcp".into()),
             ToolGroupAccess::Full("code_execution".into()),
             ToolGroupAccess::Full("diagnostics".into()),
@@ -24,10 +26,7 @@ fn developer_extra_tools(um: &UniversalMode) -> Vec<ToolGroupAccess> {
             ToolGroupAccess::Full("mcp".into()),
             ToolGroupAccess::Full("command".into()),
         ],
-        UniversalMode::Review => vec![
-            ToolGroupAccess::Full("command".into()),
-            ToolGroupAccess::Full("mcp".into()),
-        ],
+        UniversalMode::Review => vec![ToolGroupAccess::Full("mcp".into())],
         UniversalMode::Ask => vec![
             ToolGroupAccess::Full("mcp".into()),
             ToolGroupAccess::Full("diagnostics".into()),
@@ -129,7 +128,19 @@ impl DeveloperAgent {
         for slug in self.modes() {
             if let Some(dm) = self.modes.get(slug) {
                 let mut mode = dm.mode.to_agent_mode("developer");
-                mode.tool_groups.extend(dm.extra_tools.clone());
+                for extra in &dm.extra_tools {
+                    let key = match extra {
+                        ToolGroupAccess::Full(name) => name.clone(),
+                        ToolGroupAccess::Restricted { group, .. } => group.clone(),
+                    };
+                    let already_present = mode.tool_groups.iter().any(|t| match t {
+                        ToolGroupAccess::Full(n) => *n == key,
+                        ToolGroupAccess::Restricted { group, .. } => *group == key,
+                    });
+                    if !already_present {
+                        mode.tool_groups.push(extra.clone());
+                    }
+                }
                 result.push(mode);
             }
         }
@@ -153,7 +164,19 @@ impl DeveloperAgent {
             .get(slug)
             .map(|dm| {
                 let mut tg = dm.mode.base_tool_groups();
-                tg.extend(dm.extra_tools.clone());
+                for extra in &dm.extra_tools {
+                    let key = match extra {
+                        ToolGroupAccess::Full(name) => name.as_str(),
+                        ToolGroupAccess::Restricted { group, .. } => group.as_str(),
+                    };
+                    let already = tg.iter().any(|t| match t {
+                        ToolGroupAccess::Full(n) => n == key,
+                        ToolGroupAccess::Restricted { group: g, .. } => g == key,
+                    });
+                    if !already {
+                        tg.push(extra.clone());
+                    }
+                }
                 tg
             })
             .unwrap_or_default()
@@ -279,5 +302,31 @@ mod tests {
         let slugs: Vec<&str> = modes.iter().map(|m| m.slug.as_str()).collect();
         assert!(slugs.contains(&"write"));
         assert!(slugs.contains(&"ask"));
+    }
+
+    #[test]
+    fn test_no_duplicate_tool_groups() {
+        let agent = DeveloperAgent::new();
+        let modes = agent.to_agent_modes();
+        for mode in &modes {
+            let names: Vec<String> = mode
+                .tool_groups
+                .iter()
+                .map(|t| match t {
+                    ToolGroupAccess::Full(n) => n.clone(),
+                    ToolGroupAccess::Restricted { group, .. } => group.clone(),
+                })
+                .collect();
+            let mut unique = names.clone();
+            unique.sort();
+            unique.dedup();
+            assert_eq!(
+                names.len(),
+                unique.len(),
+                "Duplicate tool groups in {} mode: {:?}",
+                mode.slug,
+                names
+            );
+        }
     }
 }

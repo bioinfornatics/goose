@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { client } from '@/api/client.gen';
+import { Badge } from '@/components/atoms/badge';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/atoms/tooltip';
+
+// ── Types ──────────────────────────────────────────────────────
 
 interface CatalogMode {
   slug: string;
@@ -20,24 +29,251 @@ interface CatalogResponse {
   agents: CatalogAgent[];
 }
 
-const toolGroupColors: Record<string, string> = {
-  read: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
-  edit: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
-  command: 'bg-purple-500/15 text-purple-400 border-purple-500/30',
-  mcp: 'bg-green-500/15 text-green-400 border-green-500/30',
+// ── Atoms: ToolGroupBadge ──────────────────────────────────────
+
+/** Semantic color + icon mapping for tool groups */
+const toolGroupMeta: Record<string, { color: string; icon: string; label: string }> = {
+  read: { color: 'bg-sky-500/15 text-sky-400 border-sky-500/30', icon: '👁', label: 'Read' },
+  edit: { color: 'bg-amber-500/15 text-amber-400 border-amber-500/30', icon: '✏️', label: 'Edit' },
+  command: {
+    color: 'bg-purple-500/15 text-purple-400 border-purple-500/30',
+    icon: '⌨',
+    label: 'Command',
+  },
+  mcp: {
+    color: 'bg-green-500/15 text-green-400 border-green-500/30',
+    icon: '🔌',
+    label: 'MCP',
+  },
+  developer: {
+    color: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/30',
+    icon: '🛠',
+    label: 'Developer',
+  },
+  apps: {
+    color: 'bg-pink-500/15 text-pink-400 border-pink-500/30',
+    icon: '📱',
+    label: 'Apps',
+  },
+  code_execution: {
+    color: 'bg-orange-500/15 text-orange-400 border-orange-500/30',
+    icon: '▶',
+    label: 'Code Exec',
+  },
+  diagnostics: {
+    color: 'bg-teal-500/15 text-teal-400 border-teal-500/30',
+    icon: '🔍',
+    label: 'Diagnostics',
+  },
+  fetch: {
+    color: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30',
+    icon: '🌐',
+    label: 'Fetch',
+  },
+  memory: {
+    color: 'bg-violet-500/15 text-violet-400 border-violet-500/30',
+    icon: '🧠',
+    label: 'Memory',
+  },
+  genui: {
+    color: 'bg-rose-500/15 text-rose-400 border-rose-500/30',
+    icon: '🎨',
+    label: 'GenUI',
+  },
 };
 
-function ToolBadge({ group }: { group: string }) {
-  const label = group.replace(/\s*\(restricted\)/, '');
+const defaultToolMeta = {
+  color: 'bg-gray-500/15 text-gray-400 border-gray-500/30',
+  icon: '⚙',
+  label: '',
+};
+
+function ToolGroupBadge({ group }: { group: string }) {
+  const raw = group.replace(/\s*\(restricted\)/, '');
   const isRestricted = group.includes('(restricted)');
-  const colors = toolGroupColors[label] ?? 'bg-gray-500/15 text-gray-400 border-gray-500/30';
+  const meta = toolGroupMeta[raw] ?? { ...defaultToolMeta, label: raw };
+
   return (
-    <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${colors}`}>
-      {label}
-      {isRestricted && ' ⚠'}
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium cursor-default transition-colors hover:brightness-110 ${meta.color}`}
+        >
+          <span className="text-[11px]">{meta.icon}</span>
+          {meta.label}
+          {isRestricted && (
+            <span className="text-[9px] opacity-70" title="Restricted access">
+              ⚠
+            </span>
+          )}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-[200px] text-xs">
+        <strong>{meta.label || raw}</strong>
+        {isRestricted ? ' — restricted file access' : ' — full access'}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+// ── Atoms: ModePhaseBadge ──────────────────────────────────────
+
+const modePhaseColors: Record<string, string> = {
+  ask: 'bg-sky-500/20 text-sky-300',
+  plan: 'bg-violet-500/20 text-violet-300',
+  write: 'bg-emerald-500/20 text-emerald-300',
+  review: 'bg-amber-500/20 text-amber-300',
+  debug: 'bg-red-500/20 text-red-300',
+};
+
+function ModePhaseBadge({ slug }: { slug: string }) {
+  const color = modePhaseColors[slug] ?? 'bg-gray-500/20 text-gray-400';
+  return (
+    <span
+      className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${color}`}
+    >
+      {slug}
     </span>
   );
 }
+
+// ── Molecules: ModeCard ────────────────────────────────────────
+
+function ModeCard({ mode }: { mode: CatalogMode }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="group px-4 py-3 hover:bg-background-muted/50 transition-colors">
+      <div className="flex items-start gap-3">
+        {/* Phase badge */}
+        <div className="pt-0.5">
+          <ModePhaseBadge slug={mode.slug} />
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          {/* Mode name + tool badges */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {mode.name && mode.name !== mode.slug && (
+              <span className="text-sm font-medium text-text-default">{mode.name}</span>
+            )}
+            {mode.toolGroups.length > 0 && (
+              <div className="flex items-center gap-1 flex-wrap">
+                {mode.toolGroups.map((tg) => (
+                  <ToolGroupBadge key={tg} group={tg} />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Description */}
+          {mode.description && (
+            <p className="text-sm text-text-muted mt-1 leading-snug">{mode.description}</p>
+          )}
+
+          {/* When to use — collapsible */}
+          {mode.whenToUse && (
+            <button
+              type="button"
+              onClick={() => setExpanded(!expanded)}
+              className="text-[11px] text-text-muted mt-1.5 flex items-center gap-1 hover:text-text-default transition-colors cursor-pointer"
+            >
+              <span
+                className="transform transition-transform"
+                style={{
+                  display: 'inline-block',
+                  transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                }}
+              >
+                ›
+              </span>
+              When to use
+            </button>
+          )}
+          {expanded && mode.whenToUse && (
+            <p className="text-xs text-text-muted mt-1 pl-3 border-l-2 border-border-default italic leading-relaxed">
+              {mode.whenToUse}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Organisms: AgentCard ───────────────────────────────────────
+
+function AgentCard({
+  agent,
+  onToggle,
+  toggling,
+}: {
+  agent: CatalogAgent;
+  onToggle: (name: string) => void;
+  toggling: boolean;
+}) {
+  // Collect all unique tool groups across modes
+  const allTools = [...new Set(agent.modes.flatMap((m) => m.toolGroups))];
+
+  return (
+    <div
+      className={`rounded-lg border overflow-hidden transition-all ${
+        agent.enabled
+          ? 'border-border-default bg-background-muted shadow-sm'
+          : 'border-border-default/50 bg-background-muted/50 opacity-70'
+      }`}
+    >
+      {/* ── Agent Header ── */}
+      <div className="px-4 py-3 border-b border-border-default">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <h3 className="text-base font-semibold text-text-default">{agent.name}</h3>
+            <Badge variant={agent.enabled ? 'default' : 'muted'} size="sm">
+              {agent.modes.length} mode{agent.modes.length !== 1 ? 's' : ''}
+            </Badge>
+          </div>
+          <button
+            type="button"
+            onClick={() => onToggle(agent.name)}
+            disabled={toggling}
+            className={`rounded-full px-2.5 py-1 text-xs font-medium transition-all cursor-pointer ${
+              toggling
+                ? 'bg-background-muted/40 text-text-muted border border-border-default opacity-50'
+                : agent.enabled
+                  ? 'bg-background-success-muted text-text-success border border-border-default hover:bg-background-danger-muted hover:text-text-danger'
+                  : 'bg-background-muted/40 text-text-muted border border-border-default hover:bg-background-success-muted hover:text-text-success'
+            }`}
+          >
+            {toggling ? 'toggling…' : agent.enabled ? 'enabled' : 'disabled'}
+          </button>
+        </div>
+
+        {agent.description && <p className="text-sm text-text-muted mt-1">{agent.description}</p>}
+
+        {/* ── Capabilities summary (all tool groups across modes) ── */}
+        {allTools.length > 0 && (
+          <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+            <span className="text-[10px] text-text-muted uppercase tracking-wider font-medium">
+              Capabilities:
+            </span>
+            {allTools.map((tg) => (
+              <ToolGroupBadge key={tg} group={tg} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── Modes List ── */}
+      <div className="divide-y divide-border-default/50">
+        {agent.modes.map((mode) => (
+          <ModeCard key={mode.slug} mode={mode} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Main Component ─────────────────────────────────────────────
 
 export default function AgentCatalog() {
   const [catalog, setCatalog] = useState<CatalogAgent[]>([]);
@@ -48,62 +284,26 @@ export default function AgentCatalog() {
   const fetchCatalog = useCallback(async () => {
     try {
       setLoading(true);
-      setError(null);
-      const baseUrl = client.getConfig().baseUrl || '';
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      const rawHeaders = client.getConfig().headers;
-      if (rawHeaders) {
-        const h = rawHeaders as Record<string, string>;
-        const secretKey =
-          typeof h.get === 'function'
-            ? (h as unknown as globalThis.Headers).get('X-Secret-Key')
-            : h['X-Secret-Key'];
-        if (secretKey) {
-          headers['X-Secret-Key'] = secretKey;
-        }
+      const cfg = client.getConfig();
+      const rawHeaders = cfg.headers;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (rawHeaders instanceof Headers) {
+        rawHeaders.forEach((v, k) => {
+          headers[k] = v;
+        });
+      } else if (rawHeaders && typeof rawHeaders === 'object') {
+        Object.assign(headers, rawHeaders as Record<string, string>);
       }
-      const response = await fetch(`${baseUrl}/analytics/routing/catalog`, { headers });
-      if (!response.ok) throw new Error(`Failed to load catalog: ${response.statusText}`);
-      const data: CatalogResponse = await response.json();
+      const resp = await fetch(`${cfg.baseUrl}/analytics/routing/catalog`, { headers });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = (await resp.json()) as CatalogResponse;
       setCatalog(data.agents);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load catalog');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load catalog');
     } finally {
       setLoading(false);
-    }
-  }, []);
-
-  const handleToggle = useCallback(async (agentName: string) => {
-    try {
-      setToggling(agentName);
-      const baseUrl = client.getConfig().baseUrl || '';
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      const rawHeaders = client.getConfig().headers;
-      if (rawHeaders) {
-        const h = rawHeaders as Record<string, string>;
-        const secretKey =
-          typeof h.get === 'function'
-            ? (h as unknown as globalThis.Headers).get('X-Secret-Key')
-            : h['X-Secret-Key'];
-        if (secretKey) {
-          headers['X-Secret-Key'] = secretKey;
-        }
-      }
-      const response = await fetch(
-        `${baseUrl}/agents/builtin/${encodeURIComponent(agentName)}/toggle`,
-        { method: 'POST', headers }
-      );
-      if (!response.ok) throw new Error(`Toggle failed: ${response.statusText}`);
-      const result: { name: string; enabled: boolean } = await response.json();
-      setCatalog((prev) =>
-        prev.map((agent) =>
-          agent.name === result.name ? { ...agent, enabled: result.enabled } : agent
-        )
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : `Failed to toggle ${agentName}`);
-    } finally {
-      setToggling(null);
     }
   }, []);
 
@@ -111,10 +311,59 @@ export default function AgentCatalog() {
     fetchCatalog();
   }, [fetchCatalog]);
 
+  const handleToggle = useCallback(
+    async (agentName: string) => {
+      try {
+        setToggling(agentName);
+        const cfg = client.getConfig();
+        const rawHeaders = cfg.headers;
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+        if (rawHeaders instanceof Headers) {
+          rawHeaders.forEach((v, k) => {
+            headers[k] = v;
+          });
+        } else if (rawHeaders && typeof rawHeaders === 'object') {
+          Object.assign(headers, rawHeaders as Record<string, string>);
+        }
+        const slug = agentName.toLowerCase().replace(/\s+/g, '-');
+        const agent = catalog.find((a) => a.name === agentName);
+        const action = agent?.enabled ? 'disable' : 'enable';
+        await fetch(`${cfg.baseUrl}/agents/builtin/${slug}/toggle`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ action }),
+        });
+        await fetchCatalog();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to toggle agent');
+      } finally {
+        setToggling(null);
+      }
+    },
+    [catalog, fetchCatalog]
+  );
+
+  // ── Loading state ──
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12 text-text-muted text-sm">
-        Loading catalog…
+      <div className="space-y-4">
+        {[1, 2, 3].map((i) => (
+          <div
+            key={i}
+            className="rounded-lg border border-border-default bg-background-muted animate-pulse"
+          >
+            <div className="px-4 py-3 border-b border-border-default space-y-2">
+              <div className="h-5 w-40 bg-background-muted rounded" />
+              <div className="h-3 w-64 bg-background-muted rounded" />
+            </div>
+            <div className="px-4 py-3 space-y-2">
+              <div className="h-4 w-full bg-background-muted rounded" />
+              <div className="h-4 w-3/4 bg-background-muted rounded" />
+            </div>
+          </div>
+        ))}
       </div>
     );
   }
@@ -143,76 +392,32 @@ export default function AgentCatalog() {
   }
 
   return (
-    <div className="space-y-4">
-      {catalog.map((agent) => (
-        <div
-          key={agent.name}
-          className="rounded-lg border border-border-default bg-background-muted overflow-hidden"
-        >
-          {/* Agent header */}
-          <div className="px-4 py-3 border-b border-border-default">
-            <div className="flex items-center gap-2">
-              <h3 className="text-base font-semibold text-text-default">{agent.name}</h3>
-              <button
-                type="button"
-                onClick={() => handleToggle(agent.name)}
-                disabled={toggling === agent.name}
-                className={`rounded-full px-2 py-0.5 text-xs font-medium transition-colors cursor-pointer ${
-                  toggling === agent.name
-                    ? 'bg-background-muted/40 text-text-muted border border-border-default opacity-50'
-                    : agent.enabled
-                      ? 'bg-background-success-muted text-text-success border border-border-default hover:bg-background-danger-muted hover:text-text-danger'
-                      : 'bg-background-muted/40 text-text-muted border border-border-default hover:bg-background-success-muted hover:text-text-success'
-                }`}
-                title={
-                  toggling === agent.name
-                    ? 'Toggling…'
-                    : agent.enabled
-                      ? 'Click to disable'
-                      : 'Click to enable'
-                }
-              >
-                {toggling === agent.name ? 'toggling…' : agent.enabled ? 'enabled' : 'disabled'}
-              </button>
-            </div>
-            {agent.description && (
-              <p className="text-sm text-text-muted mt-0.5">{agent.description}</p>
-            )}
-            <span className="text-xs text-text-muted mt-1 inline-block">
-              {agent.modes.length} mode{agent.modes.length !== 1 ? 's' : ''}
-            </span>
-          </div>
-
-          {/* Modes list */}
-          <div className="divide-y divide-gray-700/50">
-            {agent.modes.map((mode) => (
-              <div key={mode.slug} className="px-4 py-3">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-sm text-text-default">{mode.slug}</span>
-                  {mode.name && mode.name !== mode.slug && (
-                    <span className="text-sm text-text-muted">— {mode.name}</span>
-                  )}
-                  {mode.toolGroups.length > 0 && (
-                    <div className="flex items-center gap-1 ml-2">
-                      {mode.toolGroups.map((tg) => (
-                        <ToolBadge key={tg} group={tg} />
-                      ))}
-                    </div>
-                  )}
-                </div>
-                {mode.description && (
-                  <p className="text-sm text-text-muted mt-1">{mode.description}</p>
-                )}
-                {mode.whenToUse && (
-                  <p className="text-xs text-text-muted mt-1 italic">
-                    When to use: {mode.whenToUse}
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
+    <TooltipProvider delayDuration={200}>
+      <div className="space-y-4">
+        {/* ── Summary bar ── */}
+        <div className="flex items-center gap-4 text-xs text-text-muted">
+          <span>
+            {catalog.filter((a) => a.enabled).length}/{catalog.length} agents enabled
+          </span>
+          <span>·</span>
+          <span>{catalog.reduce((n, a) => n + a.modes.length, 0)} total modes</span>
+          <span>·</span>
+          <span>
+            {[...new Set(catalog.flatMap((a) => a.modes.flatMap((m) => m.toolGroups)))].length} tool
+            groups
+          </span>
         </div>
-      ))}
-    </div>
+
+        {/* ── Agent cards ── */}
+        {catalog.map((agent) => (
+          <AgentCard
+            key={agent.name}
+            agent={agent}
+            onToggle={handleToggle}
+            toggling={toggling === agent.name}
+          />
+        ))}
+      </div>
+    </TooltipProvider>
   );
 }

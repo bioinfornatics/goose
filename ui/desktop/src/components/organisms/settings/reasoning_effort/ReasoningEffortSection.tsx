@@ -7,14 +7,18 @@ import {
   setReasoningEffortOverrides,
 } from '@/api';
 import type { CatalogAgent } from '@/api/types.gen';
+import { useModelAndProvider } from '@/contexts/ModelAndProviderContext';
 import {
   ReasoningEffortSelectionItem,
   reasoningEffortOptions,
 } from './ReasoningEffortSelectionItem';
+import { supportsReasoningEffort } from './reasoningEffortUtils';
 
 type OverrideMap = Record<string, string>; // "agent_id/mode_slug" → "low"|"medium"|"high"
 
 export const ReasoningEffortSection = () => {
+  const { currentModel, currentProvider } = useModelAndProvider();
+  const supported = supportsReasoningEffort(currentModel, currentProvider);
   const [globalLevel, setGlobalLevel] = useState('medium');
   const [overrides, setOverrides] = useState<OverrideMap>({});
   const [agents, setAgents] = useState<CatalogAgent[]>([]);
@@ -108,6 +112,34 @@ export const ReasoningEffortSection = () => {
         {reasoningEffortOptions.map((option) => (
           <div key={option.key} className="h-12 bg-background-muted rounded-lg animate-pulse" />
         ))}
+      </div>
+    );
+  }
+
+  if (!supported) {
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 text-text-muted">
+          <svg
+            className="w-4 h-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <title>Info</title>
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+          <span className="text-sm">Not available for the current model</span>
+        </div>
+        <p className="text-xs text-text-muted pl-6">
+          Reasoning effort is supported by OpenAI o-series, GPT-5, Anthropic Claude, and Gemini
+          thinking models. Switch to a supported model to configure reasoning effort.
+        </p>
       </div>
     );
   }

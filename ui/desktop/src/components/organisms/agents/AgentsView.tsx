@@ -30,7 +30,9 @@ import {
 } from '@/api/sdk.gen';
 import type { BuiltinAgentMode } from '@/api/types.gen';
 import { TabBar, type TabGroup } from '@/components/molecules/design-system';
+import { supportsReasoningEffort } from '@/components/organisms/settings/reasoning_effort/reasoningEffortUtils';
 import { PageShell } from '@/components/templates/layout/PageShell';
+import { useModelAndProvider } from '@/contexts/ModelAndProviderContext';
 import { useInstances } from '@/hooks/useInstances';
 import { InstanceDetail } from './InstanceDetail';
 import { InstanceList } from './InstanceList';
@@ -52,6 +54,8 @@ interface AgentCard {
 type ViewTab = 'catalog' | 'instances';
 
 export default function AgentsView() {
+  const { currentModel, currentProvider } = useModelAndProvider();
+  const effortSupported = supportsReasoningEffort(currentModel, currentProvider);
   const [agents, setAgents] = useState<AgentCard[]>([]);
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const [selectedMode, setSelectedMode] = useState<string | null>(null);
@@ -738,18 +742,26 @@ export default function AgentsView() {
                                   )}
 
                                   {/* Reasoning effort per mode */}
-                                  <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-gray-100 dark:border-gray-700/50">
+                                  <div
+                                    className={`flex items-center gap-1.5 mt-2 pt-2 border-t border-gray-100 dark:border-gray-700/50 ${!effortSupported ? 'opacity-40' : ''}`}
+                                  >
                                     <span className="text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">
                                       Effort:
                                     </span>
                                     <select
                                       value={modeEffort}
+                                      disabled={!effortSupported}
+                                      title={
+                                        !effortSupported
+                                          ? 'Not supported by the current model'
+                                          : undefined
+                                      }
                                       onChange={(e) => {
                                         e.stopPropagation();
                                         handleEffortChange(agent.id, mode.slug, e.target.value);
                                       }}
                                       onClick={(e) => e.stopPropagation()}
-                                      className="text-[10px] px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 cursor-pointer outline-none hover:border-gray-300 dark:hover:border-gray-500 transition-colors"
+                                      className={`text-[10px] px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 outline-none transition-colors ${effortSupported ? 'cursor-pointer hover:border-gray-300 dark:hover:border-gray-500' : 'cursor-not-allowed'}`}
                                     >
                                       <option value="default">Default</option>
                                       <option value="low">Low</option>

@@ -2,9 +2,9 @@
 # Tests that the LLM orchestrator routes messages to the correct agent and mode.
 # Each test case includes primary expected routing and acceptable alternatives.
 #
-# Agents: Goose Agent, Developer Agent, QA Agent, PM Agent, Security Agent, Research Agent, App Builder Agent
+# Agents: Goose Agent, Developer Agent, QA Agent, PM Agent, Security Agent, Research Agent
 # Universal modes: ask, plan, write, review, debug
-# Goose-specific: app_maker, app_iterator, genui
+# Goose-specific: genui
 
 test_cases:
 
@@ -233,21 +233,21 @@ test_cases:
     tags: ["general", "chitchat"]
 
   - input: "Create an interactive dashboard app for tracking expenses"
-    expected_agent: "App Builder Agent"
-    expected_mode: "app_maker"
+    expected_agent: "Developer Agent"
+    expected_mode: "write"
     also_acceptable:
       - agent: "Goose Agent"
-        mode: "app_maker"
+        mode: "write"
       - agent: "Developer Agent"
         mode: "write"
     tags: ["app", "genui"]
 
   - input: "Build a simple todo list web application"
-    expected_agent: "App Builder Agent"
-    expected_mode: "app_maker"
+    expected_agent: "Developer Agent"
+    expected_mode: "write"
     also_acceptable:
       - agent: "Goose Agent"
-        mode: "app_maker"
+        mode: "write"
       - agent: "Developer Agent"
         mode: "write"
     tags: ["app", "genui"]
@@ -290,10 +290,10 @@ test_cases:
     also_acceptable:
       - agent: "PM Agent"
         mode: "write"
-      - agent: "App Builder Agent"
-        mode: "app_maker"
+      - agent: "Developer Agent"
+        mode: "write"
       - agent: "Goose Agent"
-        mode: "app_maker"
+        mode: "write"
     tags: ["ambiguous", "visualization", "testing"]
 
   - input: "Plan the migration strategy for our legacy system"

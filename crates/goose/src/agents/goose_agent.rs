@@ -14,8 +14,7 @@
 //! - `judge` — permission gating (LlmOnly)
 //! - `planner` — step-by-step plan generation (PromptOnly)
 //! - `recipe_maker` — recipe YAML generation (PromptOnly)
-//! - `app_maker` — create Goose apps (LlmOnly)
-//! - `app_iterator` — iterate Goose apps (LlmOnly)
+//! - (app_maker/app_iterator removed — now Developer Agent / write mode)
 
 use std::collections::HashMap;
 
@@ -168,33 +167,8 @@ impl GooseAgent {
             deprecated: None,
         });
 
-        modes.push(BuiltinMode {
-            slug: "app_maker".into(),
-            name: "🎨 App Creator".into(),
-            description: "Create new Goose apps from user instructions".into(),
-            template_name: "apps_create.md".into(),
-            category: ModeCategory::LlmOnly,
-            tool_groups: vec![ToolGroupAccess::Full("apps".into())],
-            recommended_extensions: vec!["apps".into()],
-            when_to_use: "User asks to build a standalone interactive HTML/CSS/JS application, game, tool, or utility that opens in its own window".into(),
-            is_internal: false,
-            deprecated: Some("Moved to App Builder Agent — use App Builder / app_maker instead".into()),
-        });
-
-        modes.push(BuiltinMode {
-            slug: "app_iterator".into(),
-            name: "🔄 App Iterator".into(),
-            description: "Update existing Goose apps based on feedback".into(),
-            template_name: "apps_iterate.md".into(),
-            category: ModeCategory::LlmOnly,
-            tool_groups: vec![ToolGroupAccess::Full("apps".into())],
-            recommended_extensions: vec!["apps".into()],
-            when_to_use: "User asks to modify or improve an existing Goose app".into(),
-            is_internal: false,
-            deprecated: Some(
-                "Moved to App Builder Agent — use App Builder / app_iterator instead".into(),
-            ),
-        });
+        // app_maker and app_iterator removed — app creation is now handled by
+        // Developer Agent / write mode with the "apps" tool group.
 
         modes.push(BuiltinMode {
             slug: "genui".into(),
@@ -372,8 +346,15 @@ mod tests {
         assert!(agent.mode("judge").is_some(), "Missing judge");
         assert!(agent.mode("planner").is_some(), "Missing planner");
         assert!(agent.mode("recipe_maker").is_some(), "Missing recipe_maker");
-        assert!(agent.mode("app_maker").is_some(), "Missing app_maker");
-        assert!(agent.mode("app_iterator").is_some(), "Missing app_iterator");
+        // app_maker/app_iterator removed — now Developer Agent / write mode
+        assert!(
+            agent.mode("app_maker").is_none(),
+            "app_maker should be removed"
+        );
+        assert!(
+            agent.mode("app_iterator").is_none(),
+            "app_iterator should be removed"
+        );
         assert!(agent.mode("genui").is_some(), "Missing genui");
     }
 
@@ -389,9 +370,12 @@ mod tests {
         assert!(slugs.contains(&"write"));
         assert!(slugs.contains(&"review"));
 
-        // App modes are public too
-        assert!(slugs.contains(&"app_maker"));
-        assert!(slugs.contains(&"app_iterator"));
+        // genui is public
+        assert!(slugs.contains(&"genui"));
+
+        // app modes removed
+        assert!(!slugs.contains(&"app_maker"));
+        assert!(!slugs.contains(&"app_iterator"));
 
         // Internal modes excluded
         assert!(!slugs.contains(&"judge"));
@@ -402,10 +386,10 @@ mod tests {
     #[test]
     fn test_total_mode_count() {
         let agent = GooseAgent::new();
-        // 4 universal + 5 internal/app + 1 genui = 10 total
-        assert_eq!(agent.list_modes().len(), 10);
-        // 4 universal + 2 app + 1 genui = 7 public
-        assert_eq!(agent.list_public_modes().len(), 7);
+        // 4 universal + 3 internal (recipe_maker, judge, planner) + 1 genui = 8 total
+        assert_eq!(agent.list_modes().len(), 8);
+        // 4 universal + 1 genui = 5 public
+        assert_eq!(agent.list_public_modes().len(), 5);
     }
 
     #[test]
@@ -452,7 +436,7 @@ mod tests {
     fn test_agent_mode_conversion() {
         let agent = GooseAgent::new();
         let modes = agent.to_agent_modes();
-        assert_eq!(modes.len(), 10);
+        assert_eq!(modes.len(), 8);
         assert!(modes.iter().all(|m| m.when_to_use.is_some()));
     }
 
@@ -460,7 +444,7 @@ mod tests {
     fn test_public_agent_mode_conversion() {
         let agent = GooseAgent::new();
         let modes = agent.to_public_agent_modes();
-        assert_eq!(modes.len(), 7);
+        assert_eq!(modes.len(), 5);
         assert!(modes.iter().all(|m| !m.is_internal));
     }
 
@@ -486,8 +470,8 @@ mod tests {
     fn test_llm_only_modes() {
         let agent = GooseAgent::new();
         let llm = agent.llm_only_modes();
-        // app_maker, app_iterator, judge = 3
-        assert_eq!(llm.len(), 3);
+        // judge = 1 (app_maker/app_iterator removed)
+        assert_eq!(llm.len(), 1);
     }
 
     #[test]

@@ -18,6 +18,7 @@ fn developer_extra_tools(um: &UniversalMode) -> Vec<ToolGroupAccess> {
             ToolGroupAccess::Full("mcp".into()),
             ToolGroupAccess::Full("code_execution".into()),
             ToolGroupAccess::Full("diagnostics".into()),
+            ToolGroupAccess::Full("apps".into()),
         ],
         UniversalMode::Plan => vec![
             ToolGroupAccess::Full("mcp".into()),
@@ -36,6 +37,7 @@ fn recommended_extensions(um: &UniversalMode) -> Vec<&'static str> {
         UniversalMode::Write | UniversalMode::Debug => {
             vec![
                 "developer",
+                "apps",
                 "github",
                 "context7",
                 "memory",
@@ -196,8 +198,12 @@ mod tests {
         let has_command = tg
             .iter()
             .any(|t| matches!(t, ToolGroupAccess::Full(n) if n == "command"));
+        let has_apps = tg
+            .iter()
+            .any(|t| matches!(t, ToolGroupAccess::Full(n) if n == "apps"));
         assert!(has_edit, "write mode should have edit tool group");
         assert!(has_command, "write mode should have command tool group");
+        assert!(has_apps, "write mode should have apps tool group");
     }
 
     #[test]
@@ -216,6 +222,10 @@ mod tests {
         let exts = agent.recommended_extensions("write");
         assert!(exts.contains(&"developer".to_string()));
         assert!(exts.contains(&"github".to_string()));
+        assert!(
+            exts.contains(&"apps".to_string()),
+            "write mode should recommend apps extension"
+        );
     }
 
     #[test]

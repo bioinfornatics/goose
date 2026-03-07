@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, instrument, Span};
 
-use crate::agents::app_builder_agent::AppBuilderAgent;
 use crate::agents::developer_agent::DeveloperAgent;
 use crate::agents::goose_agent::GooseAgent;
 use crate::agents::pm_agent::PmAgent;
@@ -139,20 +138,6 @@ impl IntentRouter {
                     .into(),
             modes: research_modes,
             default_mode: research.default_mode().into(),
-            enabled: true,
-            bound_extensions: vec![],
-        });
-
-        // Register AppBuilderAgent
-        let app_builder = AppBuilderAgent::new();
-        let app_builder_modes = app_builder.to_agent_modes();
-        slots.push(AgentSlot {
-            name: "App Builder Agent".into(),
-            description:
-                "Builds standalone single-file HTML/CSS/JS web applications in a sandbox. Creates quick prototypes, utilities, dashboards, and tools that run in their own window — separate from the codebase."
-                    .into(),
-            modes: app_builder_modes,
-            default_mode: app_builder.default_mode().into(),
             enabled: true,
             bound_extensions: vec![],
         });

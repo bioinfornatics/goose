@@ -23,7 +23,6 @@ pub mod tools;
 
 mod agent;
 pub mod agent_config;
-pub mod app_builder_agent;
 pub(crate) mod apps_extension;
 pub(crate) mod builtin_skills;
 pub(crate) mod chatrecall_extension;

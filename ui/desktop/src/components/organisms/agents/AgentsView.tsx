@@ -281,6 +281,10 @@ export default function AgentsView() {
       fetch: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
       browser: 'bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300',
       mcp: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300',
+      apps: 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
+      code_execution: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',
+      diagnostics: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300',
+      genui: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
     };
     return map[group] || 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300';
   };
@@ -444,10 +448,17 @@ export default function AgentsView() {
                       }`}
                     >
                       {/* Card Header */}
-                      <button
-                        type="button"
+                      <div
+                        role="button"
+                        tabIndex={0}
                         className="p-4 cursor-pointer select-none text-left w-full"
                         onClick={() => setExpandedAgent(isExpanded ? null : agent.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setExpandedAgent(isExpanded ? null : agent.id);
+                          }
+                        }}
                         aria-expanded={isExpanded}
                       >
                         <div className="flex items-start justify-between">
@@ -464,7 +475,7 @@ export default function AgentsView() {
                                   {kind.label}
                                 </span>
                               </div>
-                              <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+                              <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-1">
                                 {agent.description}
                               </p>
                             </div>
@@ -537,7 +548,7 @@ export default function AgentsView() {
                             </button>
                           </div>
                         )}
-                      </button>
+                      </div>
 
                       {/* Expanded: Extensions */}
                       {isExpanded && (
@@ -652,15 +663,14 @@ export default function AgentsView() {
                                     {mode.description}
                                   </p>
 
-                                  {/* Tool groups */}
+                                  {/* Tool groups — deduplicated */}
                                   {mode.tool_groups.length > 0 && (
                                     <div className="flex flex-wrap gap-1 mb-1.5">
-                                      {mode.tool_groups.map((tg) => (
+                                      {[...new Set(mode.tool_groups)].map((tg) => (
                                         <span
                                           key={tg}
                                           className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${toolGroupColor(tg)}`}
                                         >
-                                          <Wrench className="w-2.5 h-2.5 inline mr-0.5" />
                                           {tg}
                                         </span>
                                       ))}

@@ -228,8 +228,10 @@ pub struct RunningMetrics {
     pub completed: usize,
     pub correct: usize,
     pub agent_correct: usize,
+    pub mode_correct: usize,
     pub overall_accuracy: f64,
     pub agent_accuracy: f64,
+    pub mode_accuracy: f64,
 }
 
 /// Evaluate routing using the production path, streaming results one-by-one.
@@ -245,6 +247,7 @@ pub async fn evaluate_orchestrator_streaming(
     let mut results = Vec::with_capacity(total);
     let mut correct_count = 0usize;
     let mut agent_correct_count = 0usize;
+    let mut mode_correct_count = 0usize;
 
     for (index, tc) in test_set.test_cases.iter().enumerate() {
         let plan = orchestrator.route(&tc.input).await;
@@ -274,6 +277,10 @@ pub async fn evaluate_orchestrator_streaming(
         }
         if agent_correct {
             agent_correct_count += 1;
+            // Mode is only meaningful when agent is correct
+            if fully_correct {
+                mode_correct_count += 1;
+            }
         }
 
         let result = RoutingEvalResult {
@@ -299,8 +306,14 @@ pub async fn evaluate_orchestrator_streaming(
                 completed,
                 correct: correct_count,
                 agent_correct: agent_correct_count,
+                mode_correct: mode_correct_count,
                 overall_accuracy: correct_count as f64 / completed as f64,
                 agent_accuracy: agent_correct_count as f64 / completed as f64,
+                mode_accuracy: if agent_correct_count > 0 {
+                    mode_correct_count as f64 / agent_correct_count as f64
+                } else {
+                    0.0
+                },
             },
         };
 

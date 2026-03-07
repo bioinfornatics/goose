@@ -943,7 +943,7 @@ export default function DatasetsTab() {
       const resp = await fetch(`${baseUrl}/analytics/eval/run/stream`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ dataset_id: datasetId }),
+        body: JSON.stringify({ datasetId }),
       });
 
       if (!resp.ok) {
@@ -993,9 +993,9 @@ export default function DatasetsTab() {
                   total: d.total,
                   results,
                   metrics: {
-                    overallAccuracy: d.running_metrics.overall_accuracy,
-                    agentAccuracy: d.running_metrics.agent_accuracy,
-                    modeAccuracy: d.running_metrics.mode_accuracy,
+                    overallAccuracy: d.runningMetrics.overall_accuracy,
+                    agentAccuracy: d.runningMetrics.agent_accuracy,
+                    modeAccuracy: d.runningMetrics.mode_accuracy,
                   },
                 };
               });

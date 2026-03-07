@@ -551,6 +551,7 @@ mod tests {
                     toolshim_model: None,
                     fast_model: None,
                     request_params: None,
+                    reasoning_effort: None,
                 },
                 max_tool_responses: None,
             }

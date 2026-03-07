@@ -103,6 +103,48 @@ static MODEL_SPECIFIC_LIMITS: Lazy<Vec<(&'static str, usize)>> = Lazy::new(|| {
     ]
 });
 
+/// Controls how much reasoning/thinking effort the model applies.
+///
+/// Maps to provider-specific parameters:
+/// - OpenAI o-series: `reasoning_effort` ("low"/"medium"/"high")
+/// - Anthropic Claude: `thinking.budget_tokens` (scaled by effort level)
+/// - Google Gemini: `thinkingConfig.thinkingBudget`
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ReasoningEffort {
+    Low,
+    Medium,
+    High,
+}
+
+impl ReasoningEffort {
+    pub fn as_openai_str(&self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+        }
+    }
+
+    pub fn as_anthropic_budget_tokens(&self) -> i64 {
+        match self {
+            Self::Low => 2048,
+            Self::Medium => 8192,
+            Self::High => 32768,
+        }
+    }
+}
+
+impl std::fmt::Display for ReasoningEffort {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Low => write!(f, "low"),
+            Self::Medium => write!(f, "medium"),
+            Self::High => write!(f, "high"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ModelConfig {
     pub model_name: String,
@@ -112,6 +154,10 @@ pub struct ModelConfig {
     pub toolshim: bool,
     pub toolshim_model: Option<String>,
     pub fast_model: Option<String>,
+    /// Controls reasoning/thinking effort level (low/medium/high).
+    /// When set, overrides any reasoning effort parsed from the model name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<ReasoningEffort>,
     /// Provider-specific request parameters (e.g., anthropic_beta headers)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub request_params: Option<HashMap<String, Value>>,
@@ -157,6 +203,8 @@ impl ModelConfig {
         let toolshim = Self::parse_toolshim()?;
         let toolshim_model = Self::parse_toolshim_model()?;
 
+        let reasoning_effort = Self::parse_reasoning_effort()?;
+
         Ok(Self {
             model_name,
             context_limit,
@@ -165,6 +213,7 @@ impl ModelConfig {
             toolshim,
             toolshim_model,
             fast_model: None,
+            reasoning_effort,
             request_params,
         })
     }
@@ -279,6 +328,23 @@ impl ModelConfig {
         }
     }
 
+    fn parse_reasoning_effort() -> Result<Option<ReasoningEffort>, ConfigError> {
+        if let Ok(val) = std::env::var("GOOSE_REASONING_EFFORT") {
+            match val.to_lowercase().as_str() {
+                "low" => Ok(Some(ReasoningEffort::Low)),
+                "medium" | "med" => Ok(Some(ReasoningEffort::Medium)),
+                "high" => Ok(Some(ReasoningEffort::High)),
+                _ => Err(ConfigError::InvalidValue(
+                    "GOOSE_REASONING_EFFORT".to_string(),
+                    val,
+                    "must be one of: low, medium, high".to_string(),
+                )),
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
     fn parse_toolshim_model() -> Result<Option<String>, ConfigError> {
         match std::env::var("GOOSE_TOOLSHIM_OLLAMA_MODEL") {
             Ok(val) if val.trim().is_empty() => Err(ConfigError::InvalidValue(
@@ -342,6 +408,11 @@ impl ModelConfig {
 
     pub fn with_request_params(mut self, params: Option<HashMap<String, Value>>) -> Self {
         self.request_params = params;
+        self
+    }
+
+    pub fn with_reasoning_effort(mut self, effort: Option<ReasoningEffort>) -> Self {
+        self.reasoning_effort = effort;
         self
     }
 

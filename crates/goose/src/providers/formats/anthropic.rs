@@ -446,14 +446,24 @@ pub fn create_request(
             .insert("temperature".to_string(), json!(temp));
     }
 
-    // Add thinking parameters when CLAUDE_THINKING_ENABLED is set
-    let is_thinking_enabled = std::env::var("CLAUDE_THINKING_ENABLED").is_ok();
+    // Add thinking parameters:
+    // 1. model_config.reasoning_effort takes priority (dynamic, set at runtime)
+    // 2. CLAUDE_THINKING_ENABLED env var as fallback (static, set at startup)
+    let budget_from_effort = model_config
+        .reasoning_effort
+        .as_ref()
+        .map(|e| e.as_anthropic_budget_tokens());
+
+    let is_thinking_enabled =
+        budget_from_effort.is_some() || std::env::var("CLAUDE_THINKING_ENABLED").is_ok();
+
     if is_thinking_enabled {
-        // Minimum budget_tokens is 1024
-        let budget_tokens = std::env::var("CLAUDE_THINKING_BUDGET")
-            .unwrap_or_else(|_| "16000".to_string())
-            .parse()
-            .unwrap_or(16000);
+        let budget_tokens: i32 = budget_from_effort.map(|b| b as i32).unwrap_or_else(|| {
+            std::env::var("CLAUDE_THINKING_BUDGET")
+                .unwrap_or_else(|_| "16000".to_string())
+                .parse()
+                .unwrap_or(16000)
+        });
 
         payload
             .as_object_mut()

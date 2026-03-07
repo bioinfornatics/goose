@@ -678,22 +678,42 @@ pub fn create_request(
 
     // Only extract reasoning effort for O-series models
     let (model_name, reasoning_effort) = if is_ox_model {
-        let parts: Vec<&str> = model_config.model_name.split('-').collect();
-        let last_part = parts.last().unwrap();
+        // Check explicit reasoning_effort from ModelConfig first
+        if let Some(effort) = &model_config.reasoning_effort {
+            // Strip effort suffix from model name if present
+            let parts: Vec<&str> = model_config.model_name.split('-').collect();
+            let last_part = parts.last().unwrap();
+            let base_name = match *last_part {
+                "low" | "medium" | "high" => parts[..parts.len() - 1].join("-"),
+                _ => model_config.model_name.to_string(),
+            };
+            (base_name, Some(effort.as_openai_str().to_string()))
+        } else {
+            // Fallback: parse effort from model name suffix
+            let parts: Vec<&str> = model_config.model_name.split('-').collect();
+            let last_part = parts.last().unwrap();
 
-        match *last_part {
-            "low" | "medium" | "high" => {
-                let base_name = parts[..parts.len() - 1].join("-");
-                (base_name, Some(last_part.to_string()))
+            match *last_part {
+                "low" | "medium" | "high" => {
+                    let base_name = parts[..parts.len() - 1].join("-");
+                    (base_name, Some(last_part.to_string()))
+                }
+                _ => (
+                    model_config.model_name.to_string(),
+                    Some("medium".to_string()),
+                ),
             }
-            _ => (
-                model_config.model_name.to_string(),
-                Some("medium".to_string()),
-            ),
         }
     } else {
-        // For non-O family models, use the model name as is and no reasoning effort
-        (model_config.model_name.to_string(), None)
+        // Non-O-series: still allow reasoning_effort if explicitly set
+        if let Some(effort) = &model_config.reasoning_effort {
+            (
+                model_config.model_name.to_string(),
+                Some(effort.as_openai_str().to_string()),
+            )
+        } else {
+            (model_config.model_name.to_string(), None)
+        }
     };
 
     let system_message = json!({
@@ -1403,6 +1423,7 @@ mod tests {
             toolshim_model: None,
             fast_model: None,
             request_params: None,
+            reasoning_effort: None,
         };
         let request = create_request(
             &model_config,
@@ -1443,6 +1464,7 @@ mod tests {
             toolshim_model: None,
             fast_model: None,
             request_params: None,
+            reasoning_effort: None,
         };
         let request = create_request(
             &model_config,
@@ -1484,6 +1506,7 @@ mod tests {
             toolshim_model: None,
             fast_model: None,
             request_params: None,
+            reasoning_effort: None,
         };
         let request = create_request(
             &model_config,

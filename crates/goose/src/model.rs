@@ -328,7 +328,9 @@ impl ModelConfig {
         }
     }
 
-    fn parse_reasoning_effort() -> Result<Option<ReasoningEffort>, ConfigError> {
+    /// Parse reasoning effort from `GOOSE_REASONING_EFFORT` env var.
+    /// Public so format functions can check the live env var at call time.
+    pub fn parse_reasoning_effort() -> Result<Option<ReasoningEffort>, ConfigError> {
         if let Ok(val) = std::env::var("GOOSE_REASONING_EFFORT") {
             match val.to_lowercase().as_str() {
                 "low" => Ok(Some(ReasoningEffort::Low)),

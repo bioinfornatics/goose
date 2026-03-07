@@ -447,10 +447,12 @@ pub fn create_request(
     }
 
     // Add thinking parameters:
-    // 1. model_config.reasoning_effort takes priority (dynamic, set at runtime)
-    // 2. CLAUDE_THINKING_ENABLED env var as fallback (static, set at startup)
-    let budget_from_effort = model_config
-        .reasoning_effort
+    // 1. Live env var override takes priority (enables dynamic per-agent/mode changes)
+    // 2. model_config.reasoning_effort (set at provider construction)
+    // 3. CLAUDE_THINKING_ENABLED env var as fallback (static, set at startup)
+    let live_effort = ModelConfig::parse_reasoning_effort().ok().flatten();
+    let effective_effort = live_effort.or(model_config.reasoning_effort);
+    let budget_from_effort = effective_effort
         .as_ref()
         .map(|e| e.as_anthropic_budget_tokens());
 

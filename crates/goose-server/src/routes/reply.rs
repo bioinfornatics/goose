@@ -350,6 +350,16 @@ pub async fn reply(
             "Execution identity set on agent"
         );
 
+        // Inject per-agent/mode reasoning effort overrides from server config
+        {
+            let overrides = state.reasoning_effort_overrides.read().await;
+            if !overrides.is_empty() {
+                agent
+                    .set_reasoning_effort_overrides(overrides.clone())
+                    .await;
+            }
+        }
+
         // Tag the session with the caller's tenant/user identity for scoping
         if !exec_identity.user.is_guest() || exec_identity.user.tenant.is_some() {
             if let Err(e) = state

@@ -1804,6 +1804,27 @@ export type ReadResourceResponse = {
  */
 export type ReasoningEffort = 'low' | 'medium' | 'high';
 
+/**
+ * A single per-agent/mode reasoning effort override
+ */
+export type ReasoningEffortOverride = {
+    /**
+     * Key in "agent_slug/mode_slug" format, e.g. "developer/write"
+     */
+    key: string;
+    /**
+     * Reasoning effort level: "low", "medium", or "high"
+     */
+    level: string;
+};
+
+/**
+ * Response containing all per-agent/mode overrides
+ */
+export type ReasoningEffortOverridesResponse = {
+    overrides: Array<ReasoningEffortOverride>;
+};
+
 export type ReasoningEffortResponse = {
     level?: string | null;
 };
@@ -2193,6 +2214,13 @@ export type SetModeAgentRequest = {
 export type SetProviderRequest = {
     model: string;
     provider: string;
+};
+
+/**
+ * Request to set per-agent/mode overrides (full replace)
+ */
+export type SetReasoningEffortOverridesRequest = {
+    overrides: Array<ReasoningEffortOverride>;
 };
 
 export type SetReasoningEffortRequest = {
@@ -4756,6 +4784,32 @@ export type SetReasoningEffortResponses = {
 };
 
 export type SetReasoningEffortResponse = SetReasoningEffortResponses[keyof SetReasoningEffortResponses];
+
+export type GetReasoningEffortOverridesData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/config/reasoning-effort-overrides';
+};
+
+export type GetReasoningEffortOverridesResponses = {
+    200: ReasoningEffortOverridesResponse;
+};
+
+export type GetReasoningEffortOverridesResponse = GetReasoningEffortOverridesResponses[keyof GetReasoningEffortOverridesResponses];
+
+export type SetReasoningEffortOverridesData = {
+    body: SetReasoningEffortOverridesRequest;
+    path?: never;
+    query?: never;
+    url: '/config/reasoning-effort-overrides';
+};
+
+export type SetReasoningEffortOverridesResponses = {
+    200: ReasoningEffortOverridesResponse;
+};
+
+export type SetReasoningEffortOverridesResponse = SetReasoningEffortOverridesResponses[keyof SetReasoningEffortOverridesResponses];
 
 export type RecoverConfigData = {
     body?: never;

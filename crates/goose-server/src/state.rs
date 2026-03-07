@@ -29,8 +29,11 @@ type ExtensionLoadingTasks =
 pub struct AppState {
     pub(crate) agent_manager: Arc<AgentManager>,
     pub recipe_file_hash_map: Arc<Mutex<HashMap<String, PathBuf>>>,
-    /// Dynamic reasoning effort override — checked by providers before each LLM call
+    /// Global reasoning effort override — checked by providers before each LLM call
     pub reasoning_effort: Arc<tokio::sync::RwLock<Option<goose::model::ReasoningEffort>>>,
+    /// Per-agent/mode reasoning effort overrides — key is "agent_slug/mode_slug"
+    pub reasoning_effort_overrides:
+        Arc<tokio::sync::RwLock<HashMap<String, goose::model::ReasoningEffort>>>,
     /// Tracks sessions that have already emitted recipe telemetry to prevent double counting.
     recipe_session_tracker: Arc<Mutex<HashSet<String>>>,
     pub tunnel_manager: Arc<TunnelManager>,
@@ -59,6 +62,7 @@ impl AppState {
             agent_manager,
             recipe_file_hash_map: Arc::new(Mutex::new(HashMap::new())),
             reasoning_effort: Arc::new(tokio::sync::RwLock::new(None)),
+            reasoning_effort_overrides: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
             recipe_session_tracker: Arc::new(Mutex::new(HashSet::new())),
             tunnel_manager,
             extension_loading_tasks: Arc::new(Mutex::new(HashMap::new())),

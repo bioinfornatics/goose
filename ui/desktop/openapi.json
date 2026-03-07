@@ -2961,6 +2961,56 @@
         }
       }
     },
+    "/config/reasoning-effort-overrides": {
+      "get": {
+        "tags": [
+          "super::routes::config_management"
+        ],
+        "summary": "Get all per-agent/mode reasoning effort overrides",
+        "operationId": "get_reasoning_effort_overrides",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReasoningEffortOverridesResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "super::routes::config_management"
+        ],
+        "summary": "Set per-agent/mode reasoning effort overrides (replaces all existing overrides)",
+        "operationId": "set_reasoning_effort_overrides",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetReasoningEffortOverridesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReasoningEffortOverridesResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/config/recover": {
       "post": {
         "tags": [
@@ -10952,6 +11002,39 @@
           "high"
         ]
       },
+      "ReasoningEffortOverride": {
+        "type": "object",
+        "description": "A single per-agent/mode reasoning effort override",
+        "required": [
+          "key",
+          "level"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "Key in \"agent_slug/mode_slug\" format, e.g. \"developer/write\""
+          },
+          "level": {
+            "type": "string",
+            "description": "Reasoning effort level: \"low\", \"medium\", or \"high\""
+          }
+        }
+      },
+      "ReasoningEffortOverridesResponse": {
+        "type": "object",
+        "description": "Response containing all per-agent/mode overrides",
+        "required": [
+          "overrides"
+        ],
+        "properties": {
+          "overrides": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReasoningEffortOverride"
+            }
+          }
+        }
+      },
       "ReasoningEffortResponse": {
         "type": "object",
         "properties": {
@@ -12254,6 +12337,21 @@
           },
           "provider": {
             "type": "string"
+          }
+        }
+      },
+      "SetReasoningEffortOverridesRequest": {
+        "type": "object",
+        "description": "Request to set per-agent/mode overrides (full replace)",
+        "required": [
+          "overrides"
+        ],
+        "properties": {
+          "overrides": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReasoningEffortOverride"
+            }
           }
         }
       },

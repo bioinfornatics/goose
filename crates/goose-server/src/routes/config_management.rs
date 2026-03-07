@@ -899,6 +899,88 @@ async fn set_reasoning_effort(
     }))
 }
 
+// ── Per-Agent/Mode Reasoning Effort Overrides ────────────────────────────────
+
+/// A single per-agent/mode reasoning effort override
+#[derive(Deserialize, Serialize, Clone, ToSchema)]
+pub struct ReasoningEffortOverride {
+    /// Key in "agent_slug/mode_slug" format, e.g. "developer/write"
+    pub key: String,
+    /// Reasoning effort level: "low", "medium", or "high"
+    pub level: String,
+}
+
+/// Response containing all per-agent/mode overrides
+#[derive(Serialize, ToSchema)]
+pub struct ReasoningEffortOverridesResponse {
+    pub overrides: Vec<ReasoningEffortOverride>,
+}
+
+/// Request to set per-agent/mode overrides (full replace)
+#[derive(Deserialize, ToSchema)]
+pub struct SetReasoningEffortOverridesRequest {
+    pub overrides: Vec<ReasoningEffortOverride>,
+}
+
+/// Get all per-agent/mode reasoning effort overrides
+#[utoipa::path(
+    get,
+    path = "/config/reasoning-effort-overrides",
+    responses((status = 200, body = ReasoningEffortOverridesResponse))
+)]
+async fn get_reasoning_effort_overrides(
+    State(state): State<Arc<AppState>>,
+) -> Json<ReasoningEffortOverridesResponse> {
+    let overrides = state.reasoning_effort_overrides.read().await;
+    let items: Vec<ReasoningEffortOverride> = overrides
+        .iter()
+        .map(|(k, v)| ReasoningEffortOverride {
+            key: k.clone(),
+            level: v.as_openai_str().to_string(),
+        })
+        .collect();
+    Json(ReasoningEffortOverridesResponse { overrides: items })
+}
+
+/// Set per-agent/mode reasoning effort overrides (replaces all existing overrides)
+#[utoipa::path(
+    post,
+    path = "/config/reasoning-effort-overrides",
+    request_body = SetReasoningEffortOverridesRequest,
+    responses((status = 200, body = ReasoningEffortOverridesResponse))
+)]
+async fn set_reasoning_effort_overrides(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<SetReasoningEffortOverridesRequest>,
+) -> Result<Json<ReasoningEffortOverridesResponse>, StatusCode> {
+    let mut map = std::collections::HashMap::new();
+    for item in &req.overrides {
+        let effort = match item.level.as_str() {
+            "low" => goose::model::ReasoningEffort::Low,
+            "medium" | "med" => goose::model::ReasoningEffort::Medium,
+            "high" => goose::model::ReasoningEffort::High,
+            _ => return Err(StatusCode::BAD_REQUEST),
+        };
+        map.insert(item.key.clone(), effort);
+    }
+
+    {
+        let mut w = state.reasoning_effort_overrides.write().await;
+        *w = map;
+    }
+
+    // Return the current state
+    let overrides = state.reasoning_effort_overrides.read().await;
+    let items: Vec<ReasoningEffortOverride> = overrides
+        .iter()
+        .map(|(k, v)| ReasoningEffortOverride {
+            key: k.clone(),
+            level: v.as_openai_str().to_string(),
+        })
+        .collect();
+    Ok(Json(ReasoningEffortOverridesResponse { overrides: items }))
+}
+
 pub fn routes(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/config", get(read_all_config))
@@ -920,6 +1002,10 @@ pub fn routes(state: Arc<AppState>) -> Router {
         .route(
             "/config/reasoning-effort",
             get(get_reasoning_effort).post(set_reasoning_effort),
+        )
+        .route(
+            "/config/reasoning-effort-overrides",
+            get(get_reasoning_effort_overrides).post(set_reasoning_effort_overrides),
         )
         .route("/config/permissions", post(upsert_permissions))
         .route("/config/custom-providers", post(create_custom_provider))

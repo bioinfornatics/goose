@@ -676,10 +676,15 @@ pub fn create_request(
         || model_config.model_name.starts_with("o4")
         || model_config.model_name.starts_with("gpt-5");
 
+    // Live env var override takes priority over stored config.
+    // This enables dynamic per-agent/mode reasoning effort changes at runtime.
+    let live_effort = ModelConfig::parse_reasoning_effort().ok().flatten();
+    let effective_effort = live_effort.or(model_config.reasoning_effort);
+
     // Only extract reasoning effort for O-series models
     let (model_name, reasoning_effort) = if is_ox_model {
-        // Check explicit reasoning_effort from ModelConfig first
-        if let Some(effort) = &model_config.reasoning_effort {
+        // Check explicit reasoning_effort (live override > stored config)
+        if let Some(effort) = &effective_effort {
             // Strip effort suffix from model name if present
             let parts: Vec<&str> = model_config.model_name.split('-').collect();
             let last_part = parts.last().unwrap();
@@ -705,8 +710,8 @@ pub fn create_request(
             }
         }
     } else {
-        // Non-O-series: still allow reasoning_effort if explicitly set
-        if let Some(effort) = &model_config.reasoning_effort {
+        // Non-O-series: allow reasoning_effort if explicitly set (live override > stored config)
+        if let Some(effort) = &effective_effort {
             (
                 model_config.model_name.to_string(),
                 Some(effort.as_openai_str().to_string()),

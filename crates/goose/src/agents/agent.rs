@@ -163,6 +163,11 @@ pub struct Agent {
     pub is_orchestrator_context: tokio::sync::RwLock<bool>,
     /// Mode slug applied by orchestrator routing (when available).
     pub active_mode_slug: tokio::sync::RwLock<Option<String>>,
+    /// Per-agent/mode reasoning effort overrides (shared with server state).
+    /// Key format: "agent_slug/mode_slug", e.g. "developer/write"
+    pub reasoning_effort_overrides: std::sync::Arc<
+        tokio::sync::RwLock<std::collections::HashMap<String, crate::model::ReasoningEffort>>,
+    >,
     container: Mutex<Option<Container>>,
     /// Dual identity: user + agent, threaded through all execution.
     pub execution_identity: tokio::sync::RwLock<Option<crate::identity::ExecutionIdentity>>,
@@ -390,6 +395,9 @@ impl Agent {
             allowed_extensions: tokio::sync::RwLock::new(Vec::new()),
             is_orchestrator_context: tokio::sync::RwLock::new(false),
             active_mode_slug: tokio::sync::RwLock::new(None),
+            reasoning_effort_overrides: std::sync::Arc::new(tokio::sync::RwLock::new(
+                std::collections::HashMap::new(),
+            )),
             container: Mutex::new(None),
             execution_identity: tokio::sync::RwLock::new(None),
         }
@@ -619,6 +627,13 @@ impl Agent {
 
     pub async fn get_active_mode_slug(&self) -> Option<String> {
         self.active_mode_slug.read().await.clone()
+    }
+
+    pub async fn set_reasoning_effort_overrides(
+        &self,
+        overrides: std::collections::HashMap<String, crate::model::ReasoningEffort>,
+    ) {
+        *self.reasoning_effort_overrides.write().await = overrides;
     }
 
     pub async fn set_execution_identity(&self, identity: crate::identity::ExecutionIdentity) {
@@ -1357,6 +1372,15 @@ impl Agent {
                     }
                 }
                 previous_tool_count = tools.len();
+
+                // Apply per-agent/mode reasoning effort override via env var.
+                // The OpenAI/Anthropic create_request functions check this at call time.
+                if let Some(mode_slug) = self.get_active_mode_slug().await {
+                    let overrides = self.reasoning_effort_overrides.read().await;
+                    if let Some(effort) = overrides.get(&mode_slug) {
+                        std::env::set_var("GOOSE_REASONING_EFFORT", effort.as_openai_str());
+                    }
+                }
 
                 let mut stream = Self::stream_response_from_provider(
                     self.provider().await?,

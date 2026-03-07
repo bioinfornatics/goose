@@ -27,6 +27,7 @@
 //! Set `GOOSE_ORCHESTRATOR_DISABLED=true` to fall back to keyword routing.
 //! When disabled (default), falls back to IntentRouter for backward compatibility.
 
+use crate::agents::app_builder_agent::AppBuilderAgent;
 use crate::agents::developer_agent::DeveloperAgent;
 use crate::agents::goose_agent::GooseAgent;
 use crate::agents::intent_router::{IntentRouter, RoutingDecision};
@@ -457,6 +458,7 @@ impl OrchestratorAgent {
                 "Research Agent" => vec!["fetch", "memory", "context7", "genui"],
                 "PM Agent" => vec!["memory", "fetch"],
                 "Security Agent" => vec!["developer", "memory", "fetch"],
+                "App Builder Agent" => vec!["apps"],
                 _ => vec![],
             };
             for ext in known_extras {
@@ -771,6 +773,10 @@ impl OrchestratorAgent {
             "Research Agent" => {
                 let research = ResearchAgent::new();
                 research.recommended_extensions(mode_slug)
+            }
+            "App Builder Agent" => {
+                let app_builder = AppBuilderAgent::new();
+                app_builder.recommended_extensions(mode_slug)
             }
             _ => vec![], // external agent \u2192 no restrictions
         }

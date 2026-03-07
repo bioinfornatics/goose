@@ -42,7 +42,7 @@ export function NodePalette({ onDragStart, onTemplateSelect }: NodePaletteProps)
   };
 
   return (
-    <div className="w-56 border-r border-border-default bg-background-default overflow-y-auto flex flex-col">
+    <div className="w-60 border-r border-border-default bg-background-default overflow-y-auto flex flex-col">
       {/* Tab bar */}
       <div className="flex border-b border-border-muted">
         <button

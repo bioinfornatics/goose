@@ -1010,6 +1010,8 @@ export default function DatasetsTab() {
               await fetchAll();
             } else if (evt.type === 'error') {
               setError(evt.message || evt.data?.message || 'Eval streaming error');
+              setStreamProgress(null);
+              setActiveRunDatasetId(null);
             }
           } catch {
             // skip malformed SSE lines
@@ -1019,6 +1021,7 @@ export default function DatasetsTab() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Eval run failed');
       setActiveRunDatasetId(null);
+      setStreamProgress(null);
     } finally {
       setRunningDataset(null);
     }

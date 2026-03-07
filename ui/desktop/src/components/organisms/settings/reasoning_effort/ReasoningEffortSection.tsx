@@ -30,8 +30,9 @@ export const ReasoningEffortSection = () => {
           agentCatalog(),
         ]);
 
-        if (effortRes.data?.level) {
-          setGlobalLevel(effortRes.data.level);
+        const level = effortRes.data?.level;
+        if (level && ['low', 'medium', 'high'].includes(level)) {
+          setGlobalLevel(level);
         }
 
         if (overridesRes.data?.overrides) {

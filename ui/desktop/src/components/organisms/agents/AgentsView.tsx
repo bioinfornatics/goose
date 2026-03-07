@@ -21,8 +21,10 @@ import {
   bindExtensionToAgent,
   connectAgent,
   disconnectAgent,
+  getReasoningEffortOverrides,
   listAgents,
   listBuiltinAgents,
+  setReasoningEffortOverrides,
   toggleBuiltinAgent,
   unbindExtensionFromAgent,
 } from '@/api/sdk.gen';
@@ -55,6 +57,9 @@ export default function AgentsView() {
   const [selectedMode, setSelectedMode] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Reasoning effort overrides per agent/mode
+  const [effortOverrides, setEffortOverrides] = useState<Record<string, string>>({});
 
   // Connect form
   const [showConnect, setShowConnect] = useState(false);
@@ -154,6 +159,48 @@ export default function AgentsView() {
   useEffect(() => {
     fetchAgents();
   }, [fetchAgents]);
+
+  // Fetch reasoning effort overrides
+  useEffect(() => {
+    const fetchOverrides = async () => {
+      try {
+        const res = await getReasoningEffortOverrides();
+        if (res.data?.overrides) {
+          const map: Record<string, string> = {};
+          for (const o of res.data.overrides) {
+            map[o.key] = o.level;
+          }
+          setEffortOverrides(map);
+        }
+      } catch (e) {
+        console.warn('Failed to fetch reasoning effort overrides:', e);
+      }
+    };
+    fetchOverrides();
+  }, []);
+
+  // Handler to change per-mode reasoning effort
+  const handleEffortChange = async (agentId: string, modeSlug: string, level: string) => {
+    const key = `${agentId}/${modeSlug}`;
+    const prev = { ...effortOverrides };
+
+    // Optimistic update
+    const next = { ...effortOverrides };
+    if (level === 'default') {
+      delete next[key];
+    } else {
+      next[key] = level;
+    }
+    setEffortOverrides(next);
+
+    try {
+      const overrides = Object.entries(next).map(([k, v]) => ({ key: k, level: v }));
+      await setReasoningEffortOverrides({ body: { overrides } });
+    } catch (e) {
+      console.error('Failed to set reasoning effort override:', e);
+      setEffortOverrides(prev);
+    }
+  };
 
   // ── Catalog handlers ──────────────────────────────────────────
 
@@ -477,56 +524,56 @@ export default function AgentsView() {
                                 </span>
                               </div>
                             </div>
-                          <div className="flex items-center gap-3 shrink-0">
-                            {/* Deploy button */}
-                            {agent.enabled && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDeployFromCatalog(agent.name);
-                                }}
-                                className="flex items-center gap-1 px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md transition-colors"
-                                title="Deploy instance"
-                              >
-                                <Rocket className="w-3.5 h-3.5" />
-                                Deploy
-                              </button>
-                            )}
-                            {/* Enable/Disable toggle for builtin agents */}
-                            {agent.kind === 'builtin' && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleToggleAgent(agent);
-                                }}
-                                className={`flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors ${
-                                  agent.enabled
-                                    ? 'text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20'
-                                    : 'text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-                                }`}
-                                title={agent.enabled ? 'Disable agent' : 'Enable agent'}
-                              >
-                                <Power className="w-3.5 h-3.5" />
-                                {agent.enabled ? 'On' : 'Off'}
-                              </button>
-                            )}
-                            <div className="flex items-center gap-1.5">
-                              <span className={`w-2 h-2 rounded-full ${status.bg}`} />
-                              <span className={`text-xs ${status.color}`}>{status.label}</span>
+                            <div className="flex items-center gap-3 shrink-0">
+                              {/* Deploy button */}
+                              {agent.enabled && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeployFromCatalog(agent.name);
+                                  }}
+                                  className="flex items-center gap-1 px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md transition-colors"
+                                  title="Deploy instance"
+                                >
+                                  <Rocket className="w-3.5 h-3.5" />
+                                  Deploy
+                                </button>
+                              )}
+                              {/* Enable/Disable toggle for builtin agents */}
+                              {agent.kind === 'builtin' && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleToggleAgent(agent);
+                                  }}
+                                  className={`flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors ${
+                                    agent.enabled
+                                      ? 'text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20'
+                                      : 'text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                                  }`}
+                                  title={agent.enabled ? 'Disable agent' : 'Enable agent'}
+                                >
+                                  <Power className="w-3.5 h-3.5" />
+                                  {agent.enabled ? 'On' : 'Off'}
+                                </button>
+                              )}
+                              <div className="flex items-center gap-1.5">
+                                <span className={`w-2 h-2 rounded-full ${status.bg}`} />
+                                <span className={`text-xs ${status.color}`}>{status.label}</span>
+                              </div>
+                              {agent.modes.length > 0 && (
+                                <span className="text-xs text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full">
+                                  {agent.modes.length} modes
+                                </span>
+                              )}
+                              {isExpanded ? (
+                                <ChevronDown className="w-4 h-4 text-gray-400" />
+                              ) : (
+                                <ChevronRight className="w-4 h-4 text-gray-400" />
+                              )}
                             </div>
-                            {agent.modes.length > 0 && (
-                              <span className="text-xs text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full">
-                                {agent.modes.length} modes
-                              </span>
-                            )}
-                            {isExpanded ? (
-                              <ChevronDown className="w-4 h-4 text-gray-400" />
-                            ) : (
-                              <ChevronRight className="w-4 h-4 text-gray-400" />
-                            )}
-                          </div>
                           </div>
                           {/* Row 2: Description — full card width, aligned with name */}
                           <p className="text-sm text-gray-500 dark:text-gray-400 pl-9 line-clamp-2">
@@ -638,14 +685,25 @@ export default function AgentsView() {
                             {agent.modes.map((mode) => {
                               const isSelected = selectedMode === `${agent.id}:${mode.slug}`;
                               const isDefault = mode.slug === agent.defaultMode;
+                              const effortKey = `${agent.id}/${mode.slug}`;
+                              const modeEffort = effortOverrides[effortKey] || 'default';
                               return (
-                                <button
-                                  type="button"
+                                <div
+                                  role="button"
+                                  tabIndex={0}
                                   key={mode.slug}
                                   onClick={() =>
                                     setSelectedMode(isSelected ? null : `${agent.id}:${mode.slug}`)
                                   }
-                                  className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                      e.preventDefault();
+                                      setSelectedMode(
+                                        isSelected ? null : `${agent.id}:${mode.slug}`
+                                      );
+                                    }
+                                  }}
+                                  className={`p-3 rounded-lg border cursor-pointer transition-all text-left ${
                                     isSelected
                                       ? 'border-blue-400 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/20 ring-1 ring-blue-400/30'
                                       : isDefault
@@ -679,9 +737,30 @@ export default function AgentsView() {
                                     </div>
                                   )}
 
+                                  {/* Reasoning effort per mode */}
+                                  <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-gray-100 dark:border-gray-700/50">
+                                    <span className="text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">
+                                      Effort:
+                                    </span>
+                                    <select
+                                      value={modeEffort}
+                                      onChange={(e) => {
+                                        e.stopPropagation();
+                                        handleEffortChange(agent.id, mode.slug, e.target.value);
+                                      }}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="text-[10px] px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 cursor-pointer outline-none hover:border-gray-300 dark:hover:border-gray-500 transition-colors"
+                                    >
+                                      <option value="default">Default</option>
+                                      <option value="low">Low</option>
+                                      <option value="medium">Medium</option>
+                                      <option value="high">High</option>
+                                    </select>
+                                  </div>
+
                                   {/* Recommended extensions */}
                                   {mode.recommended_extensions.length > 0 && (
-                                    <div className="flex flex-wrap gap-1">
+                                    <div className="flex flex-wrap gap-1 mt-1.5">
                                       {mode.recommended_extensions.map((ext) => (
                                         <span
                                           key={ext}
@@ -693,7 +772,7 @@ export default function AgentsView() {
                                       ))}
                                     </div>
                                   )}
-                                </button>
+                                </div>
                               );
                             })}
                           </div>

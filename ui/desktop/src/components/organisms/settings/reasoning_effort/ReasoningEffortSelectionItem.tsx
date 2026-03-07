@@ -1,5 +1,3 @@
-import { useEffect, useState } from 'react';
-
 export interface ReasoningEffortOption {
   key: string;
   label: string;
@@ -37,12 +35,8 @@ export function ReasoningEffortSelectionItem({
   showDescription,
   handleLevelChange,
 }: ReasoningEffortSelectionItemProps) {
-  const [checked, setChecked] = useState(currentLevel === option.key);
+  const checked = currentLevel === option.key;
   const radioId = `reasoning-effort-${option.key}`;
-
-  useEffect(() => {
-    setChecked(currentLevel === option.key);
-  }, [currentLevel, option.key]);
 
   return (
     <div className="group text-sm">
@@ -53,11 +47,13 @@ export function ReasoningEffortSelectionItem({
         value={option.key}
         checked={checked}
         onChange={() => handleLevelChange(option.key)}
-        className="peer sr-only"
+        className="sr-only"
       />
       <label
         htmlFor={radioId}
-        className={`flex cursor-pointer items-center justify-between text-text-default py-2 px-2 ${checked ? 'bg-background-muted' : 'bg-background-default hover:bg-background-muted'} rounded-lg transition-all`}
+        className={`flex cursor-pointer items-center justify-between text-text-default py-2 px-2 ${
+          checked ? 'bg-background-muted' : 'bg-background-default hover:bg-background-muted'
+        } rounded-lg transition-all`}
       >
         <div className="flex">
           <div>
@@ -70,11 +66,12 @@ export function ReasoningEffortSelectionItem({
 
         <div className="relative flex items-center gap-2">
           <div
-            className="h-4 w-4 rounded-full border border-border-default 
-                  peer-checked:border-[6px] peer-checked:border-black dark:peer-checked:border-white
-                  peer-checked:bg-white dark:peer-checked:bg-black
-                  transition-all duration-200 ease-in-out group-hover:border-border-default"
-          ></div>
+            className={`h-4 w-4 rounded-full border transition-all duration-200 ease-in-out ${
+              checked
+                ? 'border-[6px] border-black dark:border-white bg-white dark:bg-black'
+                : 'border-border-default group-hover:border-border-default'
+            }`}
+          />
         </div>
       </label>
     </div>

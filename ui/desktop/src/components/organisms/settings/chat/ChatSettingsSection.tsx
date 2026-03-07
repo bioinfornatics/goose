@@ -7,6 +7,7 @@ import {
 } from '@/components/molecules/ui/card';
 import { DictationSettings } from '../dictation/DictationSettings';
 import { ModeSection } from '../mode/ModeSection';
+import { ReasoningEffortSection } from '../reasoning_effort/ReasoningEffortSection';
 import { ResponseStylesSection } from '../response_styles/ResponseStylesSection';
 import { SecurityToggle } from '../security/SecurityToggle';
 import { GoosehintsSection } from './GoosehintsSection';
@@ -35,6 +36,18 @@ export default function ChatSettingsSection() {
         <CardContent className="px-2">
           <DictationSettings />
           <SpellcheckToggle />
+        </CardContent>
+      </Card>
+
+      <Card className="pb-2 rounded-lg">
+        <CardHeader className="pb-0">
+          <CardTitle className="">Reasoning Effort</CardTitle>
+          <CardDescription>
+            Control how much thinking the model applies to each response
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="px-2">
+          <ReasoningEffortSection />
         </CardContent>
       </Card>
 

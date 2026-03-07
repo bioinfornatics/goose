@@ -304,9 +304,17 @@ pub async fn list_builtin_agents(
 ) -> Json<BuiltinAgentsResponse> {
     use goose::agents::developer_agent::DeveloperAgent;
     use goose::agents::goose_agent::GooseAgent;
+    use goose::agents::pm_agent::PmAgent;
+    use goose::agents::qa_agent::QaAgent;
+    use goose::agents::research_agent::ResearchAgent;
+    use goose::agents::security_agent::SecurityAgent;
 
     let goose = GooseAgent::new();
     let dev = DeveloperAgent::new();
+    let qa = QaAgent::new();
+    let pm = PmAgent::new();
+    let security = SecurityAgent::new();
+    let research = ResearchAgent::new();
 
     fn format_tool_group(tg: &goose::registry::manifest::ToolGroupAccess) -> String {
         match tg {
@@ -317,71 +325,109 @@ pub async fn list_builtin_agents(
         }
     }
 
-    let goose_modes: Vec<BuiltinAgentMode> = goose
-        .to_public_agent_modes()
-        .into_iter()
-        .map(|m| BuiltinAgentMode {
-            slug: m.slug.clone(),
-            name: m.name.clone(),
-            description: m.description.clone(),
-            tool_groups: m.tool_groups.iter().map(format_tool_group).collect(),
-            recommended_extensions: vec![],
-        })
-        .collect();
-
-    let dev_modes: Vec<BuiltinAgentMode> = dev
-        .to_agent_modes()
-        .into_iter()
-        .map(|m| {
-            let rec_ext = dev.recommended_extensions(&m.slug);
-            BuiltinAgentMode {
+    // Helper: build BuiltinAgentMode list from AgentMode slice + a rec_ext function
+    fn build_modes(
+        modes: &[goose::registry::manifest::AgentMode],
+        rec_ext_fn: &dyn Fn(&str) -> Vec<String>,
+        format_tg: &dyn Fn(&goose::registry::manifest::ToolGroupAccess) -> String,
+    ) -> Vec<BuiltinAgentMode> {
+        modes
+            .iter()
+            .map(|m| BuiltinAgentMode {
                 slug: m.slug.clone(),
                 name: m.name.clone(),
                 description: m.description.clone(),
-                tool_groups: m.tool_groups.iter().map(format_tool_group).collect(),
-                recommended_extensions: rec_ext,
-            }
-        })
-        .collect();
+                tool_groups: m.tool_groups.iter().map(format_tg).collect(),
+                recommended_extensions: rec_ext_fn(&m.slug),
+            })
+            .collect()
+    }
 
-    let goose_enabled = state.agent_slot_registry.is_enabled("Goose Agent").await;
-    let dev_enabled = state
-        .agent_slot_registry
-        .is_enabled("Developer Agent")
-        .await;
-    let goose_exts: Vec<String> = state
-        .agent_slot_registry
-        .get_bound_extensions("Goose Agent")
-        .await
-        .into_iter()
-        .collect();
-    let dev_exts: Vec<String> = state
-        .agent_slot_registry
-        .get_bound_extensions("Developer Agent")
-        .await
-        .into_iter()
-        .collect();
+    let goose_modes_data = goose.to_public_agent_modes();
+    let dev_modes_data = dev.to_agent_modes();
+    let qa_modes_data = qa.to_agent_modes();
+    let pm_modes_data = pm.to_agent_modes();
+    let sec_modes_data = security.to_agent_modes();
+    let res_modes_data = research.to_agent_modes();
 
-    let agents = vec![
-        BuiltinAgentInfo {
-            name: "Goose Agent".into(),
-            description: "Core behavioral modes for the Goose AI assistant".into(),
-            status: "active".into(),
-            modes: goose_modes,
-            default_mode: goose.default_mode_slug().into(),
-            enabled: goose_enabled,
-            bound_extensions: goose_exts,
-        },
-        BuiltinAgentInfo {
-            name: "Developer Agent".into(),
-            description: "Software engineer for writing, debugging, and deploying code".into(),
-            status: "active".into(),
-            modes: dev_modes,
-            default_mode: dev.default_mode().into(),
-            enabled: dev_enabled,
-            bound_extensions: dev_exts,
-        },
+    let agent_infos: Vec<(&str, &str, Vec<BuiltinAgentMode>, String)> = vec![
+        (
+            "Goose Agent",
+            "Core behavioral modes for the Goose AI assistant",
+            build_modes(&goose_modes_data, &|_| vec![], &format_tool_group),
+            goose.default_mode_slug().into(),
+        ),
+        (
+            "Developer Agent",
+            "Software engineer for writing, debugging, and deploying code",
+            build_modes(
+                &dev_modes_data,
+                &|s| dev.recommended_extensions(s),
+                &format_tool_group,
+            ),
+            dev.default_mode().into(),
+        ),
+        (
+            "QA Agent",
+            "Quality assurance: testing, test plans, and bug investigation",
+            build_modes(
+                &qa_modes_data,
+                &|s| qa.recommended_extensions(s),
+                &format_tool_group,
+            ),
+            qa.default_mode().into(),
+        ),
+        (
+            "PM Agent",
+            "Product management: requirements, roadmaps, and user stories",
+            build_modes(
+                &pm_modes_data,
+                &|s| pm.recommended_extensions(s),
+                &format_tool_group,
+            ),
+            pm.default_mode().into(),
+        ),
+        (
+            "Security Agent",
+            "Security analysis: threat modeling, audits, and compliance",
+            build_modes(
+                &sec_modes_data,
+                &|s| security.recommended_extensions(s),
+                &format_tool_group,
+            ),
+            security.default_mode().into(),
+        ),
+        (
+            "Research Agent",
+            "Technology research, SOTA analysis, and literature review",
+            build_modes(
+                &res_modes_data,
+                &|s| research.recommended_extensions(s),
+                &format_tool_group,
+            ),
+            research.default_mode().into(),
+        ),
     ];
+
+    let mut agents = Vec::new();
+    for (name, description, modes, default_mode) in agent_infos {
+        let enabled = state.agent_slot_registry.is_enabled(name).await;
+        let bound_exts: Vec<String> = state
+            .agent_slot_registry
+            .get_bound_extensions(name)
+            .await
+            .into_iter()
+            .collect();
+        agents.push(BuiltinAgentInfo {
+            name: name.into(),
+            description: description.into(),
+            status: "active".into(),
+            modes,
+            default_mode,
+            enabled,
+            bound_extensions: bound_exts,
+        });
+    }
 
     Json(BuiltinAgentsResponse { agents })
 }
@@ -432,8 +478,8 @@ pub async fn bind_extension_to_agent(
     Path(name): Path<String>,
     Json(body): Json<BindExtensionRequest>,
 ) -> Result<StatusCode, StatusCode> {
-    let valid_names = ["Goose Agent", "Developer Agent"];
-    if !valid_names.contains(&name.as_str()) {
+    let names = state.agent_slot_registry.all_agent_names().await;
+    if !names.contains(&name) {
         return Err(StatusCode::NOT_FOUND);
     }
     state
@@ -456,8 +502,8 @@ pub async fn unbind_extension_from_agent(
     Path(name): Path<String>,
     Json(body): Json<BindExtensionRequest>,
 ) -> Result<StatusCode, StatusCode> {
-    let valid_names = ["Goose Agent", "Developer Agent"];
-    if !valid_names.contains(&name.as_str()) {
+    let names = state.agent_slot_registry.all_agent_names().await;
+    if !names.contains(&name) {
         return Err(StatusCode::NOT_FOUND);
     }
     state

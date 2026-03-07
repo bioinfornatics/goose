@@ -8,8 +8,8 @@ use axum::{
 use goose::agents::{
     orchestrator_agent::OrchestratorAgent,
     routing_eval::{
-        compute_metrics, evaluate_orchestrator, load_eval_set, RoutingEvalMetrics,
-        RoutingEvalResult,
+        compute_metrics, evaluate_orchestrator, evaluate_orchestrator_streaming, load_eval_set,
+        RoutingEvalMetrics, RoutingEvalResult,
     },
 };
 use goose::session::eval_storage::{
@@ -24,6 +24,7 @@ use utoipa::ToSchema;
 
 use crate::routes::errors::ErrorResponse;
 use crate::state::AppState;
+use tokio_stream::StreamExt;
 
 // ── Routing Inspector types ────────────────────────────────────────
 
@@ -733,6 +734,177 @@ pub async fn get_response_quality(
     Ok(Json(metrics))
 }
 
+// ── Streaming Eval (SSE) ───────────────────────────────────────────
+
+/// Run eval with Server-Sent Events — streams one event per test case
+/// so the UI can show live progress.
+///
+/// Event format: `data: {"index":0,"total":50,"result":{...},"runningMetrics":{...}}\n\n`
+/// Final event:  `data: {"type":"done","runId":"...","detail":{...}}\n\n`
+pub async fn run_eval_stream(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<RunEvalRequest>,
+) -> axum::response::Response {
+    let (tx, rx) = tokio::sync::mpsc::channel::<String>(32);
+
+    // Spawn the eval task so we can stream results as they come
+    let state_clone = Arc::clone(&state);
+    tokio::spawn(async move {
+        // 1. Resolve LLM provider (same as run_eval)
+        let sm = state_clone.session_manager();
+        let provider_arc: Option<Arc<dyn goose::providers::base::Provider>> =
+            if let Some(ref sid) = req.session_id {
+                match state_clone.get_agent(sid.clone()).await {
+                    Ok(agent) => {
+                        let mut p = agent.provider().await.ok();
+                        if p.is_none() {
+                            if let Ok(session) = sm.get_session(sid, false).await {
+                                let _ = agent.restore_provider_from_session(&session).await;
+                                p = agent.provider().await.ok();
+                            }
+                        }
+                        p
+                    }
+                    Err(_) => None,
+                }
+            } else {
+                let sessions = sm.list_sessions().await.unwrap_or_default();
+                let mut found = None;
+                for s in sessions.iter().take(5) {
+                    if let Ok(agent) = state_clone.get_agent(s.id.clone()).await {
+                        if let Ok(session) = sm.get_session(&s.id, false).await {
+                            let _ = agent.restore_provider_from_session(&session).await;
+                            if let Ok(p) = agent.provider().await {
+                                found = Some(p);
+                                break;
+                            }
+                        }
+                    }
+                }
+                found
+            };
+
+        let provider = Arc::new(tokio::sync::Mutex::new(provider_arc));
+        let mut router = OrchestratorAgent::new(provider);
+        state_clone
+            .agent_slot_registry
+            .configure_orchestrator(&mut router)
+            .await;
+
+        // 2. Load dataset
+        let pool = match sm.storage().pool().await {
+            Ok(p) => p,
+            Err(e) => {
+                let _ = tx
+                    .send(format!(
+                        "data: {}\n\n",
+                        serde_json::json!({"type": "error", "error": e.to_string()})
+                    ))
+                    .await;
+                return;
+            }
+        };
+        let store = EvalStorage::new(pool);
+        let dataset = match store.get_dataset(&req.dataset_id).await {
+            Ok(d) => d,
+            Err(e) => {
+                let _ = tx
+                    .send(format!(
+                        "data: {}\n\n",
+                        serde_json::json!({"type": "error", "error": e.to_string()})
+                    ))
+                    .await;
+                return;
+            }
+        };
+
+        // 3. Build eval set from dataset cases
+        let test_cases: Vec<goose::agents::routing_eval::RoutingEvalCase> = dataset
+            .cases
+            .iter()
+            .map(|c| goose::agents::routing_eval::RoutingEvalCase {
+                input: c.input.clone(),
+                expected_agent: c.expected_agent.clone(),
+                expected_mode: c.expected_mode.clone(),
+                also_acceptable: Vec::new(),
+                tags: c.tags.clone(),
+            })
+            .collect();
+
+        let eval_set = goose::agents::routing_eval::RoutingEvalSet { test_cases };
+
+        // 4. Stream eval results one-by-one
+        let (eval_tx, mut eval_rx) = tokio::sync::mpsc::channel(32);
+
+        // Run evaluation in a separate task that sends progress events
+        let tx_clone = tx.clone();
+        let eval_handle = tokio::spawn(async move {
+            evaluate_orchestrator_streaming(&router, &eval_set, eval_tx).await
+        });
+
+        // Forward eval events to SSE as they arrive
+        while let Some(event) = eval_rx.recv().await {
+            let json = serde_json::json!({
+                "type": "progress",
+                "index": event.index,
+                "total": event.total,
+                "result": event.result,
+                "runningMetrics": event.running_metrics,
+            });
+            if tx_clone.send(format!("data: {}\n\n", json)).await.is_err() {
+                break; // client disconnected
+            }
+        }
+
+        // 5. Wait for eval to finish and persist results
+        let results = match eval_handle.await {
+            Ok(r) => r,
+            Err(e) => {
+                let _ = tx
+                    .send(format!(
+                        "data: {}\n\n",
+                        serde_json::json!({"type": "error", "error": e.to_string()})
+                    ))
+                    .await;
+                return;
+            }
+        };
+
+        // 6. Persist the run (reuse store.run_eval logic — compute metrics & store)
+        let metrics = compute_metrics(&results);
+        match store.store_eval_run(&req, &results, &metrics).await {
+            Ok(detail) => {
+                let _ = tx
+                    .send(format!(
+                        "data: {}\n\n",
+                        serde_json::json!({"type": "done", "runId": detail.id, "detail": detail})
+                    ))
+                    .await;
+            }
+            Err(e) => {
+                let _ = tx
+                    .send(format!(
+                        "data: {}\n\n",
+                        serde_json::json!({"type": "error", "error": e.to_string()})
+                    ))
+                    .await;
+            }
+        }
+    });
+
+    // Return SSE response
+    let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+    let body = axum::body::Body::from_stream(
+        stream.map(|s| Ok::<_, std::convert::Infallible>(bytes::Bytes::from(s))),
+    );
+    axum::response::Response::builder()
+        .header("Content-Type", "text/event-stream")
+        .header("Cache-Control", "no-cache")
+        .header("Connection", "keep-alive")
+        .body(body)
+        .unwrap()
+}
+
 // ── Router ─────────────────────────────────────────────────────────
 
 pub fn routes(state: Arc<AppState>) -> Router {
@@ -749,6 +921,7 @@ pub fn routes(state: Arc<AppState>) -> Router {
         .route("/analytics/eval/datasets/{id}", delete(delete_dataset))
         // Eval runs
         .route("/analytics/eval/run", post(run_eval))
+        .route("/analytics/eval/run/stream", post(run_eval_stream))
         .route("/analytics/eval/runs", get(list_runs))
         .route("/analytics/eval/runs/{id}", get(get_run))
         // Overview & topics

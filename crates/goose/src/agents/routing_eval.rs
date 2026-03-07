@@ -23,6 +23,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tokio::sync::mpsc;
 
 use super::intent_router::IntentRouter;
 use super::orchestrator_agent::OrchestratorAgent;
@@ -204,6 +205,109 @@ pub async fn evaluate_orchestrator(
             fully_correct,
             matched_alternative: matched_alt,
         });
+    }
+    results
+}
+
+/// SSE event emitted during streaming eval — one per test case.
+#[derive(Debug, Clone, Serialize)]
+pub struct EvalProgressEvent {
+    /// 0-based index of this case
+    pub index: usize,
+    /// Total number of cases in the eval set
+    pub total: usize,
+    /// The eval result for this case
+    pub result: RoutingEvalResult,
+    /// Running metrics computed from all results so far
+    pub running_metrics: RunningMetrics,
+}
+
+/// Lightweight running accuracy counters (not the full metrics struct).
+#[derive(Debug, Clone, Serialize)]
+pub struct RunningMetrics {
+    pub completed: usize,
+    pub correct: usize,
+    pub agent_correct: usize,
+    pub overall_accuracy: f64,
+    pub agent_accuracy: f64,
+}
+
+/// Evaluate routing using the production path, streaming results one-by-one.
+///
+/// Each completed case is sent through the `tx` channel as an `EvalProgressEvent`.
+/// The caller can forward these as SSE events to the UI for live progress.
+pub async fn evaluate_orchestrator_streaming(
+    orchestrator: &OrchestratorAgent,
+    test_set: &RoutingEvalSet,
+    tx: mpsc::Sender<EvalProgressEvent>,
+) -> Vec<RoutingEvalResult> {
+    let total = test_set.test_cases.len();
+    let mut results = Vec::with_capacity(total);
+    let mut correct_count = 0usize;
+    let mut agent_correct_count = 0usize;
+
+    for (index, tc) in test_set.test_cases.iter().enumerate() {
+        let plan = orchestrator.route(&tc.input).await;
+
+        let (actual_agent, actual_mode, confidence, reasoning) =
+            if let Some(first_task) = plan.tasks.first() {
+                (
+                    first_task.routing.agent_name.clone(),
+                    first_task.routing.mode_slug.clone(),
+                    first_task.routing.confidence,
+                    first_task.routing.reasoning.clone(),
+                )
+            } else {
+                (
+                    "Unknown".to_string(),
+                    "unknown".to_string(),
+                    0.0,
+                    "Empty plan".to_string(),
+                )
+            };
+
+        let (agent_correct, fully_correct, matched_alt) =
+            matches_any_acceptable(tc, &actual_agent, &actual_mode);
+
+        if fully_correct {
+            correct_count += 1;
+        }
+        if agent_correct {
+            agent_correct_count += 1;
+        }
+
+        let result = RoutingEvalResult {
+            input: tc.input.clone(),
+            expected_agent: tc.expected_agent.clone(),
+            expected_mode: tc.expected_mode.clone(),
+            actual_agent,
+            actual_mode,
+            confidence,
+            reasoning,
+            agent_correct,
+            mode_correct: fully_correct,
+            fully_correct,
+            matched_alternative: matched_alt,
+        };
+
+        let completed = index + 1;
+        let event = EvalProgressEvent {
+            index,
+            total,
+            result: result.clone(),
+            running_metrics: RunningMetrics {
+                completed,
+                correct: correct_count,
+                agent_correct: agent_correct_count,
+                overall_accuracy: correct_count as f64 / completed as f64,
+                agent_accuracy: agent_correct_count as f64 / completed as f64,
+            },
+        };
+
+        // Send to UI — ignore error if receiver dropped
+        let _ = tx.send(event).await;
+
+        results.push(result);
     }
     results
 }

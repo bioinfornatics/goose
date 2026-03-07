@@ -12,9 +12,9 @@ import {
   getEvalDataset,
   listEvalDatasets,
   listEvalRuns,
-  runEval,
   updateEvalDataset,
 } from '@/api';
+import { client } from '@/api/client.gen';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -202,14 +202,34 @@ function PerAgentTable({ agents }: { agents: import('@/api').AgentResult[] }) {
   );
 }
 
+type StreamProgress = {
+  index: number;
+  total: number;
+  results: Array<{
+    input: string;
+    expectedAgent: string;
+    expectedMode: string;
+    actualAgent: string;
+    actualMode: string;
+    confidence: number;
+    agentCorrect: boolean;
+    modeCorrect: boolean;
+    fullyCorrect: boolean;
+    reasoning: string;
+  }>;
+  metrics: { overallAccuracy: number; agentAccuracy: number; modeAccuracy: number };
+};
+
 function RunDetailPanel({
   runDetail,
+  streamProgress,
   isRunning,
   onClose,
   onRerun,
   onEdit,
 }: {
   runDetail: import('@/api').EvalRunDetail | null;
+  streamProgress: StreamProgress | null;
   isRunning: boolean;
   onClose: () => void;
   onRerun?: () => void;
@@ -217,11 +237,28 @@ function RunDetailPanel({
 }) {
   const [tab, setTab] = useState<RunDetailTab>('overview');
 
-  const failureCount = runDetail?.failures.length ?? 0;
-  const passCount = (runDetail?.totalCases ?? 0) - failureCount;
+  const isStreaming = isRunning && streamProgress !== null;
+  const failureCount = isStreaming
+    ? streamProgress.results.filter((r) => !r.fullyCorrect).length
+    : (runDetail?.failures.length ?? 0);
+  const passCount = isStreaming
+    ? streamProgress.results.filter((r) => r.fullyCorrect).length
+    : (runDetail?.totalCases ?? 0) - failureCount;
+  const totalCases = isStreaming ? streamProgress.total : (runDetail?.totalCases ?? 0);
+  const completedCases = isStreaming ? streamProgress.index : totalCases;
+
+  const overallAcc = isStreaming
+    ? streamProgress.metrics.overallAccuracy
+    : (runDetail?.overallAccuracy ?? 0);
+  const agentAcc = isStreaming
+    ? streamProgress.metrics.agentAccuracy
+    : (runDetail?.agentAccuracy ?? 0);
+  const modeAcc = isStreaming
+    ? streamProgress.metrics.modeAccuracy
+    : (runDetail?.modeAccuracy ?? 0);
 
   const tabs: { key: RunDetailTab; label: string; count?: number }[] = [
-    { key: 'overview', label: 'Overview' },
+    { key: 'overview', label: isStreaming ? 'Live Results' : 'Overview' },
     { key: 'matrix', label: 'Confusion Matrix' },
     { key: 'failures', label: 'Failures', count: failureCount },
   ];
@@ -271,46 +308,52 @@ function RunDetailPanel({
         </div>
       </div>
 
-      {/* Progress bar (shown while running) */}
-      {isRunning && (
+      {/* Progress bar (shown while streaming) */}
+      {isStreaming && (
         <div className="rounded-lg border border-border-default bg-background-muted p-3">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs text-text-muted">Running evaluation...</span>
-            <span className="text-xs text-text-muted">⏳</span>
+            <span className="text-xs text-text-muted">
+              Evaluating case {completedCases} of {totalCases}...
+            </span>
+            <span className="text-xs font-mono text-text-default">
+              {Math.round((completedCases / totalCases) * 100)}%
+            </span>
           </div>
           <div className="w-full bg-background-default rounded-full h-2 overflow-hidden">
             <div
-              className="h-full bg-background-accent rounded-full animate-pulse"
-              style={{ width: '60%' }}
+              className="h-full bg-background-accent rounded-full transition-all duration-300"
+              style={{ width: `${(completedCases / totalCases) * 100}%` }}
             />
           </div>
         </div>
       )}
 
-      {runDetail && (
+      {/* KPI row (shown when streaming or completed) */}
+      {(isStreaming || runDetail) && (
         <>
-          {/* KPI row */}
           <div className="grid grid-cols-4 gap-3">
             <div className="rounded-lg bg-background-muted p-3 text-center">
-              <div className={`text-lg font-bold ${kpiColor(runDetail.overallAccuracy)}`}>
-                {formatPercent(runDetail.overallAccuracy)}
+              <div className={`text-lg font-bold ${kpiColor(overallAcc)}`}>
+                {formatPercent(overallAcc)}
               </div>
               <div className="text-xs text-text-muted">Overall</div>
             </div>
             <div className="rounded-lg bg-background-muted p-3 text-center">
-              <div className={`text-lg font-bold ${kpiColor(runDetail.agentAccuracy)}`}>
-                {formatPercent(runDetail.agentAccuracy)}
+              <div className={`text-lg font-bold ${kpiColor(agentAcc)}`}>
+                {formatPercent(agentAcc)}
               </div>
               <div className="text-xs text-text-muted">Agent</div>
             </div>
             <div className="rounded-lg bg-background-muted p-3 text-center">
-              <div className={`text-lg font-bold ${kpiColor(runDetail.modeAccuracy)}`}>
-                {formatPercent(runDetail.modeAccuracy)}
+              <div className={`text-lg font-bold ${kpiColor(modeAcc)}`}>
+                {formatPercent(modeAcc)}
               </div>
               <div className="text-xs text-text-muted">Mode</div>
             </div>
             <div className="rounded-lg bg-background-muted p-3 text-center">
-              <div className="text-lg font-bold text-text-default">{runDetail.totalCases}</div>
+              <div className="text-lg font-bold text-text-default">
+                {isStreaming ? `${completedCases}/${totalCases}` : totalCases}
+              </div>
               <div className="text-xs text-text-muted">Cases</div>
               <div className="text-[10px] text-text-muted mt-0.5">
                 {passCount} pass · {failureCount} fail
@@ -350,32 +393,153 @@ function RunDetailPanel({
           {/* Tab content */}
           {tab === 'overview' && (
             <div className="space-y-4">
-              <div>
-                <h5 className="text-xs font-medium text-text-muted mb-2 uppercase tracking-wide">
-                  Per-Agent Breakdown
-                </h5>
-                <PerAgentTable agents={runDetail.perAgent} />
-              </div>
-              <div className="flex gap-4 text-xs text-text-muted">
-                <span>Duration: {(runDetail.durationMs / 1000).toFixed(1)}s</span>
-                <span>Version: {runDetail.gooseVersion}</span>
-                {runDetail.versionTag && <span>Tag: {runDetail.versionTag}</span>}
-                <span>Started: {formatDate(runDetail.startedAt)}</span>
-              </div>
+              {isStreaming ? (
+                /* Live streaming results table */
+                <div className="overflow-x-auto rounded-lg border border-border-default">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-background-muted text-text-muted text-left">
+                        <th className="px-3 py-2 w-8">#</th>
+                        <th className="px-3 py-2 w-8">✓</th>
+                        <th className="px-3 py-2">Input</th>
+                        <th className="px-3 py-2">Expected</th>
+                        <th className="px-3 py-2">Actual</th>
+                        <th className="px-3 py-2 w-16">Conf.</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {streamProgress.results.map((r, idx) => (
+                        <tr
+                          key={`stream-${r.input.slice(0, 20)}-${r.expectedAgent}`}
+                          className={`border-t border-border-default ${
+                            !r.fullyCorrect ? 'bg-red-500/5' : ''
+                          } ${idx === streamProgress.results.length - 1 ? 'animate-pulse' : ''}`}
+                        >
+                          <td className="px-3 py-2 text-text-muted">{idx + 1}</td>
+                          <td className="px-3 py-2">
+                            {r.fullyCorrect ? '✓' : r.agentCorrect ? '◐' : '✗'}
+                          </td>
+                          <td className="px-3 py-2 text-text-default max-w-[200px] truncate">
+                            {r.input}
+                          </td>
+                          <td className="px-3 py-2 text-text-muted">
+                            {r.expectedAgent} / {r.expectedMode}
+                          </td>
+                          <td className="px-3 py-2 text-text-default">
+                            {r.actualAgent} / {r.actualMode}
+                          </td>
+                          <td className="px-3 py-2 font-mono">
+                            {(r.confidence * 100).toFixed(0)}%
+                          </td>
+                        </tr>
+                      ))}
+                      {/* Pending rows */}
+                      {Array.from({ length: Math.min(3, totalCases - completedCases) }).map(
+                        (_, idx) => (
+                          <tr
+                            key={`pending-${completedCases + idx}`}
+                            className="border-t border-border-default opacity-30"
+                          >
+                            <td className="px-3 py-2 text-text-muted">
+                              {completedCases + idx + 1}
+                            </td>
+                            <td className="px-3 py-2">·</td>
+                            <td className="px-3 py-2 text-text-muted italic" colSpan={4}>
+                              pending...
+                            </td>
+                          </tr>
+                        )
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              ) : runDetail ? (
+                <>
+                  <div>
+                    <h5 className="text-xs font-medium text-text-muted mb-2 uppercase tracking-wide">
+                      Per-Agent Breakdown
+                    </h5>
+                    <PerAgentTable agents={runDetail.perAgent} />
+                  </div>
+                  <div className="flex gap-4 text-xs text-text-muted">
+                    <span>Duration: {(runDetail.durationMs / 1000).toFixed(1)}s</span>
+                    <span>Version: {runDetail.gooseVersion}</span>
+                    {runDetail.versionTag && <span>Tag: {runDetail.versionTag}</span>}
+                    <span>Started: {formatDate(runDetail.startedAt)}</span>
+                  </div>
+                </>
+              ) : null}
             </div>
           )}
 
-          {tab === 'matrix' && <ApiConfusionMatrix matrix={runDetail.confusionMatrix} />}
+          {tab === 'matrix' &&
+            (runDetail ? (
+              <ApiConfusionMatrix matrix={runDetail.confusionMatrix} />
+            ) : (
+              <div className="text-center text-text-muted text-sm py-8">
+                Confusion matrix available after evaluation completes.
+              </div>
+            ))}
 
           {tab === 'failures' &&
-            (failureCount === 0 ? (
+            (isStreaming ? (
+              /* Live failures during streaming */
+              streamProgress.results.filter((r) => !r.fullyCorrect).length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-32 text-text-muted">
+                  <span className="text-2xl mb-2">✓</span>
+                  <p className="text-sm">
+                    No failures so far ({completedCases}/{totalCases} evaluated)
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border border-border-default">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-background-muted text-text-muted text-left">
+                        <th className="px-3 py-2">Input</th>
+                        <th className="px-3 py-2">Expected</th>
+                        <th className="px-3 py-2">Actual</th>
+                        <th className="px-3 py-2 w-16">Conf.</th>
+                        <th className="px-3 py-2">Reasoning</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {streamProgress.results
+                        .filter((r) => !r.fullyCorrect)
+                        .map((r) => (
+                          <tr
+                            key={`sfail-${r.expectedAgent}-${r.actualAgent}-${r.input.slice(0, 30)}`}
+                            className="border-t border-border-default bg-red-500/5"
+                          >
+                            <td className="px-3 py-2 text-text-default max-w-[200px] truncate">
+                              {r.input}
+                            </td>
+                            <td className="px-3 py-2 text-text-muted">
+                              {r.expectedAgent} / {r.expectedMode}
+                            </td>
+                            <td className="px-3 py-2 text-text-default">
+                              {r.actualAgent} / {r.actualMode}
+                            </td>
+                            <td className="px-3 py-2 font-mono">
+                              {(r.confidence * 100).toFixed(0)}%
+                            </td>
+                            <td className="px-3 py-2 text-text-muted max-w-[200px] truncate">
+                              {r.reasoning || '—'}
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            ) : failureCount === 0 ? (
               <div className="flex flex-col items-center justify-center h-32 text-text-muted">
                 <span className="text-2xl mb-2">🎉</span>
                 <p className="text-sm">All cases passed — no failures!</p>
               </div>
-            ) : (
+            ) : runDetail ? (
               <FailuresTable failures={runDetail.failures} />
-            ))}
+            ) : null)}
         </>
       )}
     </div>
@@ -734,15 +898,108 @@ export default function DatasetsTab() {
     await fetchAll();
   };
 
+  // ── Streaming eval state ──
+  const [streamProgress, setStreamProgress] = useState<{
+    index: number;
+    total: number;
+    results: Array<{
+      input: string;
+      expectedAgent: string;
+      expectedMode: string;
+      actualAgent: string;
+      actualMode: string;
+      confidence: number;
+      agentCorrect: boolean;
+      modeCorrect: boolean;
+      fullyCorrect: boolean;
+      reasoning: string;
+    }>;
+    metrics: { overallAccuracy: number; agentAccuracy: number; modeAccuracy: number };
+  } | null>(null);
+
   const handleRunEval = async (datasetId: string) => {
     setRunningDataset(datasetId);
     setActiveRunDatasetId(datasetId);
     setActiveRunDetail(null);
+    setStreamProgress(null);
     setError(null);
+
     try {
-      const resp = await runEval({ body: { datasetId } });
-      setActiveRunDetail((resp.data as EvalRunDetail) ?? null);
-      await fetchAll();
+      const baseUrl = client.getConfig().baseUrl || '';
+      const resp = await fetch(`${baseUrl}/analytics/eval/run/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dataset_id: datasetId }),
+      });
+
+      if (!resp.ok) {
+        throw new Error(`Eval failed: ${resp.status} ${resp.statusText}`);
+      }
+
+      const reader = resp.body?.getReader();
+      if (!reader) throw new Error('No response stream');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const payload = line.slice(6).trim();
+          if (!payload) continue;
+
+          try {
+            const evt = JSON.parse(payload);
+
+            if (evt.type === 'progress') {
+              const d = evt.data;
+              setStreamProgress((prev) => {
+                const results = [...(prev?.results || [])];
+                results.push({
+                  input: d.result.input,
+                  expectedAgent: d.result.expected_agent,
+                  expectedMode: d.result.expected_mode,
+                  actualAgent: d.result.actual_agent,
+                  actualMode: d.result.actual_mode,
+                  confidence: d.result.confidence,
+                  agentCorrect: d.result.agent_correct,
+                  modeCorrect: d.result.mode_correct,
+                  fullyCorrect: d.result.fully_correct,
+                  reasoning: d.result.reasoning || '',
+                });
+                return {
+                  index: d.index + 1,
+                  total: d.total,
+                  results,
+                  metrics: {
+                    overallAccuracy: d.running_metrics.overall_accuracy,
+                    agentAccuracy: d.running_metrics.agent_accuracy,
+                    modeAccuracy: d.running_metrics.mode_accuracy,
+                  },
+                };
+              });
+            } else if (evt.type === 'done') {
+              // Stream finished — use the persisted detail from the event
+              if (evt.detail) {
+                setActiveRunDetail(evt.detail as EvalRunDetail);
+              }
+              setStreamProgress(null);
+              await fetchAll();
+            } else if (evt.type === 'error') {
+              setError(evt.data?.message || 'Eval streaming error');
+            }
+          } catch {
+            // skip malformed SSE lines
+          }
+        }
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Eval run failed');
       setActiveRunDatasetId(null);
@@ -768,6 +1025,7 @@ export default function DatasetsTab() {
     return (
       <RunDetailPanel
         runDetail={activeRunDetail}
+        streamProgress={streamProgress}
         isRunning={runningDataset !== null}
         onClose={() => {
           setActiveRunDetail(null);

@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use utoipa::ToSchema;
 
 use crate::agents::orchestrator_agent::OrchestratorAgent;
-use crate::agents::routing_eval::{self, RoutingEvalCase, RoutingEvalSet};
+use crate::agents::routing_eval::{self, RoutingEvalCase, RoutingEvalResult, RoutingEvalSet};
 
 /// Parse SQLite TIMESTAMP string (YYYY-MM-DD HH:MM:SS) into DateTime<Utc>.
 /// Falls back to Utc::now() on parse failure instead of epoch 0.
@@ -618,6 +618,120 @@ impl<'a> EvalStorage<'a> {
 
         let run_id = format!(
             "run_{}",
+            uuid::Uuid::new_v4()
+                .to_string()
+                .split('-')
+                .next()
+                .unwrap_or("0")
+        );
+        let metrics_json = serde_json::to_string(&stored_metrics)?;
+        let results_json = serde_json::to_string(&stored_results)?;
+
+        sqlx::query(
+            r#"INSERT INTO eval_runs
+            (id, dataset_id, version_tag, goose_version, duration_ms, total_cases, correct, agent_correct,
+             overall_accuracy, agent_accuracy, mode_accuracy, status, metrics_json, results_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+        )
+        .bind(&run_id)
+        .bind(&req.dataset_id)
+        .bind(&req.version_tag)
+        .bind(&goose_version)
+        .bind(duration_ms)
+        .bind(metrics.total as i64)
+        .bind(metrics.correct as i64)
+        .bind(metrics.agent_correct as i64)
+        .bind(metrics.overall_accuracy)
+        .bind(metrics.agent_accuracy)
+        .bind(metrics.mode_accuracy_given_agent)
+        .bind(status)
+        .bind(&metrics_json)
+        .bind(&results_json)
+        .execute(self.pool)
+        .await?;
+
+        self.get_run_detail(&run_id).await
+    }
+
+    /// Persist eval results from pre-computed results/metrics (used by streaming endpoint).
+    pub async fn store_eval_run(
+        &self,
+        req: &RunEvalRequest,
+        results: &[RoutingEvalResult],
+        metrics: &routing_eval::RoutingEvalMetrics,
+    ) -> Result<EvalRunDetail> {
+        let dataset = self.get_dataset(&req.dataset_id).await?;
+        let goose_version = env!("CARGO_PKG_VERSION").to_string();
+        let duration_ms = 0i64; // caller should track timing externally
+
+        let status = if metrics.overall_accuracy >= 0.95 {
+            "pass"
+        } else if metrics.overall_accuracy >= 0.85 {
+            "degraded"
+        } else {
+            "fail"
+        };
+
+        let stored_results: Vec<StoredResult> = results
+            .iter()
+            .zip(dataset.cases.iter())
+            .map(|(r, c)| StoredResult {
+                input: r.input.clone(),
+                expected_agent: r.expected_agent.clone(),
+                expected_mode: r.expected_mode.clone(),
+                actual_agent: r.actual_agent.clone(),
+                actual_mode: r.actual_mode.clone(),
+                confidence: r.confidence,
+                agent_correct: r.agent_correct,
+                mode_correct: r.mode_correct,
+                fully_correct: r.fully_correct,
+                tags: c.tags.clone(),
+            })
+            .collect();
+
+        let stored_metrics = StoredMetrics {
+            per_agent: metrics
+                .per_agent
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        k.clone(),
+                        StoredAgentMetrics {
+                            total: v.total,
+                            correct: v.correct,
+                            accuracy: v.accuracy,
+                        },
+                    )
+                })
+                .collect(),
+            per_mode: metrics
+                .per_mode
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        k.clone(),
+                        StoredModeMetrics {
+                            total: v.total,
+                            correct: v.correct,
+                            accuracy: v.accuracy,
+                        },
+                    )
+                })
+                .collect(),
+            confusion_matrix: metrics
+                .confusion_matrix
+                .iter()
+                .map(|e| StoredConfusionEntry {
+                    expected: e.expected.clone(),
+                    actual: e.actual.clone(),
+                    count: e.count,
+                })
+                .collect(),
+        };
+
+        let run_id = format!(
+            "run_{}_{}",
+            chrono::Utc::now().format("%Y%m%d_%H%M%S"),
             uuid::Uuid::new_v4()
                 .to_string()
                 .split('-')

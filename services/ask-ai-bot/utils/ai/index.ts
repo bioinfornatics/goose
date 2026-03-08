@@ -3,7 +3,7 @@ import type { Message, ThreadChannel } from "discord.js";
 import { model } from "../../clients/ai";
 import { logger } from "../logger";
 import { chunkMarkdown } from "./chunk-markdown";
-import { MAX_STEPS, buildSystemPrompt } from "./system-prompt";
+import { MAX_STEPS, SYSTEM_PROMPT } from "./system-prompt";
 import { ToolTracker } from "./tool-tracker";
 import { aiTools } from "./tools";
 
@@ -19,7 +19,6 @@ export interface AnswerQuestionOptions {
   userId: string;
   messageHistory?: MessageHistoryItem[];
   statusMessage?: Message;
-  serverContext?: string;
 }
 
 export async function answerQuestion({
@@ -28,7 +27,6 @@ export async function answerQuestion({
   userId,
   messageHistory,
   statusMessage,
-  serverContext,
 }: AnswerQuestionOptions): Promise<void> {
   try {
     let prompt = question;
@@ -44,11 +42,10 @@ export async function answerQuestion({
     }
 
     const tracker = new ToolTracker();
-    const systemPrompt = buildSystemPrompt(serverContext);
 
     const result = streamText({
       model,
-      system: systemPrompt,
+      system: SYSTEM_PROMPT,
       prompt,
       tools: aiTools,
       stopWhen: stepCountIs(MAX_STEPS),
@@ -56,35 +53,21 @@ export async function answerQuestion({
 
     for await (const event of result.fullStream) {
       if (event.type === "tool-call") {
-        if (statusMessage) {
+        if (event.toolName === "search_docs" && statusMessage) {
           try {
-            if (event.toolName === "search_docs") {
-              await statusMessage.edit("Searching the docs...");
-            } else if (event.toolName === "view_docs") {
-              const input = event.input as { filePaths?: string | string[] };
-              const filePaths = input.filePaths;
-              const pathArray = Array.isArray(filePaths)
-                ? filePaths
-                : [filePaths];
-              const pagesText = pathArray.length === 1 ? "page" : "pages";
-              await statusMessage.edit(
-                `Viewing ${pathArray.length} ${pagesText}...`,
-              );
-            } else if (event.toolName === "search_codebase") {
-              await statusMessage.edit("Searching the codebase...");
-            } else if (event.toolName === "view_codebase") {
-              const input = event.input as { filePaths?: string | string[] };
-              const filePaths = input.filePaths;
-              const pathArray = Array.isArray(filePaths)
-                ? filePaths
-                : [filePaths];
-              const filesText = pathArray.length === 1 ? "file" : "files";
-              await statusMessage.edit(
-                `Reading ${pathArray.length} source ${filesText}...`,
-              );
-            } else if (event.toolName === "list_codebase_files") {
-              await statusMessage.edit("Exploring project structure...");
-            }
+            await statusMessage.edit("Searching the docs...");
+          } catch (error) {
+            logger.verbose("Failed to update status message:", error);
+          }
+        } else if (event.toolName === "view_docs" && statusMessage) {
+          const input = event.input as { filePaths?: string | string[] };
+          const filePaths = input.filePaths;
+          const pathArray = Array.isArray(filePaths) ? filePaths : [filePaths];
+          const pagesText = pathArray.length === 1 ? "page" : "pages";
+          try {
+            await statusMessage.edit(
+              `Viewing ${pathArray.length} ${pagesText}...`,
+            );
           } catch (error) {
             logger.verbose("Failed to update status message:", error);
           }
@@ -105,24 +88,6 @@ export async function answerQuestion({
           if (pathArray.length > 0) {
             tracker.recordViewCall(pathArray);
           }
-        } else if (event.toolName === "search_codebase") {
-          const resultText = String(event.output);
-          const matchCount = (resultText.match(/\*\*[^*]+:\d+\*\*/g) || [])
-            .length;
-          tracker.recordCodeSearchCall(matchCount);
-        } else if (event.toolName === "view_codebase") {
-          const input = event.input as { filePaths?: string | string[] };
-          const filePaths = input.filePaths;
-          const pathArray = Array.isArray(filePaths)
-            ? filePaths
-            : filePaths
-              ? [filePaths]
-              : [];
-          if (pathArray.length > 0) {
-            tracker.recordCodeViewCall(pathArray);
-          }
-        } else if (event.toolName === "list_codebase_files") {
-          tracker.recordListDir();
         }
       }
     }

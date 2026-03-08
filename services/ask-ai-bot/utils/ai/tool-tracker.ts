@@ -1,72 +1,39 @@
 export class ToolTracker {
-  private docSearchCalls: number = 0;
-  private docSearchResults: Set<string> = new Set();
-  private viewedDocPaths: Set<string> = new Set();
-  private codeSearchCalls: number = 0;
-  private codeSearchResults: number = 0;
-  private viewedCodePaths: Set<string> = new Set();
-  private listedDirs: number = 0;
+  private searchCalls: number = 0;
+  private searchResults: Set<string> = new Set();
+  private viewedPaths: Set<string> = new Set();
 
   recordSearchCall(results: string[]): void {
-    this.docSearchCalls++;
-    results.forEach((result) => this.docSearchResults.add(result));
+    this.searchCalls++;
+    results.forEach((result) => this.searchResults.add(result));
   }
 
   recordViewCall(filePaths: string | string[]): void {
     const paths = Array.isArray(filePaths) ? filePaths : [filePaths];
-    paths.forEach((path) => this.viewedDocPaths.add(path));
-  }
-
-  recordCodeSearchCall(resultCount: number): void {
-    this.codeSearchCalls++;
-    this.codeSearchResults += resultCount;
-  }
-
-  recordCodeViewCall(filePaths: string | string[]): void {
-    const paths = Array.isArray(filePaths) ? filePaths : [filePaths];
-    paths.forEach((path) => this.viewedCodePaths.add(path));
-  }
-
-  recordListDir(): void {
-    this.listedDirs++;
+    paths.forEach((path) => this.viewedPaths.add(path));
   }
 
   getSummary(): string {
     const parts: string[] = [];
 
-    if (this.docSearchCalls > 0) {
-      const resultCount = this.docSearchResults.size;
-      const timesText = this.docSearchCalls === 1 ? "time" : "times";
+    if (this.searchCalls > 0) {
+      const resultCount = this.searchResults.size;
+      const timesText = this.searchCalls === 1 ? "time" : "times";
       const resultsText = resultCount === 1 ? "result" : "results";
       parts.push(
-        `searched docs ${this.docSearchCalls} ${timesText} with ${resultCount} ${resultsText}`,
+        `searched ${this.searchCalls} ${timesText} with ${resultCount} ${resultsText}`,
       );
     }
 
-    if (this.viewedDocPaths.size > 0) {
-      const pageCount = this.viewedDocPaths.size;
+    if (this.viewedPaths.size > 0) {
+      const pageCount = this.viewedPaths.size;
       const pagesText = pageCount === 1 ? "page" : "pages";
-      parts.push(`viewed ${pageCount} doc ${pagesText}`);
-    }
-
-    if (this.codeSearchCalls > 0) {
-      const timesText = this.codeSearchCalls === 1 ? "time" : "times";
-      const matchText = this.codeSearchResults === 1 ? "match" : "matches";
-      parts.push(
-        `searched code ${this.codeSearchCalls} ${timesText} with ${this.codeSearchResults} ${matchText}`,
-      );
-    }
-
-    if (this.viewedCodePaths.size > 0) {
-      const fileCount = this.viewedCodePaths.size;
-      const filesText = fileCount === 1 ? "file" : "files";
-      parts.push(`viewed ${fileCount} source ${filesText}`);
+      parts.push(`viewed ${pageCount} ${pagesText}`);
     }
 
     if (parts.length === 0) return "";
 
     const firstPart = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
-    if (parts.length === 1) return firstPart;
-    return firstPart + ", " + parts.slice(1).join(", ");
+    return parts.length === 1 ? firstPart : firstPart + ", " + parts[1];
   }
 }

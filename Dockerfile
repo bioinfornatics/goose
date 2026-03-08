@@ -9,11 +9,9 @@ FROM rust:1.82-bookworm AS builder
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     build-essential \
-    cmake \
     pkg-config \
     libssl-dev \
     libdbus-1-dev \
-    libclang-dev \
     protobuf-compiler \
     libprotobuf-dev \
     ca-certificates \
@@ -42,7 +40,6 @@ RUN apt-get update && \
     ca-certificates \
     libssl3 \
     libdbus-1-3 \
-    libgomp1 \
     libxcb1 \
     curl \
     git \

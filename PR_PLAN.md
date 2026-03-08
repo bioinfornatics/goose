@@ -30,6 +30,18 @@ Instead of replacing upstream's architecture, we contribute **additive features*
 enhance the existing single-agent model. Features requiring deep architectural changes
 are deferred to a design RFC.
 
+### Implementation Rule: Reuse Before Rewrite
+
+**Always check `feature/cli-via-goosed` first** before writing any new code.
+
+1. **Extract** — `git show feature/cli-via-goosed:path/to/file` to retrieve existing implementations
+2. **Assess** — Identify what needs adaptation for upstream v1.27.2 compatibility (imports, state shape, API patterns, removed multi-agent dependencies)
+3. **Adapt minimally** — Only change what doesn't compile against upstream; preserve original design decisions, naming, structure
+4. **Write from scratch only** when no equivalent exists on the feature branch
+
+This preserves `git blame` continuity, respects original design intent, and avoids
+introducing unnecessary divergence between the feature branch and upstream PRs.
+
 ---
 
 ## Revised PR Plan (5 PRs, additive)

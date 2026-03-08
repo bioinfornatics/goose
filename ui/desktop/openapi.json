@@ -2228,6 +2228,226 @@
         }
       }
     },
+    "/pipelines": {
+      "get": {
+        "tags": [
+          "pipeline"
+        ],
+        "operationId": "list_pipelines",
+        "responses": {
+          "200": {
+            "description": "List all pipelines",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineListResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "pipeline"
+        ],
+        "operationId": "create_pipeline",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavePipelineRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Pipeline created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavePipelineResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pipelines/validate": {
+      "post": {
+        "tags": [
+          "pipeline"
+        ],
+        "operationId": "validate_pipeline",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavePipelineRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Validation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidateResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pipelines/{id}": {
+      "get": {
+        "tags": [
+          "pipeline"
+        ],
+        "operationId": "get_pipeline",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Pipeline ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pipeline found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Pipeline not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "pipeline"
+        ],
+        "operationId": "update_pipeline",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Pipeline ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavePipelineRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Pipeline updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavePipelineResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Pipeline not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "pipeline"
+        ],
+        "operationId": "delete_pipeline",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Pipeline ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Pipeline deleted"
+          },
+          "404": {
+            "description": "Pipeline not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/recipes/create": {
       "post": {
         "tags": [
@@ -6139,6 +6359,35 @@
           }
         }
       },
+      "NodeKind": {
+        "type": "string",
+        "enum": [
+          "trigger",
+          "agent",
+          "tool",
+          "condition",
+          "transform",
+          "human",
+          "a2a"
+        ]
+      },
+      "NodePosition": {
+        "type": "object",
+        "required": [
+          "x",
+          "y"
+        ],
+        "properties": {
+          "x": {
+            "type": "number",
+            "format": "double"
+          },
+          "y": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
       "ParseRecipeRequest": {
         "type": "object",
         "required": [
@@ -6199,6 +6448,219 @@
           "microphone": {
             "type": "boolean",
             "description": "Request microphone access (maps to Permission Policy `microphone` feature)"
+          }
+        }
+      },
+      "Pipeline": {
+        "type": "object",
+        "required": [
+          "name",
+          "nodes"
+        ],
+        "properties": {
+          "apiVersion": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "description": {
+            "type": "string"
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PipelineEdge"
+            }
+          },
+          "kind": {
+            "type": "string"
+          },
+          "layout": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PipelineLayout"
+              }
+            ],
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PipelineNode"
+            }
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "PipelineEdge": {
+        "type": "object",
+        "required": [
+          "source",
+          "target"
+        ],
+        "properties": {
+          "condition": {
+            "type": "string",
+            "nullable": true
+          },
+          "label": {
+            "type": "string",
+            "nullable": true
+          },
+          "source": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          }
+        }
+      },
+      "PipelineErrorResponse": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "PipelineLayout": {
+        "type": "object",
+        "properties": {
+          "viewport": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Viewport"
+              }
+            ],
+            "nullable": true
+          }
+        }
+      },
+      "PipelineListResponse": {
+        "type": "object",
+        "required": [
+          "pipelines"
+        ],
+        "properties": {
+          "pipelines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PipelineManifest"
+            }
+          }
+        }
+      },
+      "PipelineManifest": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "nodeCount",
+          "edgeCount"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "description": {
+            "type": "string"
+          },
+          "edgeCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "nodeCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "PipelineNode": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "label"
+        ],
+        "properties": {
+          "condition": {
+            "type": "string",
+            "nullable": true
+          },
+          "config": {
+            "nullable": true
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/NodeKind"
+          },
+          "label": {
+            "type": "string"
+          },
+          "position": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NodePosition"
+              }
+            ],
+            "nullable": true
+          }
+        }
+      },
+      "PipelineResponse": {
+        "type": "object",
+        "required": [
+          "pipeline"
+        ],
+        "properties": {
+          "pipeline": {
+            "$ref": "#/components/schemas/Pipeline"
           }
         }
       },
@@ -7100,6 +7562,28 @@
         ],
         "discriminator": {
           "propertyName": "type"
+        }
+      },
+      "SavePipelineRequest": {
+        "type": "object",
+        "required": [
+          "pipeline"
+        ],
+        "properties": {
+          "pipeline": {
+            "$ref": "#/components/schemas/Pipeline"
+          }
+        }
+      },
+      "SavePipelineResponse": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          }
         }
       },
       "SavePromptRequest": {
@@ -8335,6 +8819,46 @@
             "items": {
               "$ref": "#/components/schemas/ToolPermission"
             }
+          }
+        }
+      },
+      "ValidateResponse": {
+        "type": "object",
+        "required": [
+          "valid"
+        ],
+        "properties": {
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "valid": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Viewport": {
+        "type": "object",
+        "required": [
+          "x",
+          "y",
+          "zoom"
+        ],
+        "properties": {
+          "x": {
+            "type": "number",
+            "format": "double"
+          },
+          "y": {
+            "type": "number",
+            "format": "double"
+          },
+          "zoom": {
+            "type": "number",
+            "format": "double"
           }
         }
       },

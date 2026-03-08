@@ -790,6 +790,13 @@ export type ModelTemplate = {
     name: string;
 };
 
+export type NodeKind = 'trigger' | 'agent' | 'tool' | 'condition' | 'transform' | 'human' | 'a2a';
+
+export type NodePosition = {
+    x: number;
+    y: number;
+};
+
 export type ParseRecipeRequest = {
     content: string;
 };
@@ -827,6 +834,64 @@ export type PermissionsMetadata = {
      * Request microphone access (maps to Permission Policy `microphone` feature)
      */
     microphone?: boolean;
+};
+
+export type Pipeline = {
+    apiVersion?: string;
+    createdAt?: string | null;
+    description?: string;
+    edges?: Array<PipelineEdge>;
+    kind?: string;
+    layout?: PipelineLayout | null;
+    name: string;
+    nodes: Array<PipelineNode>;
+    tags?: Array<string>;
+    updatedAt?: string | null;
+    version?: string;
+};
+
+export type PipelineEdge = {
+    condition?: string | null;
+    label?: string | null;
+    source: string;
+    target: string;
+};
+
+export type PipelineErrorResponse = {
+    error: string;
+};
+
+export type PipelineLayout = {
+    viewport?: Viewport | null;
+};
+
+export type PipelineListResponse = {
+    pipelines: Array<PipelineManifest>;
+};
+
+export type PipelineManifest = {
+    createdAt?: string | null;
+    description?: string;
+    edgeCount: number;
+    id: string;
+    name: string;
+    nodeCount: number;
+    tags?: Array<string>;
+    updatedAt?: string | null;
+    version?: string;
+};
+
+export type PipelineNode = {
+    condition?: string | null;
+    config?: unknown;
+    id: string;
+    kind: NodeKind;
+    label: string;
+    position?: NodePosition | null;
+};
+
+export type PipelineResponse = {
+    pipeline: Pipeline;
 };
 
 export type PrincipalType = 'Extension' | 'Tool';
@@ -1122,6 +1187,14 @@ export type SamplingConfig = {
     seed?: number | null;
     tau: number;
     type: 'MirostatV2';
+};
+
+export type SavePipelineRequest = {
+    pipeline: Pipeline;
+};
+
+export type SavePipelineResponse = {
+    id: string;
 };
 
 export type SavePromptRequest = {
@@ -1542,6 +1615,17 @@ export type UpsertConfigQuery = {
 
 export type UpsertPermissionsQuery = {
     tool_permissions: Array<ToolPermission>;
+};
+
+export type ValidateResponse = {
+    errors?: Array<string> | null;
+    valid: boolean;
+};
+
+export type Viewport = {
+    x: number;
+    y: number;
+    zoom: number;
 };
 
 export type WhisperModelResponse = {
@@ -3272,6 +3356,157 @@ export type McpUiProxyResponses = {
      */
     200: unknown;
 };
+
+export type ListPipelinesData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/pipelines';
+};
+
+export type ListPipelinesResponses = {
+    /**
+     * List all pipelines
+     */
+    200: PipelineListResponse;
+};
+
+export type ListPipelinesResponse = ListPipelinesResponses[keyof ListPipelinesResponses];
+
+export type CreatePipelineData = {
+    body: SavePipelineRequest;
+    path?: never;
+    query?: never;
+    url: '/pipelines';
+};
+
+export type CreatePipelineErrors = {
+    /**
+     * Validation failed
+     */
+    400: PipelineErrorResponse;
+};
+
+export type CreatePipelineError = CreatePipelineErrors[keyof CreatePipelineErrors];
+
+export type CreatePipelineResponses = {
+    /**
+     * Pipeline created
+     */
+    201: SavePipelineResponse;
+};
+
+export type CreatePipelineResponse = CreatePipelineResponses[keyof CreatePipelineResponses];
+
+export type ValidatePipelineData = {
+    body: SavePipelineRequest;
+    path?: never;
+    query?: never;
+    url: '/pipelines/validate';
+};
+
+export type ValidatePipelineResponses = {
+    /**
+     * Validation result
+     */
+    200: ValidateResponse;
+};
+
+export type ValidatePipelineResponse = ValidatePipelineResponses[keyof ValidatePipelineResponses];
+
+export type DeletePipelineData = {
+    body?: never;
+    path: {
+        /**
+         * Pipeline ID
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/pipelines/{id}';
+};
+
+export type DeletePipelineErrors = {
+    /**
+     * Pipeline not found
+     */
+    404: PipelineErrorResponse;
+};
+
+export type DeletePipelineError = DeletePipelineErrors[keyof DeletePipelineErrors];
+
+export type DeletePipelineResponses = {
+    /**
+     * Pipeline deleted
+     */
+    204: void;
+};
+
+export type DeletePipelineResponse = DeletePipelineResponses[keyof DeletePipelineResponses];
+
+export type GetPipelineData = {
+    body?: never;
+    path: {
+        /**
+         * Pipeline ID
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/pipelines/{id}';
+};
+
+export type GetPipelineErrors = {
+    /**
+     * Pipeline not found
+     */
+    404: PipelineErrorResponse;
+};
+
+export type GetPipelineError = GetPipelineErrors[keyof GetPipelineErrors];
+
+export type GetPipelineResponses = {
+    /**
+     * Pipeline found
+     */
+    200: PipelineResponse;
+};
+
+export type GetPipelineResponse = GetPipelineResponses[keyof GetPipelineResponses];
+
+export type UpdatePipelineData = {
+    body: SavePipelineRequest;
+    path: {
+        /**
+         * Pipeline ID
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/pipelines/{id}';
+};
+
+export type UpdatePipelineErrors = {
+    /**
+     * Validation failed
+     */
+    400: PipelineErrorResponse;
+    /**
+     * Pipeline not found
+     */
+    404: PipelineErrorResponse;
+};
+
+export type UpdatePipelineError = UpdatePipelineErrors[keyof UpdatePipelineErrors];
+
+export type UpdatePipelineResponses = {
+    /**
+     * Pipeline updated
+     */
+    200: SavePipelineResponse;
+};
+
+export type UpdatePipelineResponse = UpdatePipelineResponses[keyof UpdatePipelineResponses];
 
 export type CreateRecipeData = {
     body: CreateRecipeRequest;

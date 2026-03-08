@@ -1,0 +1,357 @@
+import { ChevronRight } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import type { Message } from '@/api';
+import { Badge } from '@/components/atoms/badge';
+import FlyingBird from '@/components/atoms/branding/FlyingBird';
+import GooseLogo from '@/components/atoms/branding/GooseLogo';
+import { StatusDot } from '@/components/atoms/status-dot';
+import { useReasoningDetail, type WorkBlockDetail } from '@/contexts/ReasoningDetailContext';
+import { getGooseActivityFields } from '@/utils/notificationUtils';
+
+// ── Helpers ─────────────────────────────────────────────────────────
+
+function snakeToTitle(s: string): string {
+  return s
+    .split('_')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
+function getToolName(fullName: string): string {
+  const parts = fullName.split('__');
+  return parts[parts.length - 1] || fullName;
+}
+
+function describeToolCall(name: string, args: Record<string, unknown>): string {
+  const toolName = getToolName(name);
+  const str = (v: unknown): string => (typeof v === 'string' ? v : JSON.stringify(v));
+
+  switch (toolName) {
+    case 'text_editor':
+      if (args.command === 'write' && args.path) return `writing ${str(args.path)}`;
+      if (args.command === 'view' && args.path) return `reading ${str(args.path)}`;
+      if (args.command === 'str_replace' && args.path) return `editing ${str(args.path)}`;
+      if (args.command === 'insert' && args.path) return `inserting in ${str(args.path)}`;
+      if (args.path) return `${str(args.command)} ${str(args.path)}`;
+      break;
+    case 'shell':
+      if (args.command) {
+        const cmd = str(args.command);
+        return `running ${cmd.length > 80 ? `${cmd.slice(0, 77)}…` : cmd}`;
+      }
+      break;
+    case 'analyze':
+      if (args.path) return `analyzing ${str(args.path)}`;
+      break;
+    case 'image_processor':
+      if (args.path) return `processing image ${str(args.path)}`;
+      break;
+    case 'screen_capture':
+      return args.window_title ? `capturing "${str(args.window_title)}"` : 'capturing screen';
+    case 'create_app':
+    case 'iterate_app':
+      if (args.name)
+        return `${toolName === 'create_app' ? 'creating' : 'updating'} app ${str(args.name)}`;
+      break;
+    default: {
+      const display = snakeToTitle(toolName);
+      const firstStr = Object.values(args).find((v) => typeof v === 'string');
+      if (firstStr) {
+        const val = str(firstStr);
+        return `${display}: ${val.length > 60 ? `${val.slice(0, 57)}…` : val}`;
+      }
+      return display;
+    }
+  }
+  return snakeToTitle(toolName);
+}
+
+function extractLastActivityDescription(activityEvents: Map<string, unknown[]>): string | null {
+  // Flatten in insertion order: request_id insertion corresponds roughly to time.
+  const all = Array.from(activityEvents.values()).flat();
+
+  for (let i = all.length - 1; i >= 0; i -= 1) {
+    const n = all[i] as { message?: unknown };
+    const fields = getGooseActivityFields(n?.message);
+    if (!fields) continue;
+    return `${fields.phase}: ${fields.text}`;
+  }
+
+  return null;
+}
+
+function extractLastToolDescription(messages: Message[]): string {
+  // Search backwards: prefer the latest assistant thinking text over tool descriptions.
+  // Thinking text (e.g. "I'll start by analyzing...") gives better context than
+  // tool call descriptions (e.g. "running command...") for the one-liner.
+  let lastToolDesc = '';
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== 'assistant') continue;
+    for (let j = msg.content.length - 1; j >= 0; j--) {
+      const c = msg.content[j];
+      if (c.type === 'text') {
+        const text = (c as { text: string }).text?.trim();
+        if (text) {
+          // Extract first sentence for a clean one-liner
+          const match = text.match(/^(.+?[.!?:—])\s/);
+          const snippet = match ? match[1] : text;
+          return snippet.length > 100 ? `${snippet.slice(0, 97)}…` : snippet;
+        }
+      }
+      if (c.type === 'toolRequest' && !lastToolDesc) {
+        const toolCall = c.toolCall as
+          | { status?: string; value?: { name?: string; arguments?: Record<string, unknown> } }
+          | undefined;
+        if (toolCall?.value?.name) {
+          const desc = describeToolCall(toolCall.value.name, toolCall.value.arguments || {});
+          lastToolDesc = desc.length > 100 ? `${desc.slice(0, 97)}…` : desc;
+        }
+      }
+    }
+  }
+  return lastToolDesc;
+}
+
+function countToolCalls(messages: Message[]): number {
+  let count = 0;
+  for (const msg of messages) {
+    for (const c of msg.content) {
+      if (c.type === 'toolRequest') count++;
+    }
+  }
+  return count;
+}
+
+// ── Props ───────────────────────────────────────────────────────────
+
+interface WorkBlockIndicatorProps {
+  /**
+   * Messages used for the compact inline indicator (one-liner + counts).
+   * Keep this small/curated to avoid showing raw streaming payloads.
+   */
+  messages: Message[];
+
+  /**
+   * Optional message set used for the Activity/Reasoning side panel.
+   * This lets us feed richer context to the panel without polluting the inline preview.
+   */
+  detailMessages?: Message[];
+
+  blockId: string;
+  isStreaming: boolean;
+  sessionId: string;
+
+  agentName?: string;
+  modeName?: string;
+  showAgentBadge?: boolean;
+
+  toolCallNotifications?: Map<string, unknown[]>;
+  activityEvents?: Map<string, unknown[]>;
+}
+
+// ── Component ───────────────────────────────────────────────────────
+
+export function WorkBlockIndicator({
+  messages,
+  detailMessages,
+  blockId,
+  isStreaming,
+  sessionId,
+  agentName,
+  modeName,
+  showAgentBadge = true,
+  toolCallNotifications = new Map(),
+  activityEvents = new Map(),
+}: WorkBlockIndicatorProps) {
+  const { isOpen, panelDetail, toggleWorkBlock, updateWorkBlock, closeDetail } =
+    useReasoningDetail();
+
+  const hasAutoOpened = useRef(false);
+
+  // Inline preview (keep small/curated)
+  const activityOneLiner = useMemo(
+    () => extractLastActivityDescription(activityEvents),
+    [activityEvents]
+  );
+
+  const oneLiner = useMemo(
+    () => activityOneLiner ?? extractLastToolDescription(messages),
+    [activityOneLiner, messages]
+  );
+  const toolCountPreview = useMemo(() => countToolCalls(messages), [messages]);
+
+  // Side panel detail (may include richer context)
+  const detailMessageList = detailMessages ?? messages;
+  const toolCountDetail = useMemo(() => countToolCalls(detailMessageList), [detailMessageList]);
+
+  const isActive =
+    isOpen && panelDetail?.type === 'workblock' && panelDetail.data.messageId === blockId;
+
+  // Keep a mutable ref so callbacks always read fresh values without re-creating
+  const latestRef = useRef({
+    detailMessageList,
+    toolCountDetail,
+    isStreaming,
+    toolCallNotifications,
+    activityEvents,
+    isActive,
+  });
+  latestRef.current = {
+    detailMessageList,
+    toolCountDetail,
+    isStreaming,
+    toolCallNotifications,
+    activityEvents,
+    isActive,
+  };
+
+  const buildUpdateToken = useCallback((): string => {
+    const { detailMessageList: blockMessages, toolCallNotifications: notifs } = latestRef.current;
+
+    // Fast(ish) signature: last assistant message id + counts of tool requests/responses
+    // + a count of tool notifications. This changes when:
+    // - toolRequest status transitions
+    // - toolResponse payloads appear
+    // - streaming assistant message id advances
+    let toolReq = 0;
+    let toolResp = 0;
+    let pending = 0;
+
+    for (const m of blockMessages) {
+      if (!Array.isArray(m.content)) continue;
+      for (const c of m.content) {
+        if (c.type === 'toolRequest') {
+          toolReq++;
+          const status = (c.toolCall as { status?: string } | undefined)?.status;
+          if (!status || status === 'pending') pending++;
+        } else if (c.type === 'toolResponse') {
+          toolResp++;
+        }
+      }
+    }
+
+    const lastAssistantId = [...blockMessages].reverse().find((m) => m.role === 'assistant')?.id;
+    const notifCount = notifs
+      ? Array.from(notifs.values()).reduce((acc, arr) => acc + arr.length, 0)
+      : 0;
+
+    return [
+      lastAssistantId ?? 'no-assistant',
+      `req:${toolReq}`,
+      `resp:${toolResp}`,
+      `pending:${pending}`,
+      `notif:${notifCount}`,
+      latestRef.current.isStreaming ? 'streaming' : 'done',
+    ].join('|');
+  }, []);
+
+  const buildDetail = useCallback(
+    (): WorkBlockDetail => ({
+      title: 'Activity',
+      messageId: blockId,
+      messages: latestRef.current.detailMessageList,
+      toolCount: latestRef.current.toolCountDetail,
+      updateToken: buildUpdateToken(),
+      isStreaming: latestRef.current.isStreaming,
+      showAgentBadge,
+      sessionId,
+      toolCallNotifications: latestRef.current.toolCallNotifications as
+        | Map<string, unknown[]>
+        | undefined,
+      activityEvents: latestRef.current.activityEvents as Map<string, unknown[]> | undefined,
+    }),
+    [blockId, showAgentBadge, sessionId, buildUpdateToken]
+  );
+
+  const handleClick = () => {
+    toggleWorkBlock(buildDetail());
+  };
+
+  // Auto-open on first streaming
+  useEffect(() => {
+    if (isStreaming && messages.length > 0 && !hasAutoOpened.current) {
+      hasAutoOpened.current = true;
+      toggleWorkBlock(buildDetail());
+    }
+  }, [isStreaming, messages.length, toggleWorkBlock, buildDetail]);
+
+  // Live-update during streaming
+  useEffect(() => {
+    if (isActive && isStreaming) {
+      updateWorkBlock(buildDetail());
+    }
+  }, [isStreaming, isActive, updateWorkBlock, buildDetail]);
+
+  // Auto-close when streaming ends
+  const prevStreamingRef = useRef(isStreaming);
+  useEffect(() => {
+    if (prevStreamingRef.current && !isStreaming && isActive) {
+      closeDetail();
+    }
+    prevStreamingRef.current = isStreaming;
+  }, [isStreaming, isActive, closeDetail]);
+
+  const displayAgent = agentName || 'Goose';
+  const displayMode = modeName || 'default';
+  const isNonDefaultAgent = !!agentName && agentName !== 'Goose' && agentName !== 'Goose Agent';
+
+  return (
+    <div className="py-1.5 px-2">
+      <button
+        type="button"
+        onClick={handleClick}
+        className={`
+          flex items-center gap-2.5 px-3 py-2.5 rounded-lg w-full text-left
+          transition-colors duration-150 cursor-pointer
+          ${isActive ? 'bg-background-muted' : 'hover:bg-background-muted/50'}
+        `}
+      >
+        {/* Icon */}
+        <div className="shrink-0">
+          {isStreaming ? (
+            <FlyingBird className="flex-shrink-0" cycleInterval={150} />
+          ) : (
+            <GooseLogo size="small" hover={false} />
+          )}
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          {/* Line 1: Status + metrics */}
+          <div className="flex items-center gap-1.5">
+            <StatusDot status={isStreaming ? 'active' : 'completed'} />
+            <span className="text-xs font-medium text-text-default">
+              {isStreaming ? 'Working…' : `${messages.length} steps`}
+            </span>
+            {toolCountPreview > 0 && !isStreaming && (
+              <>
+                <span className="text-xs text-text-muted/40">·</span>
+                <span className="text-xs text-text-muted/70">
+                  {toolCountPreview} tool{toolCountPreview !== 1 ? 's' : ''}
+                </span>
+              </>
+            )}
+            {showAgentBadge && isNonDefaultAgent && (
+              <Badge variant="default" size="sm">
+                {displayAgent}
+                {modeName && modeName !== 'default' ? ` / ${displayMode}` : ''}
+              </Badge>
+            )}
+          </div>
+
+          {/* Line 2: One-liner activity description */}
+          {oneLiner && (
+            <p className="text-xs text-text-muted/60 truncate mt-0.5 leading-snug">{oneLiner}</p>
+          )}
+        </div>
+
+        {/* Chevron */}
+        <ChevronRight
+          size={14}
+          className={`shrink-0 text-text-muted/40 transition-transform ${isActive ? 'rotate-90' : ''}`}
+        />
+      </button>
+    </div>
+  );
+}

@@ -1,0 +1,940 @@
+use std::sync::Arc;
+
+use axum::{
+    extract::{Path, Query, State},
+    routing::{delete, get, post, put},
+    Json, Router,
+};
+use goose::agents::{
+    orchestrator_agent::OrchestratorAgent,
+    routing_eval::{
+        compute_metrics, evaluate_orchestrator, evaluate_orchestrator_streaming, load_eval_set,
+        RoutingEvalMetrics, RoutingEvalResult,
+    },
+};
+use goose::session::eval_storage::{
+    CreateDatasetRequest, EvalDataset, EvalDatasetSummary, EvalOverview, EvalRunDetail,
+    EvalRunSummary, EvalStorage, RunComparison, RunEvalRequest, TopicAnalytics,
+};
+use goose::session::tool_analytics::{
+    AgentPerformanceMetrics, LiveMetrics, ResponseQualityMetrics, ToolAnalytics, ToolAnalyticsStore,
+};
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
+
+use crate::routes::errors::ErrorResponse;
+use crate::state::AppState;
+use tokio_stream::StreamExt;
+
+// ── Routing Inspector types ────────────────────────────────────────
+
+#[derive(Deserialize, ToSchema)]
+struct InspectRequest {
+    message: String,
+    /// Optional session ID to get the LLM provider from an active session.
+    /// If provided, enables full LLM-based routing (matching production behavior).
+    /// If omitted, falls back to semantic-only routing.
+    session_id: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct InspectResponse {
+    decision: RoutingDecisionView,
+    all_scores: Vec<AgentScoreView>,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct RoutingDecisionView {
+    agent_name: String,
+    mode_slug: String,
+    mode_name: String,
+    confidence: f32,
+    reasoning: String,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct AgentScoreView {
+    agent_name: String,
+    enabled: bool,
+    modes: Vec<ModeScoreView>,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct ModeScoreView {
+    slug: String,
+    name: String,
+    score: f32,
+    matched_keywords: Vec<String>,
+}
+
+#[derive(Deserialize, ToSchema)]
+struct EvalRequest {
+    yaml: String,
+}
+
+#[derive(Serialize, ToSchema)]
+struct EvalResponse {
+    metrics: RoutingEvalMetrics,
+    results: Vec<RoutingEvalResult>,
+    report: String,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct CatalogResponse {
+    agents: Vec<CatalogAgent>,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct CatalogAgent {
+    name: String,
+    description: String,
+    enabled: bool,
+    modes: Vec<CatalogMode>,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct CatalogMode {
+    slug: String,
+    name: String,
+    description: String,
+    when_to_use: String,
+    tool_groups: Vec<String>,
+}
+
+#[derive(Deserialize)]
+pub struct ListRunsQuery {
+    dataset_id: Option<String>,
+    limit: Option<i64>,
+}
+
+// ── Routing Inspector endpoints ────────────────────────────────────
+
+async fn inspect_routing(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<InspectRequest>,
+) -> Result<Json<InspectResponse>, ErrorResponse> {
+    if req.message.trim().is_empty() {
+        return Err(ErrorResponse::bad_request("message must not be empty"));
+    }
+
+    // Use OrchestratorAgent for routing (matches production /reply path).
+    // This gives us the full 3-layer routing: feedback → semantic fast-path → LLM → fallback.
+    // If a session_id is provided, get the LLM provider from that session's agent
+    // so the LLM orchestrator can classify the message (same as /reply does).
+    // Without a session_id, falls back to semantic-only routing (no LLM).
+    let provider_arc: Option<Arc<dyn goose::providers::base::Provider>> =
+        if let Some(ref sid) = req.session_id {
+            match state.get_agent(sid.clone()).await {
+                Ok(agent) => {
+                    let mut p = agent.provider().await.ok();
+                    if p.is_none() {
+                        if let Ok(session) = state.session_manager().get_session(sid, false).await {
+                            let _ = agent.restore_provider_from_session(&session).await;
+                            p = agent.provider().await.ok();
+                        }
+                    }
+                    p
+                }
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
+
+    let provider = Arc::new(tokio::sync::Mutex::new(provider_arc));
+    let mut router = OrchestratorAgent::new(provider);
+    state
+        .agent_slot_registry
+        .configure_orchestrator(&mut router)
+        .await;
+
+    let plan = router.route(&req.message).await;
+    let decision = plan.primary_routing().clone();
+
+    let all_scores = router
+        .intent_router()
+        .slots()
+        .iter()
+        .map(|slot| {
+            let modes: Vec<ModeScoreView> = slot
+                .modes
+                .iter()
+                .map(|mode| {
+                    let (score, matched) =
+                        router.intent_router().score_mode_detail(&req.message, mode);
+                    ModeScoreView {
+                        slug: mode.slug.clone(),
+                        name: mode.name.clone(),
+                        score,
+                        matched_keywords: matched,
+                    }
+                })
+                .collect();
+            AgentScoreView {
+                agent_name: slot.name.clone(),
+                enabled: slot.enabled,
+                modes,
+            }
+        })
+        .collect();
+
+    let mode_name = router
+        .intent_router()
+        .slots()
+        .iter()
+        .find(|s| s.name == decision.agent_name)
+        .and_then(|s| s.modes.iter().find(|m| m.slug == decision.mode_slug))
+        .map(|m| m.name.clone())
+        .unwrap_or_else(|| decision.mode_slug.clone());
+
+    Ok(Json(InspectResponse {
+        decision: RoutingDecisionView {
+            agent_name: decision.agent_name,
+            mode_slug: decision.mode_slug,
+            mode_name,
+            confidence: decision.confidence,
+            reasoning: decision.reasoning,
+        },
+        all_scores,
+    }))
+}
+
+async fn eval_routing(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<EvalRequest>,
+) -> Result<Json<EvalResponse>, ErrorResponse> {
+    let test_set = load_eval_set(&req.yaml)
+        .map_err(|e| ErrorResponse::bad_request(format!("invalid eval YAML: {e}")))?;
+
+    // Use OrchestratorAgent with LLM provider from session (matches production routing).
+    // Auto-detect provider from most recent session.
+    let sm = state.session_manager();
+    let sessions = sm.list_sessions().await.unwrap_or_default();
+    let mut provider_arc: Option<Arc<dyn goose::providers::base::Provider>> = None;
+    for s in sessions.iter().take(5) {
+        if let Ok(agent) = state.get_agent(s.id.clone()).await {
+            if let Ok(session) = sm.get_session(&s.id, false).await {
+                let _ = agent.restore_provider_from_session(&session).await;
+                if let Ok(p) = agent.provider().await {
+                    provider_arc = Some(p);
+                    break;
+                }
+            }
+        }
+    }
+
+    let provider = Arc::new(tokio::sync::Mutex::new(provider_arc));
+    let mut router = OrchestratorAgent::new(provider);
+    state
+        .agent_slot_registry
+        .configure_orchestrator(&mut router)
+        .await;
+
+    let results = evaluate_orchestrator(&router, &test_set).await;
+    let metrics = compute_metrics(&results);
+    let report = goose::agents::routing_eval::format_report(&results, &metrics);
+
+    Ok(Json(EvalResponse {
+        metrics,
+        results,
+        report,
+    }))
+}
+
+async fn catalog(State(state): State<Arc<AppState>>) -> Json<CatalogResponse> {
+    let slots = state.agent_slot_registry.configured_slots().await;
+
+    let agents = slots
+        .iter()
+        .map(|slot| CatalogAgent {
+            name: slot.name.clone(),
+            description: slot.description.clone(),
+            enabled: slot.enabled,
+            modes: slot
+                .modes
+                .iter()
+                .map(|m| CatalogMode {
+                    slug: m.slug.clone(),
+                    name: m.name.clone(),
+                    description: m.description.clone(),
+                    when_to_use: m.when_to_use.clone().unwrap_or_default(),
+                    tool_groups: m
+                        .tool_groups
+                        .iter()
+                        .map(|tg| match tg {
+                            goose::registry::manifest::ToolGroupAccess::Full(g) => g.clone(),
+                            goose::registry::manifest::ToolGroupAccess::Restricted {
+                                group,
+                                ..
+                            } => format!("{group} (restricted)"),
+                        })
+                        .collect(),
+                })
+                .collect(),
+        })
+        .collect();
+
+    Json(CatalogResponse { agents })
+}
+
+// ── Eval Dataset CRUD endpoints ────────────────────────────────────
+
+#[utoipa::path(
+    get,
+    path = "/analytics/eval/datasets",
+    responses((status = 200, body = Vec<EvalDatasetSummary>)),
+    operation_id = "listEvalDatasets"
+)]
+pub async fn list_datasets(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<EvalDatasetSummary>>, ErrorResponse> {
+    let sm = state.session_manager();
+    let pool = sm
+        .storage()
+        .pool()
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    let store = EvalStorage::new(pool);
+    let datasets = store
+        .list_datasets()
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    Ok(Json(datasets))
+}
+
+#[utoipa::path(
+    get,
+    path = "/analytics/eval/datasets/{id}",
+    params(("id" = String, Path, description = "Dataset ID")),
+    responses((status = 200, body = EvalDataset)),
+    operation_id = "getEvalDataset"
+)]
+pub async fn get_dataset(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<EvalDataset>, ErrorResponse> {
+    let sm = state.session_manager();
+    let pool = sm
+        .storage()
+        .pool()
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    let store = EvalStorage::new(pool);
+    let dataset = store
+        .get_dataset(&id)
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    Ok(Json(dataset))
+}
+
+#[utoipa::path(
+    post,
+    path = "/analytics/eval/datasets",
+    request_body = CreateDatasetRequest,
+    responses((status = 200, body = EvalDataset)),
+    operation_id = "createEvalDataset"
+)]
+pub async fn create_dataset(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CreateDatasetRequest>,
+) -> Result<Json<EvalDataset>, ErrorResponse> {
+    let sm = state.session_manager();
+    let pool = sm
+        .storage()
+        .pool()
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    let store = EvalStorage::new(pool);
+    let dataset = store
+        .create_dataset(req)
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    Ok(Json(dataset))
+}
+
+#[utoipa::path(
+    put,
+    path = "/analytics/eval/datasets/{id}",
+    params(("id" = String, Path, description = "Dataset ID")),
+    request_body = CreateDatasetRequest,
+    responses((status = 200, body = EvalDataset)),
+    operation_id = "updateEvalDataset"
+)]
+pub async fn update_dataset(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(req): Json<CreateDatasetRequest>,
+) -> Result<Json<EvalDataset>, ErrorResponse> {
+    let sm = state.session_manager();
+    let pool = sm
+        .storage()
+        .pool()
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    let store = EvalStorage::new(pool);
+    let dataset = store
+        .update_dataset(&id, req)
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    Ok(Json(dataset))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/analytics/eval/datasets/{id}",
+    params(("id" = String, Path, description = "Dataset ID")),
+    responses((status = 200)),
+    operation_id = "deleteEvalDataset"
+)]
+pub async fn delete_dataset(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ErrorResponse> {
+    let sm = state.session_manager();
+    let pool = sm
+        .storage()
+        .pool()
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    let store = EvalStorage::new(pool);
+    store
+        .delete_dataset(&id)
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+// ── Eval Run endpoints ─────────────────────────────────────────────
+
+#[utoipa::path(
+    post,
+    path = "/analytics/eval/run",
+    request_body = RunEvalRequest,
+    responses((status = 200, body = EvalRunDetail)),
+    operation_id = "runEval"
+)]
+pub async fn run_eval(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<RunEvalRequest>,
+) -> Result<Json<EvalRunDetail>, ErrorResponse> {
+    let sm = state.session_manager();
+    let pool = sm
+        .storage()
+        .pool()
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    let store = EvalStorage::new(pool);
+
+    // Resolve LLM provider from session (same pattern as inspect_routing).
+    // This ensures eval uses the REAL production routing path (LLM orchestrator),
+    // not just the semantic fallback.
+    let provider_arc: Option<Arc<dyn goose::providers::base::Provider>> =
+        if let Some(ref sid) = req.session_id {
+            match state.get_agent(sid.clone()).await {
+                Ok(agent) => {
+                    let mut p = agent.provider().await.ok();
+                    if p.is_none() {
+                        if let Ok(session) = sm.get_session(sid, false).await {
+                            let _ = agent.restore_provider_from_session(&session).await;
+                            p = agent.provider().await.ok();
+                        }
+                    }
+                    p
+                }
+                Err(_) => None,
+            }
+        } else {
+            // Auto-detect: try to find the most recent session with a provider
+            let sessions = sm.list_sessions().await.unwrap_or_default();
+            let mut found = None;
+            for s in sessions.iter().take(5) {
+                if let Ok(agent) = state.get_agent(s.id.clone()).await {
+                    if let Ok(session) = sm.get_session(&s.id, false).await {
+                        let _ = agent.restore_provider_from_session(&session).await;
+                        if let Ok(p) = agent.provider().await {
+                            found = Some(p);
+                            break;
+                        }
+                    }
+                }
+            }
+            found
+        };
+
+    let provider = Arc::new(tokio::sync::Mutex::new(provider_arc));
+    let mut router = OrchestratorAgent::new(provider);
+    state
+        .agent_slot_registry
+        .configure_orchestrator(&mut router)
+        .await;
+
+    let run = store
+        .run_eval(req, &router)
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    Ok(Json(run))
+}
+
+#[utoipa::path(
+    get,
+    path = "/analytics/eval/runs",
+    params(
+        ("dataset_id" = Option<String>, Query, description = "Filter by dataset ID"),
+        ("limit" = Option<i64>, Query, description = "Max results")
+    ),
+    responses((status = 200, body = Vec<EvalRunSummary>)),
+    operation_id = "listEvalRuns"
+)]
+pub async fn list_runs(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<ListRunsQuery>,
+) -> Result<Json<Vec<EvalRunSummary>>, ErrorResponse> {
+    let sm = state.session_manager();
+    let pool = sm
+        .storage()
+        .pool()
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    let store = EvalStorage::new(pool);
+    let runs = store
+        .list_runs(params.dataset_id.as_deref(), params.limit.unwrap_or(50))
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    Ok(Json(runs))
+}
+
+#[utoipa::path(
+    get,
+    path = "/analytics/eval/runs/{id}",
+    params(("id" = String, Path, description = "Run ID")),
+    responses((status = 200, body = EvalRunDetail)),
+    operation_id = "getEvalRun"
+)]
+pub async fn get_run(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<EvalRunDetail>, ErrorResponse> {
+    let sm = state.session_manager();
+    let pool = sm
+        .storage()
+        .pool()
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    let store = EvalStorage::new(pool);
+    let run = store
+        .get_run_detail(&id)
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    Ok(Json(run))
+}
+
+// ── Overview & Topics ──────────────────────────────────────────────
+
+#[utoipa::path(
+    get,
+    path = "/analytics/eval/overview",
+    responses((status = 200, body = EvalOverview)),
+    operation_id = "getEvalOverview"
+)]
+pub async fn get_overview(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<EvalOverview>, ErrorResponse> {
+    let sm = state.session_manager();
+    let pool = sm
+        .storage()
+        .pool()
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    let store = EvalStorage::new(pool);
+    let overview = store
+        .get_overview()
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    Ok(Json(overview))
+}
+
+#[utoipa::path(
+    get,
+    path = "/analytics/eval/topics",
+    responses((status = 200, body = Vec<TopicAnalytics>)),
+    operation_id = "getEvalTopics"
+)]
+pub async fn get_topics(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<TopicAnalytics>>, ErrorResponse> {
+    let sm = state.session_manager();
+    let pool = sm
+        .storage()
+        .pool()
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    let store = EvalStorage::new(pool);
+    let topics = store
+        .get_topic_analytics()
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    Ok(Json(topics))
+}
+
+// ── Tool Analytics Query Params ─────────────────────────────────────
+
+#[derive(Deserialize, ToSchema)]
+pub struct ToolAnalyticsQuery {
+    /// Number of days to look back (default 30)
+    days: Option<i32>,
+}
+
+// ── Comparison endpoint ──────────────────────────────────────────
+
+#[derive(Deserialize, utoipa::IntoParams)]
+pub struct CompareRunsQuery {
+    pub baseline_id: String,
+    pub candidate_id: String,
+}
+
+#[utoipa::path(
+    get,
+    path = "/analytics/eval/compare",
+    params(CompareRunsQuery),
+    responses((status = 200, body = RunComparison)),
+    operation_id = "compareEvalRuns"
+)]
+pub async fn compare_runs(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<CompareRunsQuery>,
+) -> Result<Json<RunComparison>, ErrorResponse> {
+    let pool = state
+        .session_manager()
+        .storage()
+        .pool()
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    let store = EvalStorage::new(pool);
+    let comparison = store
+        .compare_runs(&params.baseline_id, &params.candidate_id)
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    Ok(Json(comparison))
+}
+
+// ── Tool Analytics endpoints ───────────────────────────────────────
+
+#[utoipa::path(
+    get,
+    path = "/analytics/tools",
+    params(("days" = Option<i32>, Query, description = "Days to look back")),
+    responses((status = 200, body = ToolAnalytics)),
+    operation_id = "getToolAnalytics"
+)]
+pub async fn get_tool_analytics(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<ToolAnalyticsQuery>,
+) -> Result<Json<ToolAnalytics>, ErrorResponse> {
+    let sm = state.session_manager();
+    let pool = sm
+        .storage()
+        .pool()
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    let store = ToolAnalyticsStore::new(pool);
+    let analytics = store
+        .get_tool_analytics(params.days.unwrap_or(30))
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    Ok(Json(analytics))
+}
+
+#[utoipa::path(
+    get,
+    path = "/analytics/tools/agents",
+    params(("days" = Option<i32>, Query, description = "Days to look back")),
+    responses((status = 200, body = AgentPerformanceMetrics)),
+    operation_id = "getAgentPerformance"
+)]
+pub async fn get_agent_performance(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<ToolAnalyticsQuery>,
+) -> Result<Json<AgentPerformanceMetrics>, ErrorResponse> {
+    let sm = state.session_manager();
+    let pool = sm
+        .storage()
+        .pool()
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    let store = ToolAnalyticsStore::new(pool);
+    let metrics = match store.get_agent_performance(params.days.unwrap_or(30)).await {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::warn!("Analytics agent performance query failed: {e}");
+            AgentPerformanceMetrics::default()
+        }
+    };
+    Ok(Json(metrics))
+}
+
+// ── Live Monitoring ────────────────────────────────────────────────
+
+/// Get live monitoring metrics (recent activity snapshot)
+#[utoipa::path(
+    get,
+    path = "/analytics/monitoring/live",
+    responses(
+        (status = 200, description = "Live monitoring metrics", body = LiveMetrics)
+    )
+)]
+pub async fn get_live_monitoring(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<LiveMetrics>, ErrorResponse> {
+    let sm = state.session_manager();
+    let pool = sm
+        .storage()
+        .pool()
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    let store = ToolAnalyticsStore::new(pool);
+    let metrics = store
+        .get_live_metrics()
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    Ok(Json(metrics))
+}
+
+/// Get response quality metrics
+#[utoipa::path(
+    get,
+    path = "/analytics/quality",
+    params(("days" = Option<i32>, Query, description = "Number of days to analyze")),
+    responses((status = 200, body = ResponseQualityMetrics))
+)]
+pub async fn get_response_quality(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<ToolAnalyticsQuery>,
+) -> Result<Json<ResponseQualityMetrics>, ErrorResponse> {
+    let sm = state.session_manager();
+    let pool = sm
+        .storage()
+        .pool()
+        .await
+        .map_err(|e| ErrorResponse::internal(e.to_string()))?;
+    let store = ToolAnalyticsStore::new(pool);
+    let metrics = match store.get_response_quality(params.days.unwrap_or(30)).await {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::warn!("Analytics response quality query failed: {e}");
+            ResponseQualityMetrics::default()
+        }
+    };
+    Ok(Json(metrics))
+}
+
+// ── Streaming Eval (SSE) ───────────────────────────────────────────
+
+/// Run eval with Server-Sent Events — streams one event per test case
+/// so the UI can show live progress.
+///
+/// Event format: `data: {"index":0,"total":50,"result":{...},"runningMetrics":{...}}\n\n`
+/// Final event:  `data: {"type":"done","runId":"...","detail":{...}}\n\n`
+pub async fn run_eval_stream(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<RunEvalRequest>,
+) -> axum::response::Response {
+    let (tx, rx) = tokio::sync::mpsc::channel::<String>(32);
+
+    // Spawn the eval task so we can stream results as they come
+    let state_clone = Arc::clone(&state);
+    tokio::spawn(async move {
+        // 1. Resolve LLM provider (same as run_eval)
+        let sm = state_clone.session_manager();
+        let provider_arc: Option<Arc<dyn goose::providers::base::Provider>> =
+            if let Some(ref sid) = req.session_id {
+                match state_clone.get_agent(sid.clone()).await {
+                    Ok(agent) => {
+                        let mut p = agent.provider().await.ok();
+                        if p.is_none() {
+                            if let Ok(session) = sm.get_session(sid, false).await {
+                                let _ = agent.restore_provider_from_session(&session).await;
+                                p = agent.provider().await.ok();
+                            }
+                        }
+                        p
+                    }
+                    Err(_) => None,
+                }
+            } else {
+                let sessions = sm.list_sessions().await.unwrap_or_default();
+                let mut found = None;
+                for s in sessions.iter().take(5) {
+                    if let Ok(agent) = state_clone.get_agent(s.id.clone()).await {
+                        if let Ok(session) = sm.get_session(&s.id, false).await {
+                            let _ = agent.restore_provider_from_session(&session).await;
+                            if let Ok(p) = agent.provider().await {
+                                found = Some(p);
+                                break;
+                            }
+                        }
+                    }
+                }
+                found
+            };
+
+        let provider = Arc::new(tokio::sync::Mutex::new(provider_arc));
+        let mut router = OrchestratorAgent::new(provider);
+        state_clone
+            .agent_slot_registry
+            .configure_orchestrator(&mut router)
+            .await;
+
+        // 2. Load dataset
+        let pool = match sm.storage().pool().await {
+            Ok(p) => p,
+            Err(e) => {
+                let _ = tx
+                    .send(format!(
+                        "data: {}\n\n",
+                        serde_json::json!({"type": "error", "error": e.to_string()})
+                    ))
+                    .await;
+                return;
+            }
+        };
+        let store = EvalStorage::new(pool);
+        let dataset = match store.get_dataset(&req.dataset_id).await {
+            Ok(d) => d,
+            Err(e) => {
+                let _ = tx
+                    .send(format!(
+                        "data: {}\n\n",
+                        serde_json::json!({"type": "error", "error": e.to_string()})
+                    ))
+                    .await;
+                return;
+            }
+        };
+
+        // 3. Build eval set from dataset cases
+        let test_cases: Vec<goose::agents::routing_eval::RoutingEvalCase> = dataset
+            .cases
+            .iter()
+            .map(|c| goose::agents::routing_eval::RoutingEvalCase {
+                input: c.input.clone(),
+                expected_agent: c.expected_agent.clone(),
+                expected_mode: c.expected_mode.clone(),
+                also_acceptable: Vec::new(),
+                tags: c.tags.clone(),
+            })
+            .collect();
+
+        let eval_set = goose::agents::routing_eval::RoutingEvalSet { test_cases };
+
+        // 4. Stream eval results one-by-one
+        let (eval_tx, mut eval_rx) = tokio::sync::mpsc::channel(32);
+
+        // Run evaluation in a separate task that sends progress events
+        let tx_clone = tx.clone();
+        let eval_handle = tokio::spawn(async move {
+            evaluate_orchestrator_streaming(&router, &eval_set, eval_tx).await
+        });
+
+        // Forward eval events to SSE as they arrive
+        while let Some(event) = eval_rx.recv().await {
+            let json = serde_json::json!({
+                "type": "progress",
+                "index": event.index,
+                "total": event.total,
+                "result": event.result,
+                "runningMetrics": event.running_metrics,
+            });
+            if tx_clone.send(format!("data: {}\n\n", json)).await.is_err() {
+                break; // client disconnected
+            }
+        }
+
+        // 5. Wait for eval to finish and persist results
+        let results = match eval_handle.await {
+            Ok(r) => r,
+            Err(e) => {
+                let _ = tx
+                    .send(format!(
+                        "data: {}\n\n",
+                        serde_json::json!({"type": "error", "error": e.to_string()})
+                    ))
+                    .await;
+                return;
+            }
+        };
+
+        // 6. Persist the run (reuse store.run_eval logic — compute metrics & store)
+        let metrics = compute_metrics(&results);
+        match store.store_eval_run(&req, &results, &metrics).await {
+            Ok(detail) => {
+                let _ = tx
+                    .send(format!(
+                        "data: {}\n\n",
+                        serde_json::json!({"type": "done", "runId": detail.id, "detail": detail})
+                    ))
+                    .await;
+            }
+            Err(e) => {
+                let _ = tx
+                    .send(format!(
+                        "data: {}\n\n",
+                        serde_json::json!({"type": "error", "error": e.to_string()})
+                    ))
+                    .await;
+            }
+        }
+    });
+
+    // Return SSE response
+    let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+    let body = axum::body::Body::from_stream(
+        stream.map(|s| Ok::<_, std::convert::Infallible>(bytes::Bytes::from(s))),
+    );
+    axum::response::Response::builder()
+        .header("Content-Type", "text/event-stream")
+        .header("Cache-Control", "no-cache")
+        .header("Connection", "keep-alive")
+        .body(body)
+        .unwrap()
+}
+
+// ── Router ─────────────────────────────────────────────────────────
+
+pub fn routes(state: Arc<AppState>) -> Router {
+    Router::new()
+        // Routing inspector (existing)
+        .route("/analytics/routing/inspect", post(inspect_routing))
+        .route("/analytics/routing/eval", post(eval_routing))
+        .route("/analytics/routing/catalog", get(catalog))
+        // Eval datasets CRUD
+        .route("/analytics/eval/datasets", get(list_datasets))
+        .route("/analytics/eval/datasets", post(create_dataset))
+        .route("/analytics/eval/datasets/{id}", get(get_dataset))
+        .route("/analytics/eval/datasets/{id}", put(update_dataset))
+        .route("/analytics/eval/datasets/{id}", delete(delete_dataset))
+        // Eval runs
+        .route("/analytics/eval/run", post(run_eval))
+        .route("/analytics/eval/run/stream", post(run_eval_stream))
+        .route("/analytics/eval/runs", get(list_runs))
+        .route("/analytics/eval/runs/{id}", get(get_run))
+        // Overview & topics
+        .route("/analytics/eval/overview", get(get_overview))
+        .route("/analytics/eval/topics", get(get_topics))
+        // Comparison
+        .route("/analytics/eval/compare", get(compare_runs))
+        // Tool analytics
+        .route("/analytics/tools", get(get_tool_analytics))
+        .route("/analytics/tools/agents", get(get_agent_performance))
+        // Live monitoring
+        .route("/analytics/monitoring/live", get(get_live_monitoring))
+        // Response quality
+        .route("/analytics/quality", get(get_response_quality))
+        .with_state(state)
+}

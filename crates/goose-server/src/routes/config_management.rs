@@ -3,7 +3,8 @@ use crate::routes::utils::check_provider_configured;
 use crate::state::AppState;
 use axum::routing::put;
 use axum::{
-    extract::Path,
+    extract::{Path, State},
+    http::StatusCode,
     routing::{delete, get, post},
     Json, Router,
 };
@@ -15,10 +16,6 @@ use goose::model::ModelConfig;
 use goose::providers::auto_detect::detect_provider_from_api_key;
 use goose::providers::base::{ProviderMetadata, ProviderType};
 use goose::providers::canonical::maybe_get_canonical_model;
-use goose::providers::catalog::{
-    get_provider_template, get_providers_by_format, ProviderCatalogEntry, ProviderFormat,
-    ProviderTemplate,
-};
 use goose::providers::create_with_default_model;
 use goose::providers::providers as get_providers;
 use goose::{
@@ -98,10 +95,6 @@ pub struct UpdateCustomProviderRequest {
     pub headers: Option<std::collections::HashMap<String, String>>,
     #[serde(default = "default_requires_auth")]
     pub requires_auth: bool,
-    #[serde(default)]
-    pub catalog_provider_id: Option<String>,
-    #[serde(default)]
-    pub base_path: Option<String>,
 }
 
 fn default_requires_auth() -> bool {
@@ -235,6 +228,13 @@ fn is_valid_provider_name(provider_name: &str) -> bool {
 pub async fn read_config(
     Json(query): Json<ConfigKeyQuery>,
 ) -> Result<Json<ConfigValueResponse>, ErrorResponse> {
+    if query.key == "model-limits" {
+        let limits = ModelConfig::get_all_model_limits();
+        return Ok(Json(ConfigValueResponse::Value(serde_json::to_value(
+            limits,
+        )?)));
+    }
+
     let config = Config::global();
 
     let response_value = match config.get(&query.key, query.is_secret) {
@@ -387,7 +387,7 @@ pub async fn get_provider_models(
         )));
     }
 
-    let model_config = ModelConfig::new(&metadata.default_model)?.with_canonical_limits(&name);
+    let model_config = ModelConfig::new(&metadata.default_model)?;
     let provider = goose::providers::create(&name, model_config, Vec::new()).await?;
 
     let models_result = provider.fetch_recommended_models().await;
@@ -427,60 +427,66 @@ pub async fn get_slash_commands() -> Result<Json<SlashCommandsResponse>, ErrorRe
 }
 
 #[derive(Serialize, ToSchema)]
-pub struct ModelInfoData {
+pub struct PricingData {
     pub provider: String,
     pub model: String,
-    pub context_limit: usize,
-    pub max_output_tokens: Option<usize>,
-    pub input_token_cost: Option<f64>,
-    pub output_token_cost: Option<f64>,
-    pub cache_read_token_cost: Option<f64>,
-    pub cache_write_token_cost: Option<f64>,
+    pub input_token_cost: f64,
+    pub output_token_cost: f64,
     pub currency: String,
+    pub context_length: Option<u32>,
 }
 
 #[derive(Serialize, ToSchema)]
-pub struct ModelInfoResponse {
-    pub model_info: Option<ModelInfoData>,
+pub struct PricingResponse {
+    pub pricing: Vec<PricingData>,
     pub source: String,
 }
 
 #[derive(Deserialize, ToSchema)]
-pub struct ModelInfoQuery {
+pub struct PricingQuery {
     pub provider: String,
     pub model: String,
 }
 
 #[utoipa::path(
     post,
-    path = "/config/canonical-model-info",
-    request_body = ModelInfoQuery,
+    path = "/config/pricing",
+    request_body = PricingQuery,
     responses(
-        (status = 200, description = "Model information retrieved successfully", body = ModelInfoResponse)
+        (status = 200, description = "Model pricing data retrieved successfully", body = PricingResponse)
     )
 )]
-pub async fn get_canonical_model_info(
-    Json(query): Json<ModelInfoQuery>,
-) -> Json<ModelInfoResponse> {
-    let canonical_model = maybe_get_canonical_model(&query.provider, &query.model);
+pub async fn get_pricing(
+    Json(query): Json<PricingQuery>,
+) -> Result<Json<PricingResponse>, ErrorResponse> {
+    let Some(canonical_model) = maybe_get_canonical_model(&query.provider, &query.model) else {
+        // Pricing is best-effort in the UI; avoid 404 noise in the console.
+        return Ok(Json(PricingResponse {
+            pricing: Vec::new(),
+            source: "canonical".to_string(),
+        }));
+    };
 
-    let model_info = canonical_model.map(|canonical_model| ModelInfoData {
-        provider: query.provider.clone(),
-        model: query.model.clone(),
-        context_limit: canonical_model.limit.context,
-        max_output_tokens: canonical_model.limit.output,
-        // Costs are per million tokens - client handles division for display
-        input_token_cost: canonical_model.cost.input,
-        output_token_cost: canonical_model.cost.output,
-        cache_read_token_cost: canonical_model.cost.cache_read,
-        cache_write_token_cost: canonical_model.cost.cache_write,
-        currency: "$".to_string(),
-    });
+    let mut pricing_data = Vec::new();
 
-    Json(ModelInfoResponse {
-        model_info,
+    if let (Some(input_cost), Some(output_cost)) =
+        (canonical_model.cost.input, canonical_model.cost.output)
+    {
+        pricing_data.push(PricingData {
+            provider: query.provider.clone(),
+            model: query.model.clone(),
+            // Canonical model costs are per million tokens, convert to per-token
+            input_token_cost: input_cost / 1_000_000.0,
+            output_token_cost: output_cost / 1_000_000.0,
+            currency: "$".to_string(),
+            context_length: Some(canonical_model.limit.context as u32),
+        });
+    }
+
+    Ok(Json(PricingResponse {
+        pricing: pricing_data,
         source: "canonical".to_string(),
-    })
+    }))
 }
 
 #[utoipa::path(
@@ -656,8 +662,6 @@ pub async fn create_custom_provider(
             supports_streaming: request.supports_streaming,
             headers: request.headers,
             requires_auth: request.requires_auth,
-            catalog_provider_id: request.catalog_provider_id,
-            base_path: request.base_path,
         },
     )?;
 
@@ -728,8 +732,6 @@ pub async fn update_custom_provider(
             supports_streaming: request.supports_streaming,
             headers: request.headers,
             requires_auth: request.requires_auth,
-            catalog_provider_id: request.catalog_provider_id,
-            base_path: request.base_path,
         },
     )?;
 
@@ -783,54 +785,6 @@ pub async fn set_config_provider(
 }
 
 #[utoipa::path(
-    get,
-    path = "/config/provider-catalog",
-    params(
-        ("format" = Option<String>, Query, description = "Filter by provider format (openai, anthropic, ollama)")
-    ),
-    responses(
-        (status = 200, description = "Provider catalog retrieved successfully", body = [ProviderCatalogEntry]),
-        (status = 400, description = "Invalid format parameter")
-    )
-)]
-pub async fn get_provider_catalog(
-    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
-) -> Result<Json<Vec<ProviderCatalogEntry>>, ErrorResponse> {
-    let format_str = params.get("format").map(|s| s.as_str()).unwrap_or("openai");
-
-    let format = format_str.parse::<ProviderFormat>().map_err(|_| {
-        ErrorResponse::bad_request(format!(
-            "Invalid format '{}'. Must be one of: openai, anthropic, ollama",
-            format_str
-        ))
-    })?;
-
-    let providers = get_providers_by_format(format).await;
-    Ok(Json(providers))
-}
-
-#[utoipa::path(
-    get,
-    path = "/config/provider-catalog/{id}",
-    params(
-        ("id" = String, Path, description = "Provider ID from models.dev")
-    ),
-    responses(
-        (status = 200, description = "Provider template retrieved successfully", body = ProviderTemplate),
-        (status = 404, description = "Provider not found in catalog")
-    )
-)]
-pub async fn get_provider_catalog_template(
-    Path(id): Path<String>,
-) -> Result<Json<ProviderTemplate>, ErrorResponse> {
-    let template = get_provider_template(&id).ok_or_else(|| {
-        ErrorResponse::not_found(format!("Provider '{}' not found in catalog", id))
-    })?;
-
-    Ok(Json(template))
-}
-
-#[utoipa::path(
     post,
     path = "/config/providers/{name}/oauth",
     params(
@@ -854,11 +808,9 @@ pub async fn configure_provider_oauth(
         )));
     }
 
-    let temp_model = ModelConfig::new("temp")
-        .map_err(|e| {
-            ErrorResponse::bad_request(format!("Failed to create temporary model config: {}", e))
-        })?
-        .with_canonical_limits(&provider_name);
+    let temp_model = ModelConfig::new("temp").map_err(|e| {
+        ErrorResponse::bad_request(format!("Failed to create temporary model config: {}", e))
+    })?;
 
     // OAuth configuration does not use extensions.
     let provider = create(&provider_name, temp_model, Vec::new())
@@ -885,6 +837,150 @@ pub async fn configure_provider_oauth(
     Ok(Json("OAuth configuration completed".to_string()))
 }
 
+// ── Reasoning Effort ──────────────────────────────────────────────────────────
+
+#[derive(Deserialize, ToSchema)]
+pub struct SetReasoningEffortRequest {
+    /// "low", "medium", "high", or null to clear
+    pub level: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ReasoningEffortResponse {
+    pub level: Option<String>,
+}
+
+/// Get the current reasoning effort override
+#[utoipa::path(
+    get,
+    path = "/config/reasoning-effort",
+    responses((status = 200, body = ReasoningEffortResponse))
+)]
+async fn get_reasoning_effort(State(state): State<Arc<AppState>>) -> Json<ReasoningEffortResponse> {
+    let effort = state.reasoning_effort.read().await;
+    Json(ReasoningEffortResponse {
+        level: effort.as_ref().map(|e| e.to_string()),
+    })
+}
+
+/// Set the reasoning effort dynamically (affects all future LLM calls)
+#[utoipa::path(
+    post,
+    path = "/config/reasoning-effort",
+    request_body = SetReasoningEffortRequest,
+    responses((status = 200, body = ReasoningEffortResponse))
+)]
+async fn set_reasoning_effort(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<SetReasoningEffortRequest>,
+) -> Result<Json<ReasoningEffortResponse>, StatusCode> {
+    let effort = match req.level.as_deref() {
+        None | Some("") => None,
+        Some("low") => Some(goose::model::ReasoningEffort::Low),
+        Some("medium") | Some("med") => Some(goose::model::ReasoningEffort::Medium),
+        Some("high") => Some(goose::model::ReasoningEffort::High),
+        Some(_) => return Err(StatusCode::BAD_REQUEST),
+    };
+
+    // Update the shared state
+    {
+        let mut w = state.reasoning_effort.write().await;
+        *w = effort;
+    }
+
+    // Also set the env var so new providers pick it up
+    match &effort {
+        Some(e) => std::env::set_var("GOOSE_REASONING_EFFORT", e.to_string()),
+        None => std::env::remove_var("GOOSE_REASONING_EFFORT"),
+    }
+
+    Ok(Json(ReasoningEffortResponse {
+        level: effort.as_ref().map(|e| e.to_string()),
+    }))
+}
+
+// ── Per-Agent/Mode Reasoning Effort Overrides ────────────────────────────────
+
+/// A single per-agent/mode reasoning effort override
+#[derive(Deserialize, Serialize, Clone, ToSchema)]
+pub struct ReasoningEffortOverride {
+    /// Key in "agent_slug/mode_slug" format, e.g. "developer/write"
+    pub key: String,
+    /// Reasoning effort level: "low", "medium", or "high"
+    pub level: String,
+}
+
+/// Response containing all per-agent/mode overrides
+#[derive(Serialize, ToSchema)]
+pub struct ReasoningEffortOverridesResponse {
+    pub overrides: Vec<ReasoningEffortOverride>,
+}
+
+/// Request to set per-agent/mode overrides (full replace)
+#[derive(Deserialize, ToSchema)]
+pub struct SetReasoningEffortOverridesRequest {
+    pub overrides: Vec<ReasoningEffortOverride>,
+}
+
+/// Get all per-agent/mode reasoning effort overrides
+#[utoipa::path(
+    get,
+    path = "/config/reasoning-effort-overrides",
+    responses((status = 200, body = ReasoningEffortOverridesResponse))
+)]
+async fn get_reasoning_effort_overrides(
+    State(state): State<Arc<AppState>>,
+) -> Json<ReasoningEffortOverridesResponse> {
+    let overrides = state.reasoning_effort_overrides.read().await;
+    let items: Vec<ReasoningEffortOverride> = overrides
+        .iter()
+        .map(|(k, v)| ReasoningEffortOverride {
+            key: k.clone(),
+            level: v.as_openai_str().to_string(),
+        })
+        .collect();
+    Json(ReasoningEffortOverridesResponse { overrides: items })
+}
+
+/// Set per-agent/mode reasoning effort overrides (replaces all existing overrides)
+#[utoipa::path(
+    post,
+    path = "/config/reasoning-effort-overrides",
+    request_body = SetReasoningEffortOverridesRequest,
+    responses((status = 200, body = ReasoningEffortOverridesResponse))
+)]
+async fn set_reasoning_effort_overrides(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<SetReasoningEffortOverridesRequest>,
+) -> Result<Json<ReasoningEffortOverridesResponse>, StatusCode> {
+    let mut map = std::collections::HashMap::new();
+    for item in &req.overrides {
+        let effort = match item.level.as_str() {
+            "low" => goose::model::ReasoningEffort::Low,
+            "medium" | "med" => goose::model::ReasoningEffort::Medium,
+            "high" => goose::model::ReasoningEffort::High,
+            _ => return Err(StatusCode::BAD_REQUEST),
+        };
+        map.insert(item.key.clone(), effort);
+    }
+
+    {
+        let mut w = state.reasoning_effort_overrides.write().await;
+        *w = map;
+    }
+
+    // Return the current state
+    let overrides = state.reasoning_effort_overrides.read().await;
+    let items: Vec<ReasoningEffortOverride> = overrides
+        .iter()
+        .map(|(k, v)| ReasoningEffortOverride {
+            key: k.clone(),
+            level: v.as_openai_str().to_string(),
+        })
+        .collect();
+    Ok(Json(ReasoningEffortOverridesResponse { overrides: items }))
+}
+
 pub fn routes(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/config", get(read_all_config))
@@ -896,21 +992,21 @@ pub fn routes(state: Arc<AppState>) -> Router {
         .route("/config/extensions/{name}", delete(remove_extension))
         .route("/config/providers", get(providers))
         .route("/config/providers/{name}/models", get(get_provider_models))
-        .route("/config/provider-catalog", get(get_provider_catalog))
-        .route(
-            "/config/provider-catalog/{id}",
-            get(get_provider_catalog_template),
-        )
         .route("/config/detect-provider", post(detect_provider))
         .route("/config/slash_commands", get(get_slash_commands))
-        .route(
-            "/config/canonical-model-info",
-            post(get_canonical_model_info),
-        )
+        .route("/config/pricing", post(get_pricing))
         .route("/config/init", post(init_config))
         .route("/config/backup", post(backup_config))
         .route("/config/recover", post(recover_config))
         .route("/config/validate", get(validate_config))
+        .route(
+            "/config/reasoning-effort",
+            get(get_reasoning_effort).post(set_reasoning_effort),
+        )
+        .route(
+            "/config/reasoning-effort-overrides",
+            get(get_reasoning_effort_overrides).post(set_reasoning_effort_overrides),
+        )
         .route("/config/permissions", post(upsert_permissions))
         .route("/config/custom-providers", post(create_custom_provider))
         .route(
@@ -929,4 +1025,33 @@ pub fn routes(state: Arc<AppState>) -> Router {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use http::HeaderMap;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_read_model_limits() {
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Secret-Key", "test".parse().unwrap());
+
+        let result = read_config(Json(ConfigKeyQuery {
+            key: "model-limits".to_string(),
+            is_secret: false,
+        }))
+        .await;
+
+        assert!(result.is_ok());
+        let response = match result.unwrap().0 {
+            ConfigValueResponse::Value(value) => value,
+            ConfigValueResponse::MaskedValue(_) => panic!("unexpected secret"),
+        };
+
+        let limits: Vec<goose::model::ModelLimitConfig> = serde_json::from_value(response).unwrap();
+        assert!(!limits.is_empty());
+
+        let gpt4_limit = limits.iter().find(|l| l.pattern == "gpt-4o");
+        assert!(gpt4_limit.is_some());
+        assert_eq!(gpt4_limit.unwrap().context_limit, 128_000);
+    }
+}

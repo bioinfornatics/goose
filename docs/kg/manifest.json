@@ -1,0 +1,111 @@
+{
+  "exported_at": "2026-02-19T01:56:33.729904",
+  "entity_count": 1615,
+  "relation_count": 2203,
+  "format_version": "1.0",
+  "branch": "feature/cli-via-goosed",
+  "session_deliverables": [
+    "Phase 1-4: Multi-Instance Agent Architecture (f46562b9..391f3de4)",
+    "Agents facade sub-modules (e0869c4e)",
+    "Summon extension split (f681fd86)",
+    "A2A spec compliance tests (2eff01c5)",
+    "WorkspaceEventBus (75befcfd)",
+    "Desktop UI Polish & Generative UI Integration (665fd046)",
+    "A2A Spec Alignment: ProtoJSON enums, PascalCase methods, error codes (78e1c408)",
+    "Dispatcher Trait: InProcess, A2A, Composite backends (c0f3124c)",
+    "Agent Catalog Endpoint: unified /agents/catalog (e8a3ba9b)",
+    "Compound Execution Fan-out in reply route (0518fbfb)",
+    "SlotDelegation per-agent strategy (48187229)",
+    "Observatory Dashboard Endpoints (798c9a4d)",
+    "Dynamic Agent Slot Sync + Pipeline Isolation (06eb3fea)",
+    "Pipeline CRUD + DAG Builder + Session Management (ca2f3383)",
+    {
+      "name": "Home/Chat Unification + WorkflowsOverview + Tooltip Fix",
+      "commit": "c18b0f95",
+      "files_changed": 8,
+      "lines_added": "~800"
+    },
+    "Dual Identity Phase 1-3: UserIdentity, AgentIdentity, OIDC (a239e6ac..46171f82)",
+    "User Auth Endpoints + OIDC CLI Flow (4d54d42a..0ae7a738)",
+    "OIDC Provider Presets (cfeca36f)",
+    "Tenant-Scoped Session Isolation (10678485)",
+    "Dispatcher wiring: AgentReplyDispatcher (fd6fa15c)",
+    "OIDC Token Refresh (d4ea45b5)",
+    "Persistent Token Store: SQLite (16a4df7b)",
+    "JWKS Key Rotation + Discovery Cache (18ad7a74)",
+    "Rate Limiting on Auth Endpoints (5d6c40fc)",
+    {
+      "name": "UI Cleanup: import type, dead code, console.log, DS compliance",
+      "commit": "f816800e..336f587a",
+      "files_changed": 140,
+      "lines_removed": "~2600"
+    },
+    {
+      "name": "SettingsView PageShell migration + WelcomeState cleanup",
+      "commit": "595f4d1f..3777216d",
+      "files_changed": 12,
+      "lines_changed": "~300"
+    },
+    {
+      "name": "authInterceptor codegen-safe move + role=button DS fix",
+      "commit": "0b0fe612..486d4f2f",
+      "files_changed": 6
+    },
+    {
+      "name": "Sidebar project/dir sync via DirSwitcher events",
+      "commit": "37af164a",
+      "files_changed": 3
+    },
+    {
+      "name": "Policy engine + audit logging + RBAC",
+      "commit": "a627d700..c1be2cb3",
+      "files_changed": 10
+    },
+    {
+      "name": "Quota manager + agent slot registry",
+      "commit": "cb50197d..28b5e350",
+      "files_changed": 6
+    },
+    {
+      "name": "Control plane management API",
+      "commit": "d373412f",
+      "files_changed": 4
+    },
+    {
+      "name": "SecurityMode: local/team/enterprise with auto-detection",
+      "commit": "8e4b73ff..667d75cf",
+      "files_changed": 2
+    },
+    {
+      "name": "UI Cleanup: import type, dead code, console.log, DS compliance",
+      "commit": "f816800e..336f587a",
+      "files_changed": 140,
+      "lines_removed": "~2600"
+    },
+    {
+      "name": "SettingsView PageShell migration + WelcomeState cleanup",
+      "commit": "595f4d1f..3777216d",
+      "files_changed": 12
+    },
+    {
+      "name": "authInterceptor codegen-safe move + role=button DS fix",
+      "commit": "0b0fe612..486d4f2f",
+      "files_changed": 6
+    },
+    {
+      "name": "Sidebar project/dir sync via DirSwitcher events",
+      "commit": "37af164a",
+      "files_changed": 3
+    },
+    {
+      "name": "SecurityMode: local/team/enterprise with auto-detection",
+      "commit": "8e4b73ff..667d75cf",
+      "files_changed": 2
+    },
+    {
+      "name": "KG cleanup: removed 50 stale entities, 162 orphaned relations",
+      "commit": "pending"
+    }
+  ],
+  "last_commit": "667d75cf"
+}

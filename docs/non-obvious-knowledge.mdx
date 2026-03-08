@@ -1,0 +1,380 @@
+# Non-Obvious Knowledge
+
+Things that are hard to discover from reading the code alone. Updated as of commit `6a2b2cd8`.
+
+---
+
+## Security Modes
+
+### Three-Tier Security Model
+
+Goose uses a `SecurityMode` enum (`Local` / `Team` / `Enterprise`) that auto-detects from environment:
+
+| Mode | Trigger | Guest Can... | Use Case |
+|------|---------|-------------|----------|
+| **Local** (default) | No OIDC, no secret key | Everything | Solo desktop |
+| **Team** | `GOOSE_SERVER__SECRET_KEY` ≠ `"test"` | Read + Execute (not manage) | Shared server |
+| **Enterprise** | `GOOSE_OIDC_ISSUER_URL` set | Nothing (must authenticate) | OIDC-protected |
+
+**Override**: Set `GOOSE_SECURITY_MODE=local|team|enterprise` to bypass auto-detection.
+
+**Where it matters**: `PolicyStore::for_mode(SecurityMode::detect())` in `state.rs` — this is why local desktop users don't hit "Authentication required" errors, but shared servers do.
+
+### The "test" Secret Key Convention
+
+`GOOSE_SERVER__SECRET_KEY` defaults to `"test"` in `commands/agent.rs`. The `SecurityMode::detect()` method treats `"test"` as "no real secret configured" → stays in Local mode. Any other value triggers Team mode.
+
+### Two Independent Auth Systems
+
+Goose has TWO completely independent auth systems that share no code:
+
+1. **User Identity** (`X-Secret-Key` + `Authorization: Bearer`) — authenticates the human user to the goose server. Implemented in `auth.rs`. Uses OIDC JWTs or session tokens.
+
+2. **LLM Provider Auth** (`GOOSE_PROVIDER` + API keys) — authenticates goose to external LLM APIs. Implemented in `providers/`. Uses provider-specific API keys from config/keyring/env.
+
+These never intersect. A user can be fully authenticated (OIDC) but have no LLM provider configured, or vice versa.
+
+### Policy Rule Priority
+
+Rules evaluate in priority order (highest first). Default priorities:
+- **100**: Deny rules (deny-guest-management, deny-guest-execute)
+- **50**: Allow rules (allow-execute, allow-read)
+
+A Deny at priority 100 beats an Allow at priority 50. New rules added via the control plane API default to priority 50.
+
+---
+
+## Desktop UI Architecture
+
+### Playwright Electron E2E: prefer file-built renderer + axe-core injection
+
+The most reliable way we found to run Playwright against the Electron desktop app is:
+
+1. **Build the renderer to disk** and load it via `file://` (instead of running a Vite dev server during tests).
+2. Set Vite renderer build `base: './'` so `index.html` references `./assets/*` (otherwise CSS/JS 404 under `file://`).
+3. Avoid `@axe-core/playwright`’s `AxeBuilder` with Electron — it can fail with
+   `Protocol error (Target.createTarget): Not supported`.
+   Instead, inject `axe.source` into the page and run `axe.run()` via `page.evaluate`.
+
+Implementation lives in:
+- `ui/desktop/tests/e2e/fixtures.ts` (build + launch + readiness + debug attachments)
+- `ui/desktop/tests/e2e/a11y-contrast.spec.ts` (axe-core `color-contrast` audit)
+
+**Debugging tip:** on E2E failures, the fixture attaches `renderer-debug.txt` (URL/title/console/page errors + HTML snippet)
+and `main-debug.txt` (Electron main stdout/stderr).
+
+### Contrast failures often come from opacity variants
+
+In light theme, `text-text-default/70` can drop below WCAG AA for 12px text.
+The axe-core contrast audit caught this as `#797b81` on white (`#ffffff`), ratio ~4.23:1.
+Fixes were typically to bump to `/80` or to full `text-text-default`.
+
+### ripgrep gotcha: patterns starting with `--`
+
+`rg` treats tokens that start with `--` as options, so searches like `rg --text-default` fail.
+Use one of:
+
+```bash
+rg -- '--text-default' src
+rg "\\-\\-text-default" src
+```
+
+### Global ChatInput Lives in AppLayout
+
+`ChatInput` is rendered ONCE in `AppLayout.tsx` via `GlobalChatInput` — NOT inside `BaseChat`. This means:
+- ChatInput appears on every page (settings, extensions, recipes, etc.)
+- `BaseChat` registers its session state via `useRegisterSession()` into `UnifiedInputContext`
+- `GlobalChatInput` reads from `UnifiedInputContext` to get the current session's props
+- When no session exists: ChatInput shows with `sessionId=null` and `handleSubmit` creates a new session
+
+**Consequence**: Never render `ChatInput` inside page components. It's already there.
+
+### PromptBar Was Deleted
+
+`PromptBar.tsx` no longer exists (deleted in commit `ec5c7ecc`). All its functionality is now in `GlobalChatInput` + `UnifiedInputContext`. Old imports will fail.
+
+### `useRegisterSession` Carries ALL ChatInput Props
+
+`BaseChat` passes ~25 props through `useRegisterSession()`:
+- `sessionId`, `chatState`, `handleSubmit`, `setChatState`, `onStop`
+- `commandHistory`, `droppedFiles`, `onFilesProcessed`, `setView`
+- `totalTokens`, `accumulatedInputTokens`, `accumulatedOutputTokens`
+- `messages`, `sessionCosts`, `recipe`, `recipeId`, `recipeAccepted`, `initialPrompt`
+- `toolCount`, `append`, `onWorkingDirChange`, `inputRef`
+
+If a new prop is needed in ChatInput, it MUST be added to `SessionInputState` interface and passed through `useRegisterSession`.
+
+### Sidebar Project Groups Sync via Events
+
+When `DirSwitcher` changes a session's working directory:
+1. `updateWorkingDir(sessionId, newDir)` API call → updates server
+2. `window.dispatchEvent(SESSION_WORKING_DIR_CHANGED, { sessionId, workingDir })` → DOM event
+3. `AppSidebar` listener updates `recentSessions` state → re-groups by project
+
+Without step 2, the sidebar would show the session under the old project until page refresh.
+
+### PageShell headerExtra for Tabs
+
+`PageShell` has a `headerExtra` prop that renders between the title header and the scrollable body when `stickyHeader` is true. This is how SettingsView pins its tab bar:
+
+```tsx
+<PageShell title="Settings" stickyHeader headerExtra={<TabsList>...</TabsList>}>
+  <TabsContent>...</TabsContent>
+</PageShell>
+```
+
+### Codegen-Safe File Locations
+
+`just generate-openapi` wipes `ui/desktop/src/api/` and regenerates from the OpenAPI spec. Hand-written files that must survive codegen go in `src/lib/`:
+- `src/lib/instances.ts` — session instance management (moved from `src/api/`)
+- `src/lib/authInterceptor.ts` — auth token attachment (moved from `src/api/`)
+
+Never put hand-written code in `src/api/`. It WILL be deleted.
+
+### Infinite Re-render Traps (Fixed)
+
+Three separate infinite re-render bugs were fixed this session:
+
+1. **EnvironmentBadge tooltip** — Radix Tooltip caused re-renders. Fix: use native `title` attribute instead.
+2. **ScrollArea handleScroll** — `setState` in scroll handler triggered re-render → new handler → new scroll. Fix: use refs (`isFollowingRef`, `isScrolledRef`) with equality guards.
+3. **UnifiedInputContext** — `setSession(state)` created new object every render → subscribers re-rendered. Fix: stable callbacks with `useRef` to hold session state.
+
+**Pattern**: If a component re-renders infinitely, check for: (a) setState in event handlers creating closure churn, (b) context values changing identity every render, (c) Radix UI components with tooltip/popover causing layout recalc.
+
+### `import type` Compliance
+
+All 260+ type-only imports use `import type` syntax. When adding new type imports:
+- ✅ `import type { Foo } from './bar'`
+- ✅ `import DefaultExport from './bar'; import type { TypeExport } from './bar'` (split)
+- ❌ `import DefaultExport, { TypeExport } from './bar'` (mixed — triggers TS1484)
+
+### Zero console.log in Production
+
+All `console.log` statements were removed from production code. Only `console.error` and `console.warn` remain for actual error/warning conditions. Test files (`*.test.tsx`) still have `console.log`.
+
+---
+
+## Provider Configuration
+
+### Custom Provider Engine Names
+
+Declarative custom providers (`~/.config/goose/custom_providers/*.json`) support three engines:
+- `openai` — OpenAI-compatible API (sends `Authorization: Bearer`)
+- `ollama` — Ollama API
+- `anthropic` — Anthropic API (sends `x-api-key` header)
+
+**Azure OpenAI** is NOT a custom provider engine. Use the native `azure` provider instead, which handles:
+- `api-key` header (not `Authorization: Bearer`)
+- Deployment-based URL routing
+- Azure credential chain (API key or DefaultAzureCredential)
+
+### Azure Provider Config Keys
+
+```yaml
+# In keyring or secrets.yaml:
+AZURE_OPENAI_API_KEY: "..."
+AZURE_OPENAI_ENDPOINT: "https://your-resource.cognitiveservices.azure.com"
+AZURE_OPENAI_DEPLOYMENT_NAME: "gpt-5.2"
+AZURE_OPENAI_API_VERSION: "2024-05-01-preview"  # default: 2024-10-21
+```
+
+### Secret Resolution Order
+
+1. **Environment variables** (uppercased key name) — checked first
+2. **System keyring** (`secret-tool` / `gnome-keyring`) — checked second
+3. **`~/.config/goose/secrets.yaml`** — fallback (used when `GOOSE_DISABLE_KEYRING` is set)
+
+### Custom Provider base_url Path Handling
+
+The OpenAI engine in `from_custom_config` parses the base_url:
+- Empty path, `/v1`, or `/v1/` → defaults to `v1/chat/completions`
+- Any other path → used as-is (you must include `chat/completions` if needed)
+
+---
+
+## Control Plane (Enterprise ACP)
+
+### Control Plane API Design
+
+The `/control-plane/v1/*` endpoints are designed for external enterprise control planes (Azure AI Controls, GitHub Enterprise, AWS):
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/control-plane/v1/info` | GET | System capabilities, version, features |
+| `/control-plane/v1/policies` | GET/POST | List/create policy rules |
+| `/control-plane/v1/policies/:id` | DELETE | Remove a policy rule |
+| `/control-plane/v1/quotas` | GET/POST | List/create quota limits |
+| `/control-plane/v1/quotas/check` | POST | Check if a scope is within limits |
+| `/control-plane/v1/audit` | GET | Recent audit events |
+| `/control-plane/v1/agents` | GET/POST | List/register agents |
+| `/control-plane/v1/agents/:name` | DELETE | Unregister an agent |
+
+### PolicyStore + QuotaManager + AuditLogger in AppState
+
+All three are `Arc`-wrapped in `AppState` and injected into the middleware via `Extension` layers:
+
+```rust
+// In commands/agent.rs
+.layer(Extension(app_state.quota_manager.clone()))
+.layer(Extension(app_state.audit_logger.clone()))
+.layer(Extension(app_state.policy_store.clone()))
+.layer(middleware::from_fn(authorize_middleware))
+```
+
+The order matters: Extension layers must be ABOVE `from_fn(authorize_middleware)` so extensions are in the request when the middleware runs (axum processes layers bottom-up for requests).
+
+### `route_to_policy` Action Mapping
+
+Maps HTTP method + path to policy action/resource pairs:
+- `POST /reply` → `execute:reply`
+- `GET /sessions` → `session:list`
+
+---
+
+## GenUI / json-render
+
+### `$state` does **not** read from `spec.state` unless we pass it explicitly
+
+`JsonRenderBlock` parses JSONL (RFC6902-style) patch streams into a flat `Spec` object that can include a top-level `state` field (coming from `/state/...` patches).
+
+However, `@json-render/react`’s `createRenderer()` does **not** automatically use `spec.state` as its state model. It uses the `state` prop passed to `CatalogRenderer` (wired into `StateProvider initialState=state`).
+
+**Implication:** if you render only:
+
+```tsx
+<CatalogRenderer spec={parsedSpec} />
+```
+
+then `$state` / `$bindState` / `$bindItem` expressions resolve against an empty state model, even if `parsedSpec.state` exists.
+
+**Fix:** always pass `state={parsedSpec.state ?? {}}`:
+
+```tsx
+<CatalogRenderer spec={parsedSpec as any} state={(parsedSpec.state ?? {}) as any} />
+```
+
+**Symptom when broken:** charts/tables render their empty states (e.g. “No chart data provided”, “No rows”) even though the JSONL patch stream clearly includes `/state/...` patches.
+
+### JSONL streams must create `/state` before writing `/state/*`
+
+In practice, models often emit patches like `{"op":"add","path":"/state/foo","value":...}` without first emitting `{"op":"add","path":"/state","value":{}}`.
+
+We reject this pattern during orchestrated GenUI validation because it frequently results in missing state at runtime (so `$state` bindings resolve to nothing).
+
+### Debugging searches: escape `$` in ripgrep
+
+`rg "$state"` won’t match because `$` is a regex metacharacter. Use either:
+
+```bash
+rg -nF '$state' <file>
+# or
+rg -n '\\$state' <file>
+```
+
+- `POST /sessions/*/reply` → `execute:reply`
+- `GET /agents/*` → `read:agents`
+- `POST /control-plane/v1/policies` → `manage:policies`
+- `DELETE /agents/*` → `manage:agents`
+- Default: `{method}:{first_path_segment}`
+
+---
+
+## Session Storage
+
+### Agent Pool Uses SQLite
+
+The `AgentPool` stores agent registrations in SQLite:
+
+```sql
+CREATE TABLE agents (
+    name TEXT PRIMARY KEY,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    delegation_type TEXT NOT NULL DEFAULT 'in_process',
+    delegation_url TEXT
+);
+CREATE TABLE agent_extensions (
+    agent_name TEXT NOT NULL,
+    extension_name TEXT NOT NULL,
+    PRIMARY KEY (agent_name, extension_name),
+    FOREIGN KEY (agent_name) REFERENCES agents(name) ON DELETE CASCADE
+);
+```
+
+Lazy pool initialization following the `SessionTokenStore` pattern. Falls back to in-memory when no `data_dir` is provided (tests).
+
+### Session Schema Version 9
+
+The session storage is at schema version 9 with `tenant_id TEXT` and `user_id TEXT` columns. Migrations run automatically on startup. The `set_session_identity` method uses a raw SQL UPDATE to tag sessions.
+
+### `list_sessions_for_tenant` Uses Dynamic SQL
+
+The method builds a WHERE clause dynamically based on which filters are provided:
+- Both tenant and user → `WHERE tenant_id = ? AND user_id = ?`
+- Only tenant → `WHERE tenant_id = ?`
+- Only user → `WHERE user_id = ?`
+- Neither → `WHERE session_type IN ('user', 'scheduled')` (no tenant filtering)
+
+---
+
+## Testing
+
+### Flaky Test: `prepare_tools_returns_sorted_tools_including_frontend`
+
+This test in `agents::reply_parts` is intermittently flaky — fails in batch runs but passes individually. Root cause unknown. Not related to any recent changes.
+
+### `jsonwebtoken` Default Leeway is 60 Seconds
+
+When testing expired tokens, don't create a token with `exp = now` and expect immediate failure — `jsonwebtoken::Validation` has a 60-second default leeway. Either:
+- Set `validation.leeway = 0` explicitly
+- Create tokens with `exp` far in the past (e.g., year 1970)
+
+### `just generate-openapi` Deletes `src/api/` Contents
+
+Every time you run `just generate-openapi`, it wipes `ui/desktop/src/api/` and regenerates. Hand-written files MUST live in `src/lib/` (see "Codegen-Safe File Locations" above). The `just` recipe restores `instances.ts` via `git checkout`, but `authInterceptor.ts` was moved to `src/lib/` permanently.
+
+### Files That Resist `rg` (ripgrep)
+
+Some newly created files (`policy.rs`, `audit.rs`, `quotas.rs`) intermittently fail to be found by `rg` even though they exist on disk (confirmed by `ls -la`, `stat`, `cat`). This appears to be a file indexing/caching issue. Workaround: use `grep` directly or `cat | grep`. The files compile and test correctly regardless.
+
+### Test Count Checkpoints
+
+| Crate | Count | Notes |
+|---|---|---|
+| goose (lib) | 987+ | +35 from ACP work (13 policy, 8 audit, 11 quota, 3 RBAC) |
+| goose-server | 97+ | +10 from ACP work (8 control plane, 2 agent registry) |
+| **Total** | **1,084+** | As of commit 667d75cf |
+
+---
+
+## Design System
+
+### Semantic Token Migration
+
+43 raw `zinc-*` Tailwind classes were migrated to semantic tokens (`text-default`, `bg-background-muted`, `border-default`, etc.). WCAG AA contrast was fixed for:
+- Light theme: `text-danger`, `text-success`, `text-warning`, `text-info`, `border-default`, `border-strong`
+- Dark theme: `border-default`, `border-strong`
+
+### Zero `role="button"` Divs
+
+All interactive divs with `role="button"` were replaced:
+- `<div role="button" tabIndex onKeyDown>` → `<Button variant="ghost">` or native `<button>`
+- Zero instances remain in the codebase
+
+### Pages Using PageShell
+
+| Page | Migrated | Notes |
+|------|----------|-------|
+| WorkflowsOverview | ✅ | |
+| CatalogsOverview | ✅ | |
+| AgentsView | ✅ | |
+| RecipesView | ✅ | |
+| SchedulesView | ✅ | |
+| SessionListView | ✅ | |
+| SettingsView | ✅ | Uses `headerExtra` for tabs |
+| BaseChat | ❌ | Special chat layout |
+| ExtensionsView | ❌ | Not yet migrated |
+| AppsView | ❌ | Not yet migrated |
+
+### MainPanelLayout Still Exists
+
+`MainPanelLayout` is still used by 5 components (BaseChat, SharedSessionView, SessionHistoryView, ExtensionsView, AppsView). It provides `h-dvh` + `pt-[32px]` for the app toolbar drag area. It should eventually be phased out in favor of `PageShell` where appropriate.

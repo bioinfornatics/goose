@@ -435,6 +435,12 @@ derive_utoipa!(Icon as IconSchema);
         super::routes::local_inference::delete_local_model,
         super::routes::local_inference::get_model_settings,
         super::routes::local_inference::update_model_settings,
+        super::routes::pipeline::list_pipelines,
+        super::routes::pipeline::get_pipeline,
+        super::routes::pipeline::create_pipeline,
+        super::routes::pipeline::update_pipeline,
+        super::routes::pipeline::delete_pipeline,
+        super::routes::pipeline::validate_pipeline,
     ),
     components(schemas(
         super::routes::config_management::UpsertConfigQuery,
@@ -618,6 +624,20 @@ derive_utoipa!(Icon as IconSchema);
         goose::providers::local_inference::local_model_registry::SamplingConfig,
         DownloadProgress,
         DownloadStatus,
+        super::routes::pipeline::SavePipelineRequest,
+        super::routes::pipeline::SavePipelineResponse,
+        super::routes::pipeline::PipelineListResponse,
+        super::routes::pipeline::PipelineResponse,
+        super::routes::pipeline::ValidateResponse,
+        super::routes::pipeline::PipelineErrorResponse,
+        goose::pipeline::Pipeline,
+        goose::pipeline::PipelineNode,
+        goose::pipeline::PipelineEdge,
+        goose::pipeline::NodeKind,
+        goose::pipeline::PipelineLayout,
+        goose::pipeline::Viewport,
+        goose::pipeline::NodePosition,
+        goose::pipeline::PipelineManifest,
     ))
 )]
 pub struct ApiDoc;

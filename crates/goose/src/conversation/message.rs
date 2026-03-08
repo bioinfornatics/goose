@@ -1,11 +1,11 @@
 use crate::conversation::tool_result_serde;
-use crate::mcp_utils::{extract_text_from_resource, ToolResult};
+use crate::mcp_utils::ToolResult;
 use crate::utils::sanitize_unicode_tags;
 use chrono::Utc;
 use rmcp::model::{
     AnnotateAble, CallToolRequestParams, CallToolResult, Content, ImageContent, JsonObject,
     PromptMessage, PromptMessageContent, PromptMessageRole, RawContent, RawImageContent,
-    RawTextContent, Role, TextContent,
+    RawTextContent, ResourceContents, Role, TextContent,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashSet;
@@ -151,6 +151,11 @@ pub struct RedactedThinkingContent {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct JsonRenderSpecContent {
+    pub spec: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct FrontendToolRequest {
     pub id: String,
@@ -164,7 +169,6 @@ pub struct FrontendToolRequest {
 pub enum SystemNotificationType {
     ThinkingMessage,
     InlineMessage,
-    CreditsExhausted,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -177,16 +181,12 @@ pub struct SystemNotificationContent {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
-pub struct ReasoningContent {
-    pub text: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 /// Content passed inside a message, which can be both simple content and tool content
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum MessageContent {
     Text(TextContent),
     Image(ImageContent),
+    JsonRenderSpec(JsonRenderSpecContent),
     ToolRequest(ToolRequest),
     ToolResponse(ToolResponse),
     ToolConfirmationRequest(ToolConfirmationRequest),
@@ -195,7 +195,6 @@ pub enum MessageContent {
     Thinking(ThinkingContent),
     RedactedThinking(RedactedThinkingContent),
     SystemNotification(SystemNotificationContent),
-    Reasoning(ReasoningContent),
 }
 
 impl fmt::Display for MessageContent {
@@ -203,6 +202,7 @@ impl fmt::Display for MessageContent {
         match self {
             MessageContent::Text(t) => write!(f, "{}", t.text),
             MessageContent::Image(i) => write!(f, "[Image: {}]", i.mime_type),
+            MessageContent::JsonRenderSpec(_s) => write!(f, "[JsonRenderSpec]"),
             MessageContent::ToolRequest(r) => {
                 write!(f, "[ToolRequest: {}]", r.to_readable_string())
             }
@@ -237,7 +237,6 @@ impl fmt::Display for MessageContent {
             MessageContent::SystemNotification(r) => {
                 write!(f, "[SystemNotification: {}]", r.msg)
             }
-            MessageContent::Reasoning(r) => write!(f, "[Reasoning: {}]", r.text),
         }
     }
 }
@@ -295,15 +294,18 @@ impl MessageContent {
 
                 // Preserve ToolResponse even when content is empty - some providers
                 // (like Google) need to handle empty tool responses specially
-                let mut tool_result = result.clone();
-                tool_result.content = filtered_content;
                 Some(MessageContent::ToolResponse(ToolResponse {
                     id: res.id.clone(),
-                    tool_result: Ok(tool_result),
+                    tool_result: Ok(CallToolResult {
+                        content: filtered_content,
+                        ..result.clone()
+                    }),
                     metadata: res.metadata.clone(),
                 }))
             }
-            MessageContent::Thinking(_) | MessageContent::RedactedThinking(_) => None,
+            MessageContent::Thinking(_)
+            | MessageContent::RedactedThinking(_)
+            | MessageContent::JsonRenderSpec(_) => None,
             _ => Some(self.clone()),
         }
     }
@@ -317,6 +319,10 @@ impl MessageContent {
             }
             .no_annotation(),
         )
+    }
+
+    pub fn json_render_spec<S: Into<String>>(spec: S) -> Self {
+        MessageContent::JsonRenderSpec(JsonRenderSpecContent { spec: spec.into() })
     }
 
     pub fn tool_request<S: Into<String>>(
@@ -450,10 +456,6 @@ impl MessageContent {
         })
     }
 
-    pub fn reasoning<S: Into<String>>(text: S) -> Self {
-        MessageContent::Reasoning(ReasoningContent { text: text.into() })
-    }
-
     pub fn as_system_notification(&self) -> Option<&SystemNotificationContent> {
         if let MessageContent::SystemNotification(ref notification) = self {
             Some(notification)
@@ -510,6 +512,13 @@ impl MessageContent {
         }
     }
 
+    pub fn as_json_render_spec(&self) -> Option<&JsonRenderSpecContent> {
+        match self {
+            MessageContent::JsonRenderSpec(spec) => Some(spec),
+            _ => None,
+        }
+    }
+
     /// Get the thinking content if this is a ThinkingContent variant
     pub fn as_thinking(&self) -> Option<&ThinkingContent> {
         match self {
@@ -522,14 +531,6 @@ impl MessageContent {
     pub fn as_redacted_thinking(&self) -> Option<&RedactedThinkingContent> {
         match self {
             MessageContent::RedactedThinking(redacted) => Some(redacted),
-            _ => None,
-        }
-    }
-
-    /// Get the reasoning content if this is a ReasoningContent variant
-    pub fn as_reasoning(&self) -> Option<&ReasoningContent> {
-        match self {
-            MessageContent::Reasoning(reasoning) => Some(reasoning),
             _ => None,
         }
     }
@@ -546,7 +547,13 @@ impl From<Content> for MessageContent {
             }
             RawContent::ResourceLink(_link) => MessageContent::text("[Resource link]"),
             RawContent::Resource(resource) => {
-                MessageContent::text(extract_text_from_resource(&resource.resource))
+                let text = match &resource.resource {
+                    ResourceContents::TextResourceContents { text, .. } => text.clone(),
+                    ResourceContents::BlobResourceContents { blob, .. } => {
+                        format!("[Binary content: {}]", blob.clone())
+                    }
+                };
+                MessageContent::text(text)
             }
             RawContent::Audio(_) => {
                 MessageContent::text("[Audio content: not supported]".to_string())
@@ -571,7 +578,15 @@ impl From<PromptMessage> for Message {
             }
             PromptMessageContent::ResourceLink { .. } => MessageContent::text("[Resource link]"),
             PromptMessageContent::Resource { resource } => {
-                MessageContent::text(extract_text_from_resource(&resource.resource))
+                // For resources, convert to text content with the resource text
+                match &resource.resource {
+                    ResourceContents::TextResourceContents { text, .. } => {
+                        MessageContent::text(text.clone())
+                    }
+                    ResourceContents::BlobResourceContents { blob, .. } => {
+                        MessageContent::text(format!("[Binary content: {}]", blob.clone()))
+                    }
+                }
             }
         };
 
@@ -579,7 +594,14 @@ impl From<PromptMessage> for Message {
     }
 }
 
-#[derive(ToSchema, Clone, Copy, PartialEq, Serialize, Deserialize, Debug)]
+#[derive(ToSchema, Clone, PartialEq, Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct RoutingInfo {
+    pub agent_name: String,
+    pub mode_slug: String,
+}
+
+#[derive(ToSchema, Clone, PartialEq, Serialize, Deserialize, Debug)]
 /// Metadata for message visibility
 #[serde(rename_all = "camelCase")]
 pub struct MessageMetadata {
@@ -587,6 +609,8 @@ pub struct MessageMetadata {
     pub user_visible: bool,
     /// Whether the message should be included in the agent's context window
     pub agent_visible: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub routing_info: Option<RoutingInfo>,
 }
 
 impl Default for MessageMetadata {
@@ -594,6 +618,7 @@ impl Default for MessageMetadata {
         MessageMetadata {
             user_visible: true,
             agent_visible: true,
+            routing_info: None,
         }
     }
 }
@@ -604,6 +629,7 @@ impl MessageMetadata {
         MessageMetadata {
             user_visible: false,
             agent_visible: true,
+            routing_info: None,
         }
     }
 
@@ -612,6 +638,7 @@ impl MessageMetadata {
         MessageMetadata {
             user_visible: true,
             agent_visible: false,
+            routing_info: None,
         }
     }
 
@@ -620,38 +647,45 @@ impl MessageMetadata {
         MessageMetadata {
             user_visible: false,
             agent_visible: false,
+            routing_info: None,
         }
     }
 
-    /// Return a copy with agent_visible set to false
-    pub fn with_agent_invisible(self) -> Self {
+    pub fn with_agent_invisible(&self) -> Self {
         Self {
             agent_visible: false,
-            ..self
+            ..self.clone()
         }
     }
 
-    /// Return a copy with user_visible set to false
-    pub fn with_user_invisible(self) -> Self {
+    pub fn with_user_invisible(&self) -> Self {
         Self {
             user_visible: false,
-            ..self
+            ..self.clone()
         }
     }
 
-    /// Return a copy with agent_visible set to true
-    pub fn with_agent_visible(self) -> Self {
+    pub fn with_agent_visible(&self) -> Self {
         Self {
             agent_visible: true,
-            ..self
+            ..self.clone()
         }
     }
 
-    /// Return a copy with user_visible set to true
-    pub fn with_user_visible(self) -> Self {
+    pub fn with_user_visible(&self) -> Self {
         Self {
             user_visible: true,
-            ..self
+            ..self.clone()
+        }
+    }
+
+    pub fn with_routing_info(&self, agent_name: String, mode_slug: String) -> Self {
+        Self {
+            routing_info: Some(RoutingInfo {
+                agent_name,
+                mode_slug,
+            }),
+            ..self.clone()
         }
     }
 }
@@ -839,6 +873,144 @@ impl Message {
             .join("\n")
     }
 
+    /// Strip <tool_call>...</tool_call> and <tool_result>...</tool_result> XML tags
+    /// from text content. Some models emit these as raw text alongside structured tool
+    /// calls, which should not be displayed to users.
+    pub fn strip_tool_call_tags(mut self) -> Self {
+        use regex::Regex;
+        use std::sync::LazyLock;
+
+        static TOOL_CALL_RE: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"(?s)<tool_call>.*?</tool_call>").unwrap());
+        static TOOL_RESULT_RE: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"(?s)<tool_result>.*?</tool_result>").unwrap());
+
+        self.content = self
+            .content
+            .into_iter()
+            .filter_map(|c| {
+                if let MessageContent::Text(ref text) = c {
+                    let cleaned = TOOL_CALL_RE.replace_all(&text.text, "");
+                    let cleaned = TOOL_RESULT_RE.replace_all(&cleaned, "");
+                    // Only trim if tags were actually stripped, to preserve
+                    // whitespace in streaming text deltas
+                    let had_tags = cleaned.len() != text.text.len();
+                    let cleaned = if had_tags {
+                        cleaned.trim().to_string()
+                    } else {
+                        cleaned.into_owned()
+                    };
+                    if cleaned.is_empty() {
+                        None
+                    } else {
+                        Some(MessageContent::text(cleaned))
+                    }
+                } else {
+                    Some(c)
+                }
+            })
+            .collect();
+        self
+    }
+
+    /// Extract `json-render` specs out of assistant text so UIs can render them
+    /// without relying on markdown code fences.
+    ///
+    /// Behavior:
+    /// - If the message contains ```json-render fenced blocks, extract the fenced
+    ///   content into `MessageContent::JsonRenderSpec` and remove it from the text.
+    /// - If the text content appears to be *only* a json-render spec (JSONL patches
+    ///   or JSON object with `root`), convert the whole text into `JsonRenderSpec`.
+    pub fn extract_json_render_specs(mut self) -> Self {
+        if self.role != Role::Assistant {
+            return self;
+        }
+
+        fn looks_like_jsonl_patch(spec: &str) -> bool {
+            let first_line = spec
+                .lines()
+                .find(|l| !l.trim().is_empty())
+                .unwrap_or("")
+                .trim();
+            if !first_line.starts_with('{') {
+                return false;
+            }
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(first_line) else {
+                return false;
+            };
+            v.get("op").and_then(|op| op.as_str()).is_some()
+        }
+
+        fn looks_like_json_render_json(spec: &str) -> bool {
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(spec.trim()) else {
+                return false;
+            };
+            let Some(root) = v.get("root") else {
+                return false;
+            };
+
+            match root {
+                serde_json::Value::String(_) => v.get("elements").is_some(),
+                serde_json::Value::Object(obj) => {
+                    obj.get("type").and_then(|t| t.as_str()).is_some()
+                }
+                _ => false,
+            }
+        }
+
+        fn extract_fenced(text: &str) -> Option<(String, String, String)> {
+            // Returns (before, spec, after)
+            let re = regex::Regex::new(
+                r"(?s)(?P<before>.*?)```json-render\s*\n(?P<spec>.*?)\n```(?P<after>.*)",
+            )
+            .expect("valid regex");
+            let caps = re.captures(text)?;
+            Some((
+                caps.name("before")?.as_str().to_string(),
+                caps.name("spec")?.as_str().to_string(),
+                caps.name("after")?.as_str().to_string(),
+            ))
+        }
+
+        let mut out: Vec<MessageContent> = Vec::new();
+
+        for c in std::mem::take(&mut self.content) {
+            match c {
+                MessageContent::Text(t) => {
+                    let text = t.text.clone();
+
+                    if let Some((before, spec, after)) = extract_fenced(&text) {
+                        if !before.trim().is_empty() {
+                            out.push(MessageContent::text(before.trim().to_string()));
+                        }
+                        if !spec.trim().is_empty() {
+                            out.push(MessageContent::json_render_spec(spec.trim().to_string()));
+                        }
+                        if !after.trim().is_empty() {
+                            out.push(MessageContent::text(after.trim().to_string()));
+                        }
+                        continue;
+                    }
+
+                    let trimmed = text.trim();
+                    if !trimmed.is_empty()
+                        && (looks_like_jsonl_patch(trimmed) || looks_like_json_render_json(trimmed))
+                    {
+                        out.push(MessageContent::json_render_spec(trimmed.to_string()));
+                        continue;
+                    }
+
+                    // Preserve annotations/metadata when no changes are made
+                    out.push(MessageContent::Text(t));
+                }
+                other => out.push(other),
+            }
+        }
+
+        self.content = out;
+        self
+    }
+
     /// Check if the message is a tool call
     pub fn is_tool_call(&self) -> bool {
         self.content
@@ -998,8 +1170,12 @@ mod tests {
             .with_text("Hello, I'll help you with that.")
             .with_tool_request(
                 "tool123",
-                Ok(CallToolRequestParams::new("test_tool")
-                    .with_arguments(object!({"param": "value"}))),
+                Ok(CallToolRequestParams {
+                    meta: None,
+                    task: None,
+                    name: "test_tool".into(),
+                    arguments: Some(object!({"param": "value"})),
+                }),
             );
 
         let json_str = serde_json::to_string_pretty(&message).unwrap();
@@ -1115,7 +1291,10 @@ mod tests {
             text: "Hello, world!".to_string(),
         };
 
-        let prompt_message = PromptMessage::new(PromptMessageRole::User, prompt_content);
+        let prompt_message = PromptMessage {
+            role: PromptMessageRole::User,
+            content: prompt_content,
+        };
 
         let message = Message::from(prompt_message);
 
@@ -1137,7 +1316,10 @@ mod tests {
             .no_annotation(),
         };
 
-        let prompt_message = PromptMessage::new(PromptMessageRole::User, prompt_content);
+        let prompt_message = PromptMessage {
+            role: PromptMessageRole::User,
+            content: prompt_content,
+        };
 
         let message = Message::from(prompt_message);
 
@@ -1166,7 +1348,10 @@ mod tests {
             .no_annotation(),
         };
 
-        let prompt_message = PromptMessage::new(PromptMessageRole::User, prompt_content);
+        let prompt_message = PromptMessage {
+            role: PromptMessageRole::User,
+            content: prompt_content,
+        };
 
         let message = Message::from(prompt_message);
 
@@ -1178,14 +1363,45 @@ mod tests {
     }
 
     #[test]
+    fn test_from_prompt_message_blob_resource() {
+        let resource = ResourceContents::BlobResourceContents {
+            uri: "file:///test.bin".to_string(),
+            mime_type: Some("application/octet-stream".to_string()),
+            blob: "binary_data".to_string(),
+            meta: None,
+        };
+
+        let prompt_content = PromptMessageContent::Resource {
+            resource: RawEmbeddedResource {
+                resource,
+                meta: None,
+            }
+            .no_annotation(),
+        };
+
+        let prompt_message = PromptMessage {
+            role: PromptMessageRole::User,
+            content: prompt_content,
+        };
+
+        let message = Message::from(prompt_message);
+
+        if let MessageContent::Text(text_content) = &message.content[0] {
+            assert_eq!(text_content.text, "[Binary content: binary_data]");
+        } else {
+            panic!("Expected MessageContent::Text");
+        }
+    }
+
+    #[test]
     fn test_from_prompt_message() {
         // Test user message conversion
-        let prompt_message = PromptMessage::new(
-            PromptMessageRole::User,
-            PromptMessageContent::Text {
+        let prompt_message = PromptMessage {
+            role: PromptMessageRole::User,
+            content: PromptMessageContent::Text {
                 text: "Hello, world!".to_string(),
             },
-        );
+        };
 
         let message = Message::from(prompt_message);
         assert_eq!(message.role, Role::User);
@@ -1193,12 +1409,12 @@ mod tests {
         assert_eq!(message.as_concat_text(), "Hello, world!");
 
         // Test assistant message conversion
-        let prompt_message = PromptMessage::new(
-            PromptMessageRole::Assistant,
-            PromptMessageContent::Text {
+        let prompt_message = PromptMessage {
+            role: PromptMessageRole::Assistant,
+            content: PromptMessageContent::Text {
                 text: "I can help with that.".to_string(),
             },
-        );
+        };
 
         let message = Message::from(prompt_message);
         assert_eq!(message.role, Role::Assistant);
@@ -1214,7 +1430,12 @@ mod tests {
 
     #[test]
     fn test_message_with_tool_request() {
-        let tool_call = Ok(CallToolRequestParams::new("test_tool").with_arguments(object!({})));
+        let tool_call = Ok(CallToolRequestParams {
+            meta: None,
+            task: None,
+            name: "test_tool".into(),
+            arguments: Some(object!({})),
+        });
 
         let message = Message::assistant().with_tool_request("req1", tool_call);
         assert!(message.is_tool_call());
@@ -1576,5 +1797,71 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_strip_tool_call_tags_removes_tool_call() {
+        let msg = Message::assistant().with_text(
+            r#"Here is the result
+<tool_call>
+{"name": "shell"}
+</tool_call>"#,
+        );
+        let stripped = msg.strip_tool_call_tags();
+        assert_eq!(stripped.as_concat_text(), "Here is the result");
+    }
+
+    #[test]
+    fn test_strip_tool_call_tags_removes_tool_result() {
+        let msg = Message::assistant().with_text(
+            "Output:
+<tool_result>
+some output
+</tool_result>
+Done.",
+        );
+        let stripped = msg.strip_tool_call_tags();
+        assert_eq!(
+            stripped.as_concat_text(),
+            "Output:
+
+Done."
+        );
+    }
+
+    #[test]
+    fn test_strip_tool_call_tags_removes_both() {
+        let msg = Message::assistant()
+            .with_text(r#"<tool_call>{"name": "test"}</tool_call><tool_result>ok</tool_result>"#);
+        let stripped = msg.strip_tool_call_tags();
+        assert!(stripped.content.is_empty());
+    }
+
+    #[test]
+    fn test_strip_tool_call_tags_preserves_non_text_content() {
+        let msg = Message::assistant()
+            .with_text("<tool_call>remove me</tool_call>")
+            .with_tool_request(
+                "id1",
+                Ok(CallToolRequestParams {
+                    meta: None,
+                    task: None,
+                    name: "test_tool".into(),
+                    arguments: None,
+                }),
+            );
+        let stripped = msg.strip_tool_call_tags();
+        assert_eq!(stripped.content.len(), 1);
+        assert!(matches!(
+            stripped.content[0],
+            MessageContent::ToolRequest(_)
+        ));
+    }
+
+    #[test]
+    fn test_strip_tool_call_tags_no_tags() {
+        let msg = Message::assistant().with_text("Normal text without any tags");
+        let stripped = msg.strip_tool_call_tags();
+        assert_eq!(stripped.as_concat_text(), "Normal text without any tags");
     }
 }

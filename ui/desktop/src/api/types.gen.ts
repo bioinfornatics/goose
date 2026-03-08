@@ -4,6 +4,78 @@ export type ClientOptions = {
     baseUrl: `${string}://${string}` | (string & {});
 };
 
+export type AccuracyTrendPoint = {
+    agentAccuracy: number;
+    date: string;
+    modeAccuracy: number;
+    overallAccuracy: number;
+    runId: string;
+    versionTag: string;
+};
+
+/**
+ * ACP error object.
+ */
+export type AcpError = {
+    code: string;
+    data?: unknown;
+    message: string;
+};
+
+/**
+ * ACP message: role + ordered parts.
+ */
+export type AcpMessage = {
+    parts: Array<AcpMessagePart>;
+    role: AcpRole;
+};
+
+/**
+ * A single part of an ACP message.
+ */
+export type AcpMessagePart = {
+    content?: string | null;
+    content_encoding?: string | null;
+    content_type: string;
+    content_url?: string | null;
+    metadata?: unknown;
+};
+
+/**
+ * ACP role — "user" or "agent" (with optional sub-agent path like "agent/coding").
+ */
+export type AcpRole = 'user' | 'agent';
+
+/**
+ * A run object per ACP v0.2.0 spec.
+ */
+export type AcpRun = {
+    agent_name: string;
+    await_request?: AwaitRequest | null;
+    created_at: string;
+    error?: AcpError | null;
+    finished_at?: string | null;
+    metadata?: unknown;
+    output?: Array<AcpMessage>;
+    run_id: string;
+    session_id?: string | null;
+    status: AcpRunStatus;
+};
+
+/**
+ * Run status per ACP v0.2.0 spec.
+ */
+export type AcpRunStatus = 'created' | 'in_progress' | 'awaiting' | 'completed' | 'cancelled' | 'failed';
+
+/**
+ * ACP session object.
+ */
+export type AcpSession = {
+    history?: Array<string>;
+    id: string;
+    state?: string | null;
+};
+
 export type ActionRequired = {
     data: ActionRequiredData;
 };
@@ -25,15 +97,165 @@ export type ActionRequiredData = {
     user_data: unknown;
 };
 
+/**
+ * A currently active or registered agent with its live status.
+ */
+export type ActiveAgent = {
+    currentTasks: number;
+    kind: ActiveAgentKind;
+    modeCount: number;
+    name: string;
+    status: ActiveAgentStatus;
+};
+
+export type ActiveAgentKind = 'builtin' | 'a2a';
+
+export type ActiveAgentStatus = 'idle' | 'working' | 'disabled' | 'disconnected';
+
+export type ActiveExtensionStat = {
+    extension: string;
+    session_count: number;
+};
+
 export type AddExtensionRequest = {
     config: ExtensionConfig;
     session_id: string;
+};
+
+export type AddOidcProviderRequest = {
+    audience: string;
+    client_secret?: string | null;
+    group_claim?: string | null;
+    issuer: string;
+    required_groups?: Array<string>;
+    tenant_claim?: string | null;
+};
+
+export type AgentCatalogResponse = {
+    agents: Array<CatalogAgent>;
+    total: number;
+};
+
+export type AgentDelta = {
+    agent: string;
+    baselineAccuracy: number;
+    baselineCases: number;
+    candidateAccuracy: number;
+    candidateCases: number;
+    delta: number;
+};
+
+/**
+ * ACP AgentDependency (experimental) — a tool, agent, or model required by this agent.
+ */
+export type AgentDependency = {
+    name: string;
+    type: string;
+};
+
+export type AgentListResponse = {
+    agents: Array<string>;
+};
+
+/**
+ * ACP agent manifest per v0.2.0 spec.
+ *
+ * Each manifest represents one agent persona. Modes are listed in `modes`
+ * following the ACP SessionMode pattern (not flattened into separate agents).
+ */
+export type AgentManifest = {
+    /**
+     * The default mode ID when no explicit mode is requested.
+     */
+    default_mode?: string | null;
+    description: string;
+    input_content_types?: Array<string>;
+    metadata?: AgentMetadata | null;
+    /**
+     * Session modes this agent supports (ACP SessionMode pattern).
+     * Each mode represents a different behavior/persona the agent can adopt
+     * within a session (e.g. "assistant", "architect", "backend").
+     */
+    modes?: Array<AgentModeInfo>;
+    name: string;
+    output_content_types?: Array<string>;
+    status?: AgentStatus | null;
+};
+
+/**
+ * Metadata about an agent.
+ */
+export type AgentMetadata = {
+    /**
+     * ACP-REST Option B: discoverable annotations for roles and behavior modes.
+     * Keys follow the convention "goose.<dimension>" to avoid collisions.
+     */
+    annotations?: {
+        [key: string]: unknown;
+    } | null;
+    author?: Person | null;
+    dependencies?: Array<AgentDependency> | null;
+    links?: Array<Link> | null;
+    recommended_models?: Array<string> | null;
+    version?: string | null;
+};
+
+/**
+ * A mode an agent can operate in (maps to ACP SessionMode).
+ */
+export type AgentModeInfo = {
+    description?: string | null;
+    id: string;
+    name: string;
+    /**
+     * Tool groups this mode has access to.
+     */
+    tool_groups?: Array<string>;
+};
+
+/**
+ * Agent performance metrics extracted from session data
+ */
+export type AgentPerformanceMetrics = {
+    active_extensions: Array<ActiveExtensionStat>;
+    avg_messages_per_session: number;
+    avg_tokens_per_session: number;
+    avg_tools_per_session: number;
+    session_duration_stats: DurationStats;
+    sessions_by_provider: Array<ProviderSessionStat>;
+};
+
+export type AgentResult = {
+    accuracy: number;
+    agent: string;
+    fail: number;
+    pass: number;
+};
+
+/**
+ * Runtime status metrics for an agent.
+ */
+export type AgentStatus = {
+    avg_run_time_seconds?: number | null;
+    avg_run_tokens?: number | null;
+    success_rate?: number | null;
+};
+
+export type AgentsListResponse = {
+    agents: Array<AgentManifest>;
 };
 
 export type Annotations = {
     audience?: Array<Role>;
     lastModified?: string;
     priority?: number;
+};
+
+export type AuthStatusResponse = {
+    issuers: Array<string>;
+    oidc_enabled: boolean;
+    provider_count: number;
+    security_mode: string;
 };
 
 export type Author = {
@@ -44,6 +266,50 @@ export type Author = {
 export type AuthorRequest = {
     contact?: string | null;
     metadata?: string | null;
+};
+
+/**
+ * Generic await request — sent when run enters "awaiting" state.
+ */
+export type AwaitRequest = {
+    message?: string | null;
+    metadata?: unknown;
+    schema?: unknown;
+    type: string;
+};
+
+/**
+ * Generic await resume — sent by client to resume an awaiting run.
+ */
+export type AwaitResume = {
+    data?: unknown;
+    metadata?: unknown;
+};
+
+export type BindExtensionRequest = {
+    extension_name: string;
+};
+
+export type BuiltinAgentInfo = {
+    bound_extensions: Array<string>;
+    default_mode: string;
+    description: string;
+    enabled: boolean;
+    modes: Array<BuiltinAgentMode>;
+    name: string;
+    status: string;
+};
+
+export type BuiltinAgentMode = {
+    description: string;
+    name: string;
+    recommended_extensions: Array<string>;
+    slug: string;
+    tool_groups: Array<string>;
+};
+
+export type BuiltinAgentsResponse = {
+    agents: Array<BuiltinAgentInfo>;
 };
 
 export type CallToolRequest = {
@@ -59,13 +325,41 @@ export type CallToolResponse = {
     structured_content?: unknown;
 };
 
+export type CatalogAgent = {
+    capabilities: Array<string>;
+    default_mode: string;
+    description: string;
+    id: string;
+    kind: CatalogAgentKind;
+    modes: Array<CatalogAgentMode>;
+    name: string;
+    status: CatalogAgentStatus;
+    url?: string | null;
+};
+
+export type CatalogAgentKind = 'builtin' | 'external' | 'a2a';
+
+export type CatalogAgentMode = {
+    description: string;
+    name: string;
+    slug: string;
+    tool_groups: Array<string>;
+};
+
+export type CatalogAgentStatus = 'active' | 'disabled' | 'connected' | 'unreachable';
+
 export type ChatRequest = {
+    conversation_so_far?: Array<Message> | null;
     /**
-     * Override the server's conversation history. Only use this when you need absolute control
-     * over the conversation state (e.g., administrative tools). For normal operations, the server
-     * is the source of truth - use truncate/fork endpoints to modify conversation history instead.
+     * Optional mode: "plan" returns a structured plan without executing,
+     * "execute_plan" executes a previously confirmed plan.
+     * None or absent = normal reply flow.
      */
-    override_conversation?: Array<Message> | null;
+    mode?: string | null;
+    /**
+     * The confirmed plan to execute (only used when mode = "execute_plan").
+     */
+    plan?: unknown;
     recipe_name?: string | null;
     recipe_version?: string | null;
     session_id: string;
@@ -96,11 +390,6 @@ export type ConfigKey = {
      */
     oauth_flow: boolean;
     /**
-     * Whether this key should be shown prominently during provider setup
-     * (onboarding, settings modal, CLI configure)
-     */
-    primary?: boolean;
-    /**
      * Whether this key is required for the provider to function
      */
     required: boolean;
@@ -128,9 +417,37 @@ export type ConfirmToolActionRequest = {
     sessionId: string;
 };
 
+export type ConfusionMatrix = {
+    labels: Array<string>;
+    matrix: Array<Array<number>>;
+};
+
+export type ConnectAgentRequest = {
+    name: string;
+};
+
+export type ConnectAgentResponse = {
+    agent_id: string;
+    connected: boolean;
+};
+
 export type Content = RawTextContent | RawImageContent | RawEmbeddedResource | RawAudioContent | RawResource;
 
 export type Conversation = Array<Message>;
+
+export type CorrelationInsight = {
+    gooseVersionDelta: string;
+    summary: string;
+    versionChanged: boolean;
+    versionTagDelta: string;
+};
+
+export type CreateDatasetRequest = {
+    cases: Array<CreateTestCaseRequest>;
+    description?: string;
+    name: string;
+    tags?: Array<string>;
+};
 
 export type CreateRecipeRequest = {
     author?: AuthorRequest | null;
@@ -148,34 +465,67 @@ export type CreateScheduleRequest = {
     recipe: Recipe;
 };
 
+export type CreateSessionRequest = {
+    working_dir?: string | null;
+};
+
+export type CreateSessionResponse = {
+    session_id: string;
+};
+
+export type CreateTestCaseRequest = {
+    expectedAgent: string;
+    expectedMode: string;
+    input: string;
+    tags?: Array<string>;
+};
+
 /**
  * Content Security Policy metadata for MCP Apps
  * Specifies allowed domains for network connections and resource loading
  */
 export type CspMetadata = {
     /**
-     * Domains allowed for base-uri
-     */
-    baseUriDomains?: Array<string> | null;
-    /**
      * Domains allowed for connect-src (fetch, XHR, WebSocket)
      */
     connectDomains?: Array<string> | null;
-    /**
-     * Domains allowed for frame-src (nested iframes)
-     */
-    frameDomains?: Array<string> | null;
     /**
      * Domains allowed for resource loading (scripts, styles, images, fonts, media)
      */
     resourceDomains?: Array<string> | null;
 };
 
+export type DailyActivity = {
+    date: string;
+    inputTokens: number;
+    messages: number;
+    outputTokens: number;
+    sessions: number;
+    totalTokens: number;
+};
+
+export type DailyQuality = {
+    avg_duration_secs: number;
+    avg_messages: number;
+    date: string;
+    error_rate: number;
+    retry_rate: number;
+    sessions: number;
+};
+
+/**
+ * Daily tool activity
+ */
+export type DailyToolActivity = {
+    date: string;
+    tool_calls: number;
+    tool_errors: number;
+    unique_tools: number;
+};
+
 export type DeclarativeProviderConfig = {
     api_key_env?: string;
-    base_path?: string | null;
     base_url: string;
-    catalog_provider_id?: string | null;
     description?: string | null;
     display_name: string;
     engine: ProviderEngine;
@@ -239,11 +589,29 @@ export type DictationProviderStatus = {
     uses_provider_config: boolean;
 };
 
-export type DownloadModelRequest = {
-    /**
-     * Model spec like "bartowski/Llama-3.2-3B-Instruct-GGUF:Q4_K_M"
-     */
-    spec: string;
+export type DirectoryUsage = {
+    directory: string;
+    sessions: number;
+};
+
+export type DiscoverAgentRequest = {
+    url: string;
+};
+
+export type DiscoverAgentResponse = {
+    description: string;
+    name: string;
+    protocol_version?: string | null;
+    skills: Array<DiscoveredSkill>;
+    url: string;
+    version?: string | null;
+};
+
+export type DiscoveredSkill = {
+    description: string;
+    id: string;
+    name: string;
+    tags: Array<string>;
 };
 
 export type DownloadProgress = {
@@ -280,6 +648,12 @@ export type DownloadProgress = {
 
 export type DownloadStatus = 'downloading' | 'completed' | 'failed' | 'cancelled';
 
+export type DurationStats = {
+    avg_seconds: number;
+    median_seconds: number;
+    p90_seconds: number;
+};
+
 export type EmbeddedResource = {
     _meta?: {
         [key: string]: unknown;
@@ -304,6 +678,102 @@ export type Envs = {
 
 export type ErrorResponse = {
     message: string;
+};
+
+export type EvalDataset = {
+    cases: Array<EvalTestCase>;
+    createdAt: string;
+    description: string;
+    id: string;
+    name: string;
+    tags: Array<string>;
+    updatedAt: string;
+};
+
+export type EvalDatasetSummary = {
+    caseCount: number;
+    createdAt: string;
+    description: string;
+    id: string;
+    lastRunAccuracy?: number | null;
+    lastRunAt?: string | null;
+    name: string;
+    tags: Array<string>;
+    updatedAt: string;
+};
+
+export type EvalOverview = {
+    accuracyDelta: number;
+    accuracyTrend: Array<AccuracyTrendPoint>;
+    agentAccuracy: number;
+    agentAccuracyDelta: number;
+    lastRunAt?: string | null;
+    lastRunStatus: string;
+    modeAccuracy: number;
+    modeAccuracyDelta: number;
+    overallAccuracy: number;
+    perAgentAccuracy: Array<AgentResult>;
+    regressions: Array<RegressionAlert>;
+    totalRuns: number;
+    totalTestCases: number;
+};
+
+export type EvalRunDetail = {
+    agentAccuracy: number;
+    agentCorrect: number;
+    confusionMatrix: ConfusionMatrix;
+    correct: number;
+    datasetId: string;
+    datasetName: string;
+    durationMs: number;
+    failures: Array<FailureDetail>;
+    gooseVersion: string;
+    id: string;
+    modeAccuracy: number;
+    overallAccuracy: number;
+    perAgent: Array<AgentResult>;
+    startedAt: string;
+    status: string;
+    totalCases: number;
+    versionTag: string;
+};
+
+export type EvalRunSummary = {
+    agentAccuracy: number;
+    correct: number;
+    datasetId: string;
+    datasetName: string;
+    durationMs: number;
+    gooseVersion: string;
+    id: string;
+    modeAccuracy: number;
+    overallAccuracy: number;
+    startedAt: string;
+    status: string;
+    totalCases: number;
+    versionTag: string;
+};
+
+export type EvalTestCase = {
+    expectedAgent: string;
+    expectedMode: string;
+    id: string;
+    input: string;
+    tags: Array<string>;
+};
+
+/**
+ * Request body for executing a pipeline.
+ */
+export type ExecutePipelineRequest = {
+    /**
+     * Maximum number of concurrent tasks (default: 4)
+     */
+    max_concurrency?: number;
+    /**
+     * Optional session ID for agent context
+     */
+    session_id?: string | null;
 };
 
 /**
@@ -433,6 +903,33 @@ export type ExtensionResponse = {
     warnings?: Array<string>;
 };
 
+/**
+ * Per-extension usage statistics
+ */
+export type ExtensionUsageStat = {
+    extension: string;
+    success_rate: number;
+    tool_count: number;
+    total_calls: number;
+    total_errors: number;
+};
+
+export type FailureDetail = {
+    actualAgent: string;
+    actualMode: string;
+    confidence: number;
+    expectedAgent: string;
+    expectedMode: string;
+    input: string;
+    tags: Array<string>;
+};
+
+export type FixedCase = {
+    agent: string;
+    input: string;
+    mode: string;
+};
+
 export type ForkRequest = {
     copy: boolean;
     timestamp?: number | null;
@@ -450,6 +947,21 @@ export type FrontendToolRequest = {
     };
 };
 
+export type GetPromptRequest = {
+    arguments?: unknown;
+    name: string;
+    session_id: string;
+};
+
+export type GetPromptResponse = {
+    description?: string | null;
+    messages: Array<unknown>;
+};
+
+export type GetPromptsQuery = {
+    session_id: string;
+};
+
 export type GetToolsQuery = {
     extension_name?: string | null;
     session_id: string;
@@ -460,34 +972,12 @@ export type GooseApp = McpAppResource & (WindowProps | null) & {
     prd?: string | null;
 };
 
-/**
- * A single downloadable GGUF file (used internally and for downloads).
- */
-export type HfGgufFile = {
-    download_url: string;
-    filename: string;
-    quantization: string;
-    size_bytes: number;
-};
+export type HealthStatus = 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY';
 
-export type HfModelInfo = {
-    author: string;
-    downloads: number;
-    gguf_files: Array<HfGgufFile>;
-    model_name: string;
-    repo_id: string;
-};
-
-/**
- * A quantization variant — groups sharded files into one logical entry.
- */
-export type HfQuantVariant = {
-    description: string;
-    download_url: string;
-    filename: string;
-    quality_rank: number;
-    quantization: string;
-    size_bytes: number;
+export type HotTool = {
+    calls_1h: number;
+    errors_1h: number;
+    tool_name: string;
 };
 
 export type Icon = {
@@ -526,12 +1016,51 @@ export type InspectJobResponse = {
     sessionId?: string | null;
 };
 
+/**
+ * Response for instance creation and status queries.
+ */
+export type InstanceResponse = {
+    elapsed_secs: number;
+    id: string;
+    last_activity_ms: number;
+    model_name: string;
+    persona: string;
+    provider_name: string;
+    status: string;
+    turns: number;
+};
+
+/**
+ * Response for instance results.
+ */
+export type InstanceResultResponse = {
+    duration_secs: number;
+    error?: string | null;
+    id: string;
+    output?: string | null;
+    persona: string;
+    status: string;
+    turns_taken: number;
+};
+
 export type JsonObject = {
     [key: string]: unknown;
 };
 
+export type JsonRenderSpecContent = {
+    spec: string;
+};
+
 export type KillJobResponse = {
     message: string;
+};
+
+/**
+ * A link reference.
+ */
+export type Link = {
+    title?: string | null;
+    url: string;
 };
 
 export type ListAppsRequest = {
@@ -550,20 +1079,109 @@ export type ListSchedulesResponse = {
     jobs: Array<ScheduledJob>;
 };
 
+/**
+ * Summary of a live MCP extension connection
+ */
+export type LiveExtensionInfo = {
+    /**
+     * Whether the MCP connection is active
+     */
+    connected: boolean;
+    /**
+     * Extension name (e.g. "developer", "memory", "fetch")
+     */
+    name: string;
+};
+
+/**
+ * Response for listing live extensions
+ */
+export type LiveExtensionsResponse = {
+    /**
+     * Total count
+     */
+    count: number;
+    /**
+     * List of active extensions
+     */
+    extensions: Array<LiveExtensionInfo>;
+};
+
+/**
+ * Live monitoring metrics — recent activity snapshot
+ */
+export type LiveMetrics = {
+    /**
+     * Active sessions in the last hour
+     */
+    active_sessions_1h: number;
+    /**
+     * Active sessions in the last 24 hours
+     */
+    active_sessions_24h: number;
+    /**
+     * Per-minute activity for the last 60 minutes
+     */
+    activity_timeline: Array<MinuteActivity>;
+    /**
+     * Most active tools in the last hour
+     */
+    hot_tools: Array<HotTool>;
+    /**
+     * Messages processed in the last hour
+     */
+    messages_1h: number;
+    /**
+     * Recent errors (last 10)
+     */
+    recent_errors: Array<RecentError>;
+    /**
+     * Success rate in the last hour (0.0-1.0)
+     */
+    success_rate_1h: number;
+    /**
+     * Tool calls in the last hour
+     */
+    tool_calls_1h: number;
+    /**
+     * Tool calls in the last 24 hours
+     */
+    tool_calls_24h: number;
+    /**
+     * Tool errors in the last hour
+     */
+    tool_errors_1h: number;
+    /**
+     * Tool errors in the last 24 hours
+     */
+    tool_errors_24h: number;
+};
+
 export type LoadedProvider = {
     config: DeclarativeProviderConfig;
     is_editable: boolean;
 };
 
-export type LocalModelResponse = {
-    filename: string;
-    id: string;
-    quantization: string;
-    recommended: boolean;
-    repo_id: string;
-    settings: ModelSettings;
-    size_bytes: number;
-    status: ModelDownloadStatus;
+export type LoginRequest = {
+    /**
+     * API key for authentication
+     */
+    api_key?: string | null;
+    /**
+     * Display name (optional, for guest upgrade)
+     */
+    display_name?: string | null;
+};
+
+export type LoginResponse = {
+    expires_in: number;
+    token: string;
+    token_type: string;
+    user: UserInfoResponse;
+};
+
+export type LogoutResponse = {
+    success: boolean;
 };
 
 /**
@@ -616,6 +1234,8 @@ export type MessageContent = (TextContent & {
     type: 'text';
 }) | (ImageContent & {
     type: 'image';
+}) | (JsonRenderSpecContent & {
+    type: 'jsonRenderSpec';
 }) | (ToolRequest & {
     type: 'toolRequest';
 }) | (ToolResponse & {
@@ -632,8 +1252,6 @@ export type MessageContent = (TextContent & {
     type: 'redactedThinking';
 }) | (SystemNotificationContent & {
     type: 'systemNotification';
-}) | (ReasoningContent & {
-    type: 'reasoning';
 });
 
 export type MessageEvent = {
@@ -652,6 +1270,12 @@ export type MessageEvent = {
     model: string;
     type: 'ModelChange';
 } | {
+    agent_name: string;
+    confidence: number;
+    mode_slug: string;
+    reasoning: string;
+    type: 'RoutingDecision';
+} | {
     message: {
         [key: string]: unknown;
     };
@@ -660,6 +1284,15 @@ export type MessageEvent = {
 } | {
     conversation: Conversation;
     type: 'UpdateConversation';
+} | {
+    current_count: number;
+    previous_count: number;
+    type: 'ToolAvailabilityChange';
+} | {
+    clarifying_questions?: Array<string> | null;
+    is_compound: boolean;
+    tasks: Array<PlanTask>;
+    type: 'PlanProposal';
 } | {
     type: 'Ping';
 };
@@ -672,24 +1305,25 @@ export type MessageMetadata = {
      * Whether the message should be included in the agent's context window
      */
     agentVisible: boolean;
+    routingInfo?: RoutingInfo | null;
     /**
      * Whether the message should be visible to the user in the UI
      */
     userVisible: boolean;
 };
 
-export type ModelCapabilities = {
-    attachment: boolean;
-    reasoning: boolean;
-    temperature: boolean;
-    tool_call: boolean;
+export type MinuteActivity = {
+    messages: number;
+    minute: string;
+    tool_calls: number;
 };
 
 export type ModelConfig = {
     context_limit?: number | null;
+    fast_model?: string | null;
     max_tokens?: number | null;
     model_name: string;
-    reasoning?: boolean | null;
+    reasoning_effort?: ReasoningEffort | null;
     /**
      * Provider-specific request parameters (e.g., anthropic_beta headers)
      */
@@ -699,18 +1333,6 @@ export type ModelConfig = {
     temperature?: number | null;
     toolshim: boolean;
     toolshim_model?: string | null;
-};
-
-export type ModelDownloadStatus = {
-    state: 'NotDownloaded';
-} | {
-    bytes_downloaded: number;
-    progress_percent: number;
-    speed_bps?: number | null;
-    state: 'Downloading';
-    total_bytes: number;
-} | {
-    state: 'Downloaded';
 };
 
 /**
@@ -743,51 +1365,148 @@ export type ModelInfo = {
     supports_cache_control?: boolean | null;
 };
 
-export type ModelInfoData = {
-    cache_read_token_cost?: number | null;
-    cache_write_token_cost?: number | null;
-    context_limit: number;
-    currency: string;
-    input_token_cost?: number | null;
-    max_output_tokens?: number | null;
-    model: string;
-    output_token_cost?: number | null;
-    provider: string;
+export type NodeKind = 'trigger' | 'agent' | 'tool' | 'condition' | 'transform' | 'human' | 'a2a';
+
+export type NodePosition = {
+    x: number;
+    y: number;
 };
 
-export type ModelInfoQuery = {
-    model: string;
-    provider: string;
+/**
+ * Unified Observatory dashboard — system health + active agents + performance snapshot.
+ */
+export type ObservatoryDashboard = {
+    activeAgents: Array<ActiveAgent>;
+    health: SystemHealth;
+    performance: PerformanceSnapshot;
 };
 
-export type ModelInfoResponse = {
-    model_info?: ModelInfoData | null;
-    source: string;
+export type OidcAuthUrlRequest = {
+    /**
+     * OIDC provider issuer (e.g. "https://accounts.google.com")
+     */
+    issuer: string;
+    /**
+     * Redirect URI for the callback (e.g. "http://localhost:PORT/callback")
+     */
+    redirect_uri: string;
+    /**
+     * Optional scopes (defaults to "openid profile email")
+     */
+    scopes?: Array<string> | null;
 };
 
-export type ModelSettings = {
-    context_size?: number | null;
-    flash_attention?: boolean | null;
-    frequency_penalty?: number;
-    max_output_tokens?: number | null;
-    n_batch?: number | null;
-    n_gpu_layers?: number | null;
-    n_threads?: number | null;
-    native_tool_calling?: boolean;
-    presence_penalty?: number;
-    repeat_last_n?: number;
-    repeat_penalty?: number;
-    sampling?: SamplingConfig;
-    use_jinja?: boolean;
-    use_mlock?: boolean;
+export type OidcAuthUrlResponse = {
+    /**
+     * The full authorization URL to redirect the user to
+     */
+    auth_url: string;
+    /**
+     * The nonce parameter (for replay protection)
+     */
+    nonce: string;
+    /**
+     * The state parameter (for CSRF protection)
+     */
+    state: string;
 };
 
-export type ModelTemplate = {
-    capabilities: ModelCapabilities;
-    context_limit: number;
-    deprecated: boolean;
-    id: string;
+export type OidcCodeExchangeRequest = {
+    /**
+     * The authorization code from the OIDC callback
+     */
+    code: string;
+    /**
+     * OIDC provider issuer (e.g. "https://accounts.google.com")
+     */
+    issuer: string;
+    /**
+     * The redirect URI used in the original authorization request
+     */
+    redirect_uri: string;
+};
+
+export type OidcCodeExchangeResponse = {
+    expires_in: number;
+    /**
+     * OIDC refresh token (if the provider issued one). Store this for automatic token refresh.
+     */
+    refresh_token?: string | null;
+    token: string;
+    token_type: string;
+    user: UserInfoResponse;
+};
+
+export type OidcLoginRequest = {
+    /**
+     * The raw ID token from the OIDC provider (obtained via authorization code flow)
+     */
+    id_token: string;
+};
+
+export type OidcLoginResponse = {
+    expires_in: number;
+    token: string;
+    token_type: string;
+    user: UserInfoResponse;
+};
+
+export type OidcProviderInfo = {
+    audience: string;
+    group_claim?: string | null;
+    issuer: string;
+    required_groups: Array<string>;
+    tenant_claim?: string | null;
+};
+
+export type OidcProvidersResponse = {
+    providers: Array<OidcProviderInfo>;
+};
+
+/**
+ * Request to refresh OIDC tokens using a stored refresh_token.
+ */
+export type OidcRefreshRequest = {
+    /**
+     * The OIDC provider issuer (e.g. "https://accounts.google.com")
+     */
+    issuer: string;
+};
+
+/**
+ * Response from OIDC token refresh.
+ */
+export type OidcRefreshResponse = {
+    /**
+     * Seconds until the session token expires
+     */
+    expires_in: number;
+    /**
+     * Whether a new refresh_token was issued (provider-dependent)
+     */
+    refresh_token_rotated: boolean;
+    /**
+     * New session JWT
+     */
+    token: string;
+    /**
+     * Token type (always "Bearer")
+     */
+    token_type: string;
+};
+
+export type OrchestratorAgentInfo = {
+    default_mode: string;
+    enabled: boolean;
+    mode_count: number;
     name: string;
+};
+
+export type OrchestratorStatus = {
+    agents: Array<OrchestratorAgentInfo>;
+    enabled: boolean;
+    routing_mode: string;
+    total_modes: number;
 };
 
 export type ParseRecipeRequest = {
@@ -796,6 +1515,17 @@ export type ParseRecipeRequest = {
 
 export type ParseRecipeResponse = {
     recipe: Recipe;
+};
+
+/**
+ * Aggregated performance snapshot for the dashboard.
+ */
+export type PerformanceSnapshot = {
+    avgMessagesPerSession: number;
+    toolErrorRate24h: number;
+    topTools: Array<TopTool>;
+    totalSessions24h: number;
+    totalToolCalls24h: number;
 };
 
 export type Permission = 'always_allow' | 'allow_once' | 'cancel' | 'deny_once' | 'always_deny';
@@ -829,7 +1559,132 @@ export type PermissionsMetadata = {
     microphone?: boolean;
 };
 
+/**
+ * A person reference.
+ */
+export type Person = {
+    name: string;
+    url?: string | null;
+};
+
+/**
+ * Summary for the /a2a/agents listing endpoint.
+ */
+export type PersonaSummary = {
+    description: string;
+    name: string;
+    skills_count: number;
+    slug: string;
+};
+
+export type Pipeline = {
+    api_version?: string;
+    description?: string;
+    edges?: Array<PipelineEdge>;
+    kind?: string;
+    layout?: PipelineLayout | null;
+    name: string;
+    nodes: Array<PipelineNode>;
+    tags?: Array<string>;
+    version?: string;
+};
+
+export type PipelineEdge = {
+    condition?: string | null;
+    label?: string | null;
+    source: string;
+    target: string;
+};
+
+export type PipelineLayout = {
+    viewport?: Viewport | null;
+};
+
+export type PipelineManifest = {
+    description: string;
+    edge_count: number;
+    file_path: string;
+    id: string;
+    last_modified: string;
+    name: string;
+    node_count: number;
+    tags: Array<string>;
+    version: string;
+};
+
+export type PipelineNode = {
+    condition?: string | null;
+    config?: {
+        [key: string]: unknown;
+    };
+    id: string;
+    kind: NodeKind;
+    label: string;
+    position?: NodePosition | null;
+};
+
+/**
+ * A task within a plan proposal, serializable for SSE transport.
+ */
+export type PlanTask = {
+    agent_name: string;
+    confidence: number;
+    depends_on?: Array<string>;
+    description: string;
+    mode_name: string;
+    mode_slug: string;
+    reasoning: string;
+    task_id: string;
+    tool_groups: Array<string>;
+};
+
+export type PricingData = {
+    context_length?: number | null;
+    currency: string;
+    input_token_cost: number;
+    model: string;
+    output_token_cost: number;
+    provider: string;
+};
+
+export type PricingQuery = {
+    model: string;
+    provider: string;
+};
+
+export type PricingResponse = {
+    pricing: Array<PricingData>;
+    source: string;
+};
+
 export type PrincipalType = 'Extension' | 'Tool';
+
+export type Prompt = {
+    _meta?: {
+        [key: string]: unknown;
+    };
+    arguments?: Array<PromptArgument>;
+    description?: string;
+    icons?: Array<Icon>;
+    name: string;
+    title?: string;
+};
+
+export type PromptAgentRequest = {
+    session_id: string;
+    text: string;
+};
+
+export type PromptAgentResponse = {
+    text: string;
+};
+
+export type PromptArgument = {
+    description?: string;
+    name: string;
+    required?: boolean;
+    title?: string;
+};
 
 export type PromptContentResponse = {
     content: string;
@@ -840,16 +1695,6 @@ export type PromptContentResponse = {
 
 export type PromptsListResponse = {
     prompts: Array<Template>;
-};
-
-export type ProviderCatalogEntry = {
-    api_url: string;
-    doc_url: string;
-    env_var: string;
-    format: string;
-    id: string;
-    model_count: number;
-    name: string;
 };
 
 export type ProviderDetails = {
@@ -865,6 +1710,10 @@ export type ProviderEngine = 'openai' | 'ollama' | 'anthropic';
  * Metadata about a provider's configuration requirements and capabilities
  */
 export type ProviderMetadata = {
+    /**
+     * Whether this provider allows entering model names not in the fetched list
+     */
+    allows_unlisted_models?: boolean;
     /**
      * Required configuration keys
      */
@@ -895,18 +1744,30 @@ export type ProviderMetadata = {
     name: string;
 };
 
-export type ProviderTemplate = {
-    api_url: string;
-    doc_url: string;
-    env_var: string;
-    format: string;
-    id: string;
-    models: Array<ModelTemplate>;
-    name: string;
-    supports_streaming: boolean;
+export type ProviderQuality = {
+    avg_duration_secs: number;
+    avg_messages: number;
+    avg_tokens: number;
+    error_rate: number;
+    provider: string;
+    retry_rate: number;
+    sessions: number;
+};
+
+export type ProviderSessionStat = {
+    avg_messages: number;
+    avg_tokens: number;
+    provider: string;
+    session_count: number;
 };
 
 export type ProviderType = 'Preferred' | 'Builtin' | 'Declarative' | 'Custom';
+
+export type ProviderUsage = {
+    provider: string;
+    sessions: number;
+    totalTokens: number;
+};
 
 export type ProvidersResponse = {
     providers: Array<ProviderDetails>;
@@ -967,8 +1828,45 @@ export type ReadResourceResponse = {
     uri: string;
 };
 
-export type ReasoningContent = {
-    text: string;
+/**
+ * Controls how much reasoning/thinking effort the model applies.
+ *
+ * Maps to provider-specific parameters:
+ * - OpenAI o-series: `reasoning_effort` ("low"/"medium"/"high")
+ * - Anthropic Claude: `thinking.budget_tokens` (scaled by effort level)
+ * - Google Gemini: `thinkingConfig.thinkingBudget`
+ */
+export type ReasoningEffort = 'low' | 'medium' | 'high';
+
+/**
+ * A single per-agent/mode reasoning effort override
+ */
+export type ReasoningEffortOverride = {
+    /**
+     * Key in "agent_slug/mode_slug" format, e.g. "developer/write"
+     */
+    key: string;
+    /**
+     * Reasoning effort level: "low", "medium", or "high"
+     */
+    level: string;
+};
+
+/**
+ * Response containing all per-agent/mode overrides
+ */
+export type ReasoningEffortOverridesResponse = {
+    overrides: Array<ReasoningEffortOverride>;
+};
+
+export type ReasoningEffortResponse = {
+    level?: string | null;
+};
+
+export type RecentError = {
+    session_id: string;
+    timestamp: string;
+    tool_name: string;
 };
 
 export type Recipe = {
@@ -1021,14 +1919,31 @@ export type RedactedThinkingContent = {
     data: string;
 };
 
+export type RefreshRequest = {
+    token: string;
+};
+
+export type RefreshResponse = {
+    expires_in: number;
+    token: string;
+    token_type: string;
+};
+
+export type RegressionAlert = {
+    delta: number;
+    description: string;
+    runId: string;
+    severity: string;
+    versionTag: string;
+};
+
 export type RemoveExtensionRequest = {
     name: string;
     session_id: string;
 };
 
-export type RepoVariantsResponse = {
-    recommended_index?: number | null;
-    variants: Array<HfQuantVariant>;
+export type RemoveOidcProviderRequest = {
+    issuer: string;
 };
 
 export type ResourceContents = {
@@ -1056,6 +1971,23 @@ export type ResourceMetadata = {
 
 export type Response = {
     json_schema?: unknown;
+};
+
+/**
+ * Response quality proxy metrics derived from session/message patterns
+ */
+export type ResponseQualityMetrics = {
+    avg_messages_per_session: number;
+    avg_session_duration_secs: number;
+    avg_tokens_per_session: number;
+    avg_tool_errors_per_session: number;
+    avg_user_messages_per_session: number;
+    completion_rate: number;
+    daily_quality: Array<DailyQuality>;
+    quality_by_provider: Array<ProviderQuality>;
+    retry_rate: number;
+    sessions_with_errors: number;
+    total_sessions: number;
 };
 
 export type RestartAgentRequest = {
@@ -1104,24 +2036,79 @@ export type RetryConfig = {
 
 export type Role = string;
 
+export type RoutingInfo = {
+    agentName: string;
+    modeSlug: string;
+};
+
+export type RunComparison = {
+    agentDelta: number;
+    baseline: RunComparisonSide;
+    candidate: RunComparisonSide;
+    correlation: CorrelationInsight;
+    fixedCases: Array<FixedCase>;
+    modeDelta: number;
+    newFailures: Array<FailureDetail>;
+    overallDelta: number;
+    perAgentDelta: Array<AgentDelta>;
+};
+
+export type RunComparisonSide = {
+    agentAccuracy: number;
+    correct: number;
+    datasetName: string;
+    gooseVersion: string;
+    modeAccuracy: number;
+    overallAccuracy: number;
+    runId: string;
+    startedAt: string;
+    totalCases: number;
+    versionTag: string;
+};
+
+/**
+ * Request payload for creating a new run.
+ */
+export type RunCreateRequest = {
+    agent_name: string;
+    input: Array<AcpMessage>;
+    metadata?: unknown;
+    mode?: RunMode;
+    session_id?: string | null;
+};
+
+export type RunEvalRequest = {
+    datasetId: string;
+    sessionId?: string | null;
+    versionTag?: string;
+};
+
+/**
+ * Run mode per ACP v0.2.0 spec.
+ */
+export type RunMode = 'sync' | 'async' | 'stream';
+
 export type RunNowResponse = {
     session_id: string;
 };
 
-export type SamplingConfig = {
-    type: 'Greedy';
-} | {
-    min_p: number;
-    seed?: number | null;
-    temperature: number;
-    top_k: number;
-    top_p: number;
-    type: 'Temperature';
-} | {
-    eta: number;
-    seed?: number | null;
-    tau: number;
-    type: 'MirostatV2';
+/**
+ * Request payload for resuming an awaiting run.
+ */
+export type RunResumeRequest = {
+    await_resume: AwaitResume;
+    mode: RunMode;
+    run_id: string;
+};
+
+export type SavePipelineRequest = {
+    id?: string | null;
+    pipeline: Pipeline;
+};
+
+export type SavePipelineResponse = {
+    file_path: string;
+    id: string;
 };
 
 export type SavePromptRequest = {
@@ -1178,13 +2165,29 @@ export type Session = {
     recipe?: Recipe | null;
     schedule_id?: string | null;
     session_type?: SessionType;
+    tenant_id?: string | null;
     total_tokens?: number | null;
     updated_at: string;
+    user_id?: string | null;
     user_recipe_values?: {
         [key: string]: string;
     } | null;
     user_set_name?: boolean;
     working_dir: string;
+};
+
+export type SessionAnalytics = {
+    activeDays: number;
+    avgMessagesPerSession: number;
+    avgTokensPerSession: number;
+    dailyActivity: Array<DailyActivity>;
+    providerUsage: Array<ProviderUsage>;
+    topDirectories: Array<DirectoryUsage>;
+    totalInputTokens: number;
+    totalMessages: number;
+    totalOutputTokens: number;
+    totalSessions: number;
+    totalTokens: number;
 };
 
 export type SessionDisplayInfo = {
@@ -1218,15 +2221,47 @@ export type SessionListResponse = {
     sessions: Array<Session>;
 };
 
-export type SessionType = 'user' | 'scheduled' | 'sub_agent' | 'hidden' | 'terminal' | 'gateway';
+/**
+ * Tool summary for a specific session
+ */
+export type SessionToolSummary = {
+    created_at: string;
+    most_used_tool: string;
+    session_id: string;
+    session_name: string;
+    tool_calls: number;
+    tool_errors: number;
+    unique_tools: number;
+};
+
+export type SessionType = 'user' | 'scheduled' | 'specialist' | 'hidden' | 'terminal';
 
 export type SessionsQuery = {
     limit: number;
 };
 
+export type SetModeAgentRequest = {
+    mode_id: string;
+    session_id: string;
+};
+
 export type SetProviderRequest = {
     model: string;
     provider: string;
+};
+
+/**
+ * Request to set per-agent/mode overrides (full replace)
+ */
+export type SetReasoningEffortOverridesRequest = {
+    overrides: Array<ReasoningEffortOverride>;
+};
+
+export type SetReasoningEffortRequest = {
+    /**
+     * "low", "medium", "high", or null to clear
+     */
+    level?: string | null;
 };
 
 export type SetSlashCommandRequest = {
@@ -1254,6 +2289,17 @@ export type SlashCommand = {
 
 export type SlashCommandsResponse = {
     commands: Array<SlashCommand>;
+};
+
+/**
+ * Request body for POST /a2a/instances
+ */
+export type SpawnInstanceRequest = {
+    instructions?: string | null;
+    max_turns?: number | null;
+    model?: string | null;
+    persona: string;
+    provider?: string | null;
 };
 
 export type StartAgentRequest = {
@@ -1289,6 +2335,18 @@ export type SuccessCheck = {
     type: 'Shell';
 };
 
+/**
+ * System health indicators.
+ */
+export type SystemHealth = {
+    activeSessions: number;
+    enabledAgents: number;
+    poolInstances: number;
+    registeredAgents: number;
+    status: HealthStatus;
+    uptimeSeconds: number;
+};
+
 export type SystemInfo = {
     app_version: string;
     architecture: string;
@@ -1305,7 +2363,7 @@ export type SystemNotificationContent = {
     notificationType: SystemNotificationType;
 };
 
-export type SystemNotificationType = 'thinkingMessage' | 'inlineMessage' | 'creditsExhausted';
+export type SystemNotificationType = 'thinkingMessage' | 'inlineMessage';
 
 export type TaskSupport = string;
 
@@ -1342,6 +2400,11 @@ export type ThinkingContent = {
     thinking: string;
 };
 
+export type ToggleAgentResponse = {
+    enabled: boolean;
+    name: string;
+};
+
 export type TokenState = {
     accumulatedInputTokens: number;
     accumulatedOutputTokens: number;
@@ -1371,6 +2434,19 @@ export type Tool = {
         [key: string]: unknown;
     };
     title?: string;
+};
+
+/**
+ * Analytics for tool usage extracted from stored messages
+ */
+export type ToolAnalytics = {
+    daily_tool_activity: Array<DailyToolActivity>;
+    extension_usage: Array<ExtensionUsageStat>;
+    session_tool_summary: Array<SessionToolSummary>;
+    success_rate: number;
+    tool_usage: Array<ToolUsageStat>;
+    total_tool_calls: number;
+    total_tool_errors: number;
 };
 
 export type ToolAnnotations = {
@@ -1432,6 +2508,35 @@ export type ToolResponse = {
     };
 };
 
+/**
+ * Per-tool usage statistics
+ */
+export type ToolUsageStat = {
+    call_count: number;
+    error_count: number;
+    extension: string;
+    success_rate: number;
+    tool_name: string;
+};
+
+export type TopTool = {
+    calls: number;
+    errorRate: number;
+    name: string;
+};
+
+export type TopicAgentDistribution = {
+    agent: string;
+    count: number;
+};
+
+export type TopicAnalytics = {
+    accuracy: number;
+    agentDistribution: Array<TopicAgentDistribution>;
+    caseCount: number;
+    topic: string;
+};
+
 export type TranscribeRequest = {
     /**
      * Base64 encoded audio data
@@ -1479,8 +2584,6 @@ export type UiMetadata = {
 export type UpdateCustomProviderRequest = {
     api_key: string;
     api_url: string;
-    base_path?: string | null;
-    catalog_provider_id?: string | null;
     display_name: string;
     engine: string;
     headers?: {
@@ -1544,6 +2647,35 @@ export type UpsertPermissionsQuery = {
     tool_permissions: Array<ToolPermission>;
 };
 
+export type UserInfoResponse = {
+    auth_method: string;
+    id: string;
+    is_authenticated: boolean;
+    is_guest: boolean;
+    name: string;
+    tenant?: string | null;
+};
+
+export type ValidatePipelineResponse = {
+    error?: string | null;
+    valid: boolean;
+    warnings: Array<string>;
+};
+
+/**
+ * Version info for correlation tracking
+ */
+export type VersionInfo = {
+    active_extensions: Array<string>;
+    goose_version: string;
+};
+
+export type Viewport = {
+    x: number;
+    y: number;
+    zoom: number;
+};
+
 export type WhisperModelResponse = {
     /**
      * Description
@@ -1571,6 +2703,228 @@ export type WindowProps = {
     resizable: boolean;
     width: number;
 };
+
+export type ListPersonasData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/a2a/agents';
+};
+
+export type ListPersonasResponses = {
+    /**
+     * List of available personas
+     */
+    200: Array<PersonaSummary>;
+};
+
+export type ListPersonasResponse = ListPersonasResponses[keyof ListPersonasResponses];
+
+export type DiscoverAgentData = {
+    body: DiscoverAgentRequest;
+    path?: never;
+    query?: never;
+    url: '/a2a/discover';
+};
+
+export type DiscoverAgentErrors = {
+    /**
+     * Invalid URL
+     */
+    400: unknown;
+    /**
+     * Failed to reach remote agent
+     */
+    502: unknown;
+};
+
+export type DiscoverAgentResponses = {
+    /**
+     * Agent card discovered
+     */
+    200: DiscoverAgentResponse;
+};
+
+export type DiscoverAgentResponse2 = DiscoverAgentResponses[keyof DiscoverAgentResponses];
+
+export type ListInstancesData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/a2a/instances';
+};
+
+export type ListInstancesResponses = {
+    /**
+     * List of all agent pool instances
+     */
+    200: Array<InstanceResponse>;
+};
+
+export type ListInstancesResponse = ListInstancesResponses[keyof ListInstancesResponses];
+
+export type SpawnInstanceData = {
+    body: SpawnInstanceRequest;
+    path?: never;
+    query?: never;
+    url: '/a2a/instances';
+};
+
+export type SpawnInstanceErrors = {
+    /**
+     * Invalid provider or model config
+     */
+    400: unknown;
+    /**
+     * No default provider or spawn failed
+     */
+    503: unknown;
+};
+
+export type SpawnInstanceResponses = {
+    /**
+     * Instance spawned
+     */
+    201: InstanceResponse;
+};
+
+export type SpawnInstanceResponse = SpawnInstanceResponses[keyof SpawnInstanceResponses];
+
+export type CancelInstanceData = {
+    body?: never;
+    path: {
+        /**
+         * Instance ID
+         */
+        instance_id: string;
+    };
+    query?: never;
+    url: '/a2a/instances/{instance_id}';
+};
+
+export type CancelInstanceErrors = {
+    /**
+     * Instance not found
+     */
+    404: unknown;
+};
+
+export type CancelInstanceResponses = {
+    /**
+     * Instance cancelled
+     */
+    204: void;
+};
+
+export type CancelInstanceResponse = CancelInstanceResponses[keyof CancelInstanceResponses];
+
+export type GetInstanceData = {
+    body?: never;
+    path: {
+        /**
+         * Instance ID
+         */
+        instance_id: string;
+    };
+    query?: never;
+    url: '/a2a/instances/{instance_id}';
+};
+
+export type GetInstanceErrors = {
+    /**
+     * Instance not found
+     */
+    404: unknown;
+};
+
+export type GetInstanceResponses = {
+    /**
+     * Instance status
+     */
+    200: InstanceResponse;
+};
+
+export type GetInstanceResponse = GetInstanceResponses[keyof GetInstanceResponses];
+
+export type GetInstanceCardData = {
+    body?: never;
+    path: {
+        /**
+         * Instance ID
+         */
+        instance_id: string;
+    };
+    query?: never;
+    url: '/a2a/instances/{instance_id}/card';
+};
+
+export type GetInstanceCardErrors = {
+    /**
+     * Instance not found
+     */
+    404: unknown;
+};
+
+export type GetInstanceCardResponses = {
+    /**
+     * Instance agent card
+     */
+    200: unknown;
+};
+
+export type StreamInstanceEventsData = {
+    body?: never;
+    path: {
+        /**
+         * Instance ID
+         */
+        instance_id: string;
+    };
+    query?: never;
+    url: '/a2a/instances/{instance_id}/events';
+};
+
+export type StreamInstanceEventsErrors = {
+    /**
+     * Instance not found
+     */
+    404: unknown;
+};
+
+export type StreamInstanceEventsResponses = {
+    /**
+     * SSE event stream for instance
+     */
+    200: unknown;
+};
+
+export type GetInstanceResultData = {
+    body?: never;
+    path: {
+        /**
+         * Instance ID
+         */
+        instance_id: string;
+    };
+    query?: never;
+    url: '/a2a/instances/{instance_id}/result';
+};
+
+export type GetInstanceResultErrors = {
+    /**
+     * Instance not found
+     */
+    404: unknown;
+};
+
+export type GetInstanceResultResponses = {
+    /**
+     * Instance result
+     */
+    200: InstanceResultResponse;
+};
+
+export type GetInstanceResultResponse = GetInstanceResultResponses[keyof GetInstanceResultResponses];
 
 export type ConfirmToolActionData = {
     body: ConfirmToolActionRequest;
@@ -1756,6 +3110,75 @@ export type ListAppsResponses = {
 };
 
 export type ListAppsResponse2 = ListAppsResponses[keyof ListAppsResponses];
+
+export type ListExtensionPromptsData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Required session ID
+         */
+        session_id: string;
+    };
+    url: '/agent/prompts';
+};
+
+export type ListExtensionPromptsErrors = {
+    /**
+     * Unauthorized - invalid secret key
+     */
+    401: unknown;
+    /**
+     * Agent not initialized
+     */
+    424: unknown;
+    /**
+     * Internal server error
+     */
+    500: unknown;
+};
+
+export type ListExtensionPromptsResponses = {
+    /**
+     * MCP extension prompts grouped by extension name
+     */
+    200: unknown;
+};
+
+export type GetExtensionPromptData = {
+    body: GetPromptRequest;
+    path?: never;
+    query?: never;
+    url: '/agent/prompts/get';
+};
+
+export type GetExtensionPromptErrors = {
+    /**
+     * Unauthorized - invalid secret key
+     */
+    401: unknown;
+    /**
+     * Prompt not found
+     */
+    404: unknown;
+    /**
+     * Agent not initialized
+     */
+    424: unknown;
+    /**
+     * Internal server error
+     */
+    500: unknown;
+};
+
+export type GetExtensionPromptResponses = {
+    /**
+     * Prompt messages
+     */
+    200: GetPromptResponse;
+};
+
+export type GetExtensionPromptResponse = GetExtensionPromptResponses[keyof GetExtensionPromptResponses];
 
 export type ReadResourceData = {
     body: ReadResourceRequest;
@@ -2080,6 +3503,788 @@ export type UpdateWorkingDirResponses = {
     200: unknown;
 };
 
+export type ListAgentsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/agents';
+};
+
+export type ListAgentsResponses = {
+    /**
+     * List available agents
+     */
+    200: AgentsListResponse;
+};
+
+export type ListAgentsResponse = ListAgentsResponses[keyof ListAgentsResponses];
+
+export type ListBuiltinAgentsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/agents/builtin';
+};
+
+export type ListBuiltinAgentsResponses = {
+    /**
+     * List builtin agents with their modes
+     */
+    200: BuiltinAgentsResponse;
+};
+
+export type ListBuiltinAgentsResponse = ListBuiltinAgentsResponses[keyof ListBuiltinAgentsResponses];
+
+export type BindExtensionToAgentData = {
+    body: BindExtensionRequest;
+    path: {
+        /**
+         * Agent name
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/agents/builtin/{name}/extensions/bind';
+};
+
+export type BindExtensionToAgentResponses = {
+    /**
+     * Extension bound
+     */
+    200: unknown;
+};
+
+export type UnbindExtensionFromAgentData = {
+    body: BindExtensionRequest;
+    path: {
+        /**
+         * Agent name
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/agents/builtin/{name}/extensions/unbind';
+};
+
+export type UnbindExtensionFromAgentResponses = {
+    /**
+     * Extension unbound
+     */
+    200: unknown;
+};
+
+export type ToggleBuiltinAgentData = {
+    body?: never;
+    path: {
+        /**
+         * Agent name
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/agents/builtin/{name}/toggle';
+};
+
+export type ToggleBuiltinAgentErrors = {
+    /**
+     * Agent not found
+     */
+    404: unknown;
+};
+
+export type ToggleBuiltinAgentResponses = {
+    /**
+     * Agent toggled
+     */
+    200: ToggleAgentResponse;
+};
+
+export type ToggleBuiltinAgentResponse = ToggleBuiltinAgentResponses[keyof ToggleBuiltinAgentResponses];
+
+export type AgentCatalogData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/agents/catalog';
+};
+
+export type AgentCatalogResponses = {
+    /**
+     * Unified agent catalog
+     */
+    200: AgentCatalogResponse;
+};
+
+export type AgentCatalogResponse2 = AgentCatalogResponses[keyof AgentCatalogResponses];
+
+export type ListAgents2Data = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/agents/external';
+};
+
+export type ListAgents2Responses = {
+    /**
+     * List of connected agents
+     */
+    200: AgentListResponse;
+};
+
+export type ListAgents2Response = ListAgents2Responses[keyof ListAgents2Responses];
+
+export type ConnectAgentData = {
+    body: ConnectAgentRequest;
+    path?: never;
+    query?: never;
+    url: '/agents/external/connect';
+};
+
+export type ConnectAgentErrors = {
+    /**
+     * Agent not found
+     */
+    404: unknown;
+    /**
+     * Agent has no distribution
+     */
+    422: unknown;
+};
+
+export type ConnectAgentResponses = {
+    /**
+     * Agent connected
+     */
+    200: ConnectAgentResponse;
+};
+
+export type ConnectAgentResponse2 = ConnectAgentResponses[keyof ConnectAgentResponses];
+
+export type DisconnectAgentData = {
+    body?: never;
+    path: {
+        /**
+         * Agent identifier
+         */
+        agent_id: string;
+    };
+    query?: never;
+    url: '/agents/external/{agent_id}';
+};
+
+export type DisconnectAgentErrors = {
+    /**
+     * Internal server error
+     */
+    500: unknown;
+};
+
+export type DisconnectAgentResponses = {
+    /**
+     * Agent disconnected
+     */
+    200: unknown;
+};
+
+export type SetModeData = {
+    body: SetModeAgentRequest;
+    path: {
+        /**
+         * Agent identifier
+         */
+        agent_id: string;
+    };
+    query?: never;
+    url: '/agents/external/{agent_id}/mode';
+};
+
+export type SetModeErrors = {
+    /**
+     * Internal server error
+     */
+    500: unknown;
+};
+
+export type SetModeResponses = {
+    /**
+     * Mode set
+     */
+    200: unknown;
+};
+
+export type PromptAgentData = {
+    body: PromptAgentRequest;
+    path: {
+        /**
+         * Agent identifier
+         */
+        agent_id: string;
+    };
+    query?: never;
+    url: '/agents/external/{agent_id}/prompt';
+};
+
+export type PromptAgentErrors = {
+    /**
+     * Internal server error
+     */
+    500: unknown;
+};
+
+export type PromptAgentResponses = {
+    /**
+     * Prompt response
+     */
+    200: PromptAgentResponse;
+};
+
+export type PromptAgentResponse2 = PromptAgentResponses[keyof PromptAgentResponses];
+
+export type CreateSessionData = {
+    body: CreateSessionRequest;
+    path: {
+        /**
+         * Agent identifier
+         */
+        agent_id: string;
+    };
+    query?: never;
+    url: '/agents/external/{agent_id}/session';
+};
+
+export type CreateSessionErrors = {
+    /**
+     * Internal server error
+     */
+    500: unknown;
+};
+
+export type CreateSessionResponses = {
+    /**
+     * Session created
+     */
+    200: CreateSessionResponse;
+};
+
+export type CreateSessionResponse2 = CreateSessionResponses[keyof CreateSessionResponses];
+
+export type GetAgentData = {
+    body?: never;
+    path: {
+        /**
+         * Agent slug (e.g. goose-agent, developer-agent)
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/agents/{name}';
+};
+
+export type GetAgentErrors = {
+    /**
+     * Agent not found
+     */
+    404: unknown;
+};
+
+export type GetAgentResponses = {
+    /**
+     * Agent manifest
+     */
+    200: AgentManifest;
+};
+
+export type GetAgentResponse = GetAgentResponses[keyof GetAgentResponses];
+
+export type CompareEvalRunsData = {
+    body?: never;
+    path?: never;
+    query: {
+        baseline_id: string;
+        candidate_id: string;
+    };
+    url: '/analytics/eval/compare';
+};
+
+export type CompareEvalRunsResponses = {
+    200: RunComparison;
+};
+
+export type CompareEvalRunsResponse = CompareEvalRunsResponses[keyof CompareEvalRunsResponses];
+
+export type ListEvalDatasetsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/analytics/eval/datasets';
+};
+
+export type ListEvalDatasetsResponses = {
+    200: Array<EvalDatasetSummary>;
+};
+
+export type ListEvalDatasetsResponse = ListEvalDatasetsResponses[keyof ListEvalDatasetsResponses];
+
+export type CreateEvalDatasetData = {
+    body: CreateDatasetRequest;
+    path?: never;
+    query?: never;
+    url: '/analytics/eval/datasets';
+};
+
+export type CreateEvalDatasetResponses = {
+    200: EvalDataset;
+};
+
+export type CreateEvalDatasetResponse = CreateEvalDatasetResponses[keyof CreateEvalDatasetResponses];
+
+export type DeleteEvalDatasetData = {
+    body?: never;
+    path: {
+        /**
+         * Dataset ID
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/analytics/eval/datasets/{id}';
+};
+
+export type DeleteEvalDatasetResponses = {
+    200: unknown;
+};
+
+export type GetEvalDatasetData = {
+    body?: never;
+    path: {
+        /**
+         * Dataset ID
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/analytics/eval/datasets/{id}';
+};
+
+export type GetEvalDatasetResponses = {
+    200: EvalDataset;
+};
+
+export type GetEvalDatasetResponse = GetEvalDatasetResponses[keyof GetEvalDatasetResponses];
+
+export type UpdateEvalDatasetData = {
+    body: CreateDatasetRequest;
+    path: {
+        /**
+         * Dataset ID
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/analytics/eval/datasets/{id}';
+};
+
+export type UpdateEvalDatasetResponses = {
+    200: EvalDataset;
+};
+
+export type UpdateEvalDatasetResponse = UpdateEvalDatasetResponses[keyof UpdateEvalDatasetResponses];
+
+export type GetEvalOverviewData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/analytics/eval/overview';
+};
+
+export type GetEvalOverviewResponses = {
+    200: EvalOverview;
+};
+
+export type GetEvalOverviewResponse = GetEvalOverviewResponses[keyof GetEvalOverviewResponses];
+
+export type RunEvalData = {
+    body: RunEvalRequest;
+    path?: never;
+    query?: never;
+    url: '/analytics/eval/run';
+};
+
+export type RunEvalResponses = {
+    200: EvalRunDetail;
+};
+
+export type RunEvalResponse = RunEvalResponses[keyof RunEvalResponses];
+
+export type ListEvalRunsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Filter by dataset ID
+         */
+        dataset_id?: string | null;
+        /**
+         * Max results
+         */
+        limit?: number | null;
+    };
+    url: '/analytics/eval/runs';
+};
+
+export type ListEvalRunsResponses = {
+    200: Array<EvalRunSummary>;
+};
+
+export type ListEvalRunsResponse = ListEvalRunsResponses[keyof ListEvalRunsResponses];
+
+export type GetEvalRunData = {
+    body?: never;
+    path: {
+        /**
+         * Run ID
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/analytics/eval/runs/{id}';
+};
+
+export type GetEvalRunResponses = {
+    200: EvalRunDetail;
+};
+
+export type GetEvalRunResponse = GetEvalRunResponses[keyof GetEvalRunResponses];
+
+export type GetEvalTopicsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/analytics/eval/topics';
+};
+
+export type GetEvalTopicsResponses = {
+    200: Array<TopicAnalytics>;
+};
+
+export type GetEvalTopicsResponse = GetEvalTopicsResponses[keyof GetEvalTopicsResponses];
+
+export type GetLiveMonitoringData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/analytics/monitoring/live';
+};
+
+export type GetLiveMonitoringResponses = {
+    /**
+     * Live monitoring metrics
+     */
+    200: LiveMetrics;
+};
+
+export type GetLiveMonitoringResponse = GetLiveMonitoringResponses[keyof GetLiveMonitoringResponses];
+
+export type GetResponseQualityData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Number of days to analyze
+         */
+        days?: number | null;
+    };
+    url: '/analytics/quality';
+};
+
+export type GetResponseQualityResponses = {
+    200: ResponseQualityMetrics;
+};
+
+export type GetResponseQualityResponse = GetResponseQualityResponses[keyof GetResponseQualityResponses];
+
+export type GetToolAnalyticsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Days to look back
+         */
+        days?: number | null;
+    };
+    url: '/analytics/tools';
+};
+
+export type GetToolAnalyticsResponses = {
+    200: ToolAnalytics;
+};
+
+export type GetToolAnalyticsResponse = GetToolAnalyticsResponses[keyof GetToolAnalyticsResponses];
+
+export type GetAgentPerformanceData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Days to look back
+         */
+        days?: number | null;
+    };
+    url: '/analytics/tools/agents';
+};
+
+export type GetAgentPerformanceResponses = {
+    200: AgentPerformanceMetrics;
+};
+
+export type GetAgentPerformanceResponse = GetAgentPerformanceResponses[keyof GetAgentPerformanceResponses];
+
+export type LoginData = {
+    body: LoginRequest;
+    path?: never;
+    query?: never;
+    url: '/auth/login';
+};
+
+export type LoginErrors = {
+    /**
+     * Invalid credentials
+     */
+    401: unknown;
+};
+
+export type LoginResponses = {
+    /**
+     * Login successful
+     */
+    200: LoginResponse;
+};
+
+export type LoginResponse2 = LoginResponses[keyof LoginResponses];
+
+export type OidcLoginData = {
+    body: OidcLoginRequest;
+    path?: never;
+    query?: never;
+    url: '/auth/login/oidc';
+};
+
+export type OidcLoginErrors = {
+    /**
+     * Invalid or unverifiable ID token
+     */
+    401: unknown;
+};
+
+export type OidcLoginResponses = {
+    /**
+     * OIDC login successful
+     */
+    200: OidcLoginResponse;
+};
+
+export type OidcLoginResponse2 = OidcLoginResponses[keyof OidcLoginResponses];
+
+export type OidcCodeExchangeData = {
+    body: OidcCodeExchangeRequest;
+    path?: never;
+    query?: never;
+    url: '/auth/login/oidc/code';
+};
+
+export type OidcCodeExchangeErrors = {
+    /**
+     * Unknown OIDC provider
+     */
+    400: unknown;
+    /**
+     * Token exchange or validation failed
+     */
+    401: unknown;
+    /**
+     * Failed to communicate with OIDC provider
+     */
+    502: unknown;
+};
+
+export type OidcCodeExchangeResponses = {
+    /**
+     * Code exchange successful
+     */
+    200: OidcCodeExchangeResponse;
+};
+
+export type OidcCodeExchangeResponse2 = OidcCodeExchangeResponses[keyof OidcCodeExchangeResponses];
+
+export type OidcAuthUrlData = {
+    body: OidcAuthUrlRequest;
+    path?: never;
+    query?: never;
+    url: '/auth/login/oidc/url';
+};
+
+export type OidcAuthUrlErrors = {
+    /**
+     * Unknown OIDC provider
+     */
+    400: unknown;
+};
+
+export type OidcAuthUrlResponses = {
+    /**
+     * Authorization URL generated
+     */
+    200: OidcAuthUrlResponse;
+};
+
+export type OidcAuthUrlResponse2 = OidcAuthUrlResponses[keyof OidcAuthUrlResponses];
+
+export type LogoutData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/auth/logout';
+};
+
+export type LogoutResponses = {
+    /**
+     * Logout successful
+     */
+    200: LogoutResponse;
+};
+
+export type LogoutResponse2 = LogoutResponses[keyof LogoutResponses];
+
+export type GetUserInfoData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/auth/me';
+};
+
+export type GetUserInfoResponses = {
+    /**
+     * Current user info
+     */
+    200: UserInfoResponse;
+};
+
+export type GetUserInfoResponse = GetUserInfoResponses[keyof GetUserInfoResponses];
+
+export type RemoveOidcProviderData = {
+    body: RemoveOidcProviderRequest;
+    path?: never;
+    query?: never;
+    url: '/auth/oidc/providers';
+};
+
+export type RemoveOidcProviderResponses = {
+    /**
+     * Provider removed
+     */
+    200: OidcProvidersResponse;
+};
+
+export type RemoveOidcProviderResponse = RemoveOidcProviderResponses[keyof RemoveOidcProviderResponses];
+
+export type ListOidcProvidersData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/auth/oidc/providers';
+};
+
+export type ListOidcProvidersResponses = {
+    /**
+     * List of OIDC providers
+     */
+    200: OidcProvidersResponse;
+};
+
+export type ListOidcProvidersResponse = ListOidcProvidersResponses[keyof ListOidcProvidersResponses];
+
+export type AddOidcProviderData = {
+    body: AddOidcProviderRequest;
+    path?: never;
+    query?: never;
+    url: '/auth/oidc/providers';
+};
+
+export type AddOidcProviderResponses = {
+    /**
+     * Provider added
+     */
+    200: OidcProvidersResponse;
+};
+
+export type AddOidcProviderResponse = AddOidcProviderResponses[keyof AddOidcProviderResponses];
+
+export type RefreshTokenData = {
+    body: RefreshRequest;
+    path?: never;
+    query?: never;
+    url: '/auth/refresh';
+};
+
+export type RefreshTokenErrors = {
+    /**
+     * Invalid or expired token
+     */
+    401: unknown;
+};
+
+export type RefreshTokenResponses = {
+    /**
+     * Token refreshed
+     */
+    200: RefreshResponse;
+};
+
+export type RefreshTokenResponse = RefreshTokenResponses[keyof RefreshTokenResponses];
+
+export type OidcRefreshData = {
+    body: OidcRefreshRequest;
+    path?: never;
+    query?: never;
+    url: '/auth/refresh/oidc';
+};
+
+export type OidcRefreshErrors = {
+    /**
+     * Not authenticated or no refresh token available
+     */
+    401: unknown;
+    /**
+     * Failed to refresh with OIDC provider
+     */
+    502: unknown;
+};
+
+export type OidcRefreshResponses = {
+    /**
+     * OIDC token refresh successful
+     */
+    200: OidcRefreshResponse;
+};
+
+export type OidcRefreshResponse2 = OidcRefreshResponses[keyof OidcRefreshResponses];
+
+export type AuthStatusData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/auth/status';
+};
+
+export type AuthStatusResponses = {
+    /**
+     * Auth status
+     */
+    200: AuthStatusResponse;
+};
+
+export type AuthStatusResponse2 = AuthStatusResponses[keyof AuthStatusResponses];
+
 export type ReadAllConfigData = {
     body?: never;
     path?: never;
@@ -2118,22 +4323,6 @@ export type BackupConfigResponses = {
 };
 
 export type BackupConfigResponse = BackupConfigResponses[keyof BackupConfigResponses];
-
-export type GetCanonicalModelInfoData = {
-    body: ModelInfoQuery;
-    path?: never;
-    query?: never;
-    url: '/config/canonical-model-info';
-};
-
-export type GetCanonicalModelInfoResponses = {
-    /**
-     * Model information retrieved successfully
-     */
-    200: ModelInfoResponse;
-};
-
-export type GetCanonicalModelInfoResponse = GetCanonicalModelInfoResponses[keyof GetCanonicalModelInfoResponses];
 
 export type CheckProviderData = {
     body: CheckProviderRequest;
@@ -2408,6 +4597,22 @@ export type UpsertPermissionsResponses = {
 
 export type UpsertPermissionsResponse = UpsertPermissionsResponses[keyof UpsertPermissionsResponses];
 
+export type GetPricingData = {
+    body: PricingQuery;
+    path?: never;
+    query?: never;
+    url: '/config/pricing';
+};
+
+export type GetPricingResponses = {
+    /**
+     * Model pricing data retrieved successfully
+     */
+    200: PricingResponse;
+};
+
+export type GetPricingResponse = GetPricingResponses[keyof GetPricingResponses];
+
 export type GetPromptsData = {
     body?: never;
     path?: never;
@@ -2482,7 +4687,7 @@ export type GetPromptResponses = {
     200: PromptContentResponse;
 };
 
-export type GetPromptResponse = GetPromptResponses[keyof GetPromptResponses];
+export type GetPromptResponse2 = GetPromptResponses[keyof GetPromptResponses];
 
 export type SavePromptData = {
     body: SavePromptRequest;
@@ -2515,62 +4720,6 @@ export type SavePromptResponses = {
 };
 
 export type SavePromptResponse = SavePromptResponses[keyof SavePromptResponses];
-
-export type GetProviderCatalogData = {
-    body?: never;
-    path?: never;
-    query?: {
-        /**
-         * Filter by provider format (openai, anthropic, ollama)
-         */
-        format?: string | null;
-    };
-    url: '/config/provider-catalog';
-};
-
-export type GetProviderCatalogErrors = {
-    /**
-     * Invalid format parameter
-     */
-    400: unknown;
-};
-
-export type GetProviderCatalogResponses = {
-    /**
-     * Provider catalog retrieved successfully
-     */
-    200: Array<ProviderCatalogEntry>;
-};
-
-export type GetProviderCatalogResponse = GetProviderCatalogResponses[keyof GetProviderCatalogResponses];
-
-export type GetProviderCatalogTemplateData = {
-    body?: never;
-    path: {
-        /**
-         * Provider ID from models.dev
-         */
-        id: string;
-    };
-    query?: never;
-    url: '/config/provider-catalog/{id}';
-};
-
-export type GetProviderCatalogTemplateErrors = {
-    /**
-     * Provider not found in catalog
-     */
-    404: unknown;
-};
-
-export type GetProviderCatalogTemplateResponses = {
-    /**
-     * Provider template retrieved successfully
-     */
-    200: ProviderTemplate;
-};
-
-export type GetProviderCatalogTemplateResponse = GetProviderCatalogTemplateResponses[keyof GetProviderCatalogTemplateResponses];
 
 export type ProvidersData = {
     body?: never;
@@ -2670,6 +4819,58 @@ export type ReadConfigResponses = {
      */
     200: unknown;
 };
+
+export type GetReasoningEffortData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/config/reasoning-effort';
+};
+
+export type GetReasoningEffortResponses = {
+    200: ReasoningEffortResponse;
+};
+
+export type GetReasoningEffortResponse = GetReasoningEffortResponses[keyof GetReasoningEffortResponses];
+
+export type SetReasoningEffortData = {
+    body: SetReasoningEffortRequest;
+    path?: never;
+    query?: never;
+    url: '/config/reasoning-effort';
+};
+
+export type SetReasoningEffortResponses = {
+    200: ReasoningEffortResponse;
+};
+
+export type SetReasoningEffortResponse = SetReasoningEffortResponses[keyof SetReasoningEffortResponses];
+
+export type GetReasoningEffortOverridesData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/config/reasoning-effort-overrides';
+};
+
+export type GetReasoningEffortOverridesResponses = {
+    200: ReasoningEffortOverridesResponse;
+};
+
+export type GetReasoningEffortOverridesResponse = GetReasoningEffortOverridesResponses[keyof GetReasoningEffortOverridesResponses];
+
+export type SetReasoningEffortOverridesData = {
+    body: SetReasoningEffortOverridesRequest;
+    path?: never;
+    query?: never;
+    url: '/config/reasoning-effort-overrides';
+};
+
+export type SetReasoningEffortOverridesResponses = {
+    200: ReasoningEffortOverridesResponse;
+};
+
+export type SetReasoningEffortOverridesResponse = SetReasoningEffortOverridesResponses[keyof SetReasoningEffortOverridesResponses];
 
 export type RecoverConfigData = {
     body?: never;
@@ -2972,7 +5173,7 @@ export type TranscribeDictationErrors = {
      */
     412: unknown;
     /**
-     * Audio file too large (max 50MB)
+     * Audio file too large (max 25MB)
      */
     413: unknown;
     /**
@@ -3006,6 +5207,76 @@ export type TranscribeDictationResponses = {
 
 export type TranscribeDictationResponse = TranscribeDictationResponses[keyof TranscribeDictationResponses];
 
+export type ListLiveExtensionsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/extensions/live';
+};
+
+export type ListLiveExtensionsResponses = {
+    /**
+     * List of active MCP extension connections
+     */
+    200: LiveExtensionsResponse;
+};
+
+export type ListLiveExtensionsResponse = ListLiveExtensionsResponses[keyof ListLiveExtensionsResponses];
+
+export type GetLiveExtensionData = {
+    body?: never;
+    path: {
+        /**
+         * Extension name to check
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/extensions/live/{name}';
+};
+
+export type GetLiveExtensionErrors = {
+    /**
+     * Extension not found
+     */
+    404: unknown;
+};
+
+export type GetLiveExtensionResponses = {
+    /**
+     * Extension connection status
+     */
+    200: LiveExtensionInfo;
+};
+
+export type GetLiveExtensionResponse = GetLiveExtensionResponses[keyof GetLiveExtensionResponses];
+
+export type DisconnectExtensionData = {
+    body?: never;
+    path: {
+        /**
+         * Extension name to disconnect
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/extensions/live/{name}/disconnect';
+};
+
+export type DisconnectExtensionErrors = {
+    /**
+     * Extension not found or already disconnected
+     */
+    404: unknown;
+};
+
+export type DisconnectExtensionResponses = {
+    /**
+     * Extension disconnected successfully
+     */
+    200: unknown;
+};
+
 export type StartOpenrouterSetupData = {
     body?: never;
     path?: never;
@@ -3032,221 +5303,6 @@ export type StartTetrateSetupResponses = {
 
 export type StartTetrateSetupResponse = StartTetrateSetupResponses[keyof StartTetrateSetupResponses];
 
-export type DownloadHfModelData = {
-    body: DownloadModelRequest;
-    path?: never;
-    query?: never;
-    url: '/local-inference/download';
-};
-
-export type DownloadHfModelErrors = {
-    /**
-     * Invalid request
-     */
-    400: unknown;
-};
-
-export type DownloadHfModelResponses = {
-    /**
-     * Download started
-     */
-    202: string;
-};
-
-export type DownloadHfModelResponse = DownloadHfModelResponses[keyof DownloadHfModelResponses];
-
-export type ListLocalModelsData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/local-inference/models';
-};
-
-export type ListLocalModelsResponses = {
-    /**
-     * List of available local LLM models
-     */
-    200: Array<LocalModelResponse>;
-};
-
-export type ListLocalModelsResponse = ListLocalModelsResponses[keyof ListLocalModelsResponses];
-
-export type DeleteLocalModelData = {
-    body?: never;
-    path: {
-        model_id: string;
-    };
-    query?: never;
-    url: '/local-inference/models/{model_id}';
-};
-
-export type DeleteLocalModelErrors = {
-    /**
-     * Model not found
-     */
-    404: unknown;
-};
-
-export type DeleteLocalModelResponses = {
-    /**
-     * Model deleted
-     */
-    200: unknown;
-};
-
-export type CancelLocalModelDownloadData = {
-    body?: never;
-    path: {
-        model_id: string;
-    };
-    query?: never;
-    url: '/local-inference/models/{model_id}/download';
-};
-
-export type CancelLocalModelDownloadErrors = {
-    /**
-     * No active download
-     */
-    404: unknown;
-};
-
-export type CancelLocalModelDownloadResponses = {
-    /**
-     * Download cancelled
-     */
-    200: unknown;
-};
-
-export type GetLocalModelDownloadProgressData = {
-    body?: never;
-    path: {
-        model_id: string;
-    };
-    query?: never;
-    url: '/local-inference/models/{model_id}/download';
-};
-
-export type GetLocalModelDownloadProgressErrors = {
-    /**
-     * No active download
-     */
-    404: unknown;
-};
-
-export type GetLocalModelDownloadProgressResponses = {
-    /**
-     * Download progress
-     */
-    200: DownloadProgress;
-};
-
-export type GetLocalModelDownloadProgressResponse = GetLocalModelDownloadProgressResponses[keyof GetLocalModelDownloadProgressResponses];
-
-export type GetModelSettingsData = {
-    body?: never;
-    path: {
-        model_id: string;
-    };
-    query?: never;
-    url: '/local-inference/models/{model_id}/settings';
-};
-
-export type GetModelSettingsErrors = {
-    /**
-     * Model not found
-     */
-    404: unknown;
-};
-
-export type GetModelSettingsResponses = {
-    /**
-     * Model settings
-     */
-    200: ModelSettings;
-};
-
-export type GetModelSettingsResponse = GetModelSettingsResponses[keyof GetModelSettingsResponses];
-
-export type UpdateModelSettingsData = {
-    body: ModelSettings;
-    path: {
-        model_id: string;
-    };
-    query?: never;
-    url: '/local-inference/models/{model_id}/settings';
-};
-
-export type UpdateModelSettingsErrors = {
-    /**
-     * Model not found
-     */
-    404: unknown;
-    /**
-     * Failed to save settings
-     */
-    500: unknown;
-};
-
-export type UpdateModelSettingsResponses = {
-    /**
-     * Settings updated
-     */
-    200: ModelSettings;
-};
-
-export type UpdateModelSettingsResponse = UpdateModelSettingsResponses[keyof UpdateModelSettingsResponses];
-
-export type GetRepoFilesData = {
-    body?: never;
-    path: {
-        author: string;
-        repo: string;
-    };
-    query?: never;
-    url: '/local-inference/repo/{author}/{repo}/files';
-};
-
-export type GetRepoFilesResponses = {
-    /**
-     * GGUF files in the repo
-     */
-    200: RepoVariantsResponse;
-};
-
-export type GetRepoFilesResponse = GetRepoFilesResponses[keyof GetRepoFilesResponses];
-
-export type SearchHfModelsData = {
-    body?: never;
-    path?: never;
-    query: {
-        /**
-         * Search query
-         */
-        q: string;
-        /**
-         * Max results
-         */
-        limit?: number | null;
-    };
-    url: '/local-inference/search';
-};
-
-export type SearchHfModelsErrors = {
-    /**
-     * Search failed
-     */
-    500: unknown;
-};
-
-export type SearchHfModelsResponses = {
-    /**
-     * Search results
-     */
-    200: Array<HfModelInfo>;
-};
-
-export type SearchHfModelsResponse = SearchHfModelsResponses[keyof SearchHfModelsResponses];
-
 export type McpUiProxyData = {
     body?: never;
     path?: never;
@@ -3269,6 +5325,254 @@ export type McpUiProxyErrors = {
 export type McpUiProxyResponses = {
     /**
      * MCP UI proxy HTML page
+     */
+    200: unknown;
+};
+
+export type GetActiveAgentsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/observatory/active-agents';
+};
+
+export type GetActiveAgentsResponses = {
+    /**
+     * Active agents list
+     */
+    200: Array<ActiveAgent>;
+};
+
+export type GetActiveAgentsResponse = GetActiveAgentsResponses[keyof GetActiveAgentsResponses];
+
+export type GetDashboardData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/observatory/dashboard';
+};
+
+export type GetDashboardResponses = {
+    /**
+     * Observatory dashboard
+     */
+    200: ObservatoryDashboard;
+};
+
+export type GetDashboardResponse = GetDashboardResponses[keyof GetDashboardResponses];
+
+export type GetHealthData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/observatory/health';
+};
+
+export type GetHealthResponses = {
+    /**
+     * System health
+     */
+    200: SystemHealth;
+};
+
+export type GetHealthResponse = GetHealthResponses[keyof GetHealthResponses];
+
+export type OrchestratorStatusData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/orchestrator/status';
+};
+
+export type OrchestratorStatusResponses = {
+    /**
+     * Orchestrator status
+     */
+    200: unknown;
+};
+
+export type PingData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/ping';
+};
+
+export type PingResponses = {
+    /**
+     * Health check
+     */
+    200: unknown;
+};
+
+export type ListPipelinesData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/pipelines/list';
+};
+
+export type ListPipelinesErrors = {
+    /**
+     * Internal error
+     */
+    500: unknown;
+};
+
+export type ListPipelinesResponses = {
+    /**
+     * List all saved pipelines
+     */
+    200: Array<PipelineManifest>;
+};
+
+export type ListPipelinesResponse = ListPipelinesResponses[keyof ListPipelinesResponses];
+
+export type SavePipelineData = {
+    body: SavePipelineRequest;
+    path?: never;
+    query?: never;
+    url: '/pipelines/save';
+};
+
+export type SavePipelineErrors = {
+    /**
+     * Invalid pipeline
+     */
+    400: unknown;
+};
+
+export type SavePipelineResponses = {
+    /**
+     * Pipeline saved
+     */
+    200: SavePipelineResponse;
+};
+
+export type SavePipelineResponse2 = SavePipelineResponses[keyof SavePipelineResponses];
+
+export type ValidatePipelineData = {
+    body: Pipeline;
+    path?: never;
+    query?: never;
+    url: '/pipelines/validate';
+};
+
+export type ValidatePipelineResponses = {
+    /**
+     * Validation result
+     */
+    200: ValidatePipelineResponse;
+};
+
+export type ValidatePipelineResponse2 = ValidatePipelineResponses[keyof ValidatePipelineResponses];
+
+export type DeletePipelineData = {
+    body?: never;
+    path: {
+        /**
+         * Pipeline ID to delete
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/pipelines/{id}';
+};
+
+export type DeletePipelineErrors = {
+    /**
+     * Pipeline not found
+     */
+    404: unknown;
+};
+
+export type DeletePipelineResponses = {
+    /**
+     * Pipeline deleted
+     */
+    200: unknown;
+};
+
+export type GetPipelineData = {
+    body?: never;
+    path: {
+        /**
+         * Pipeline ID (filename without extension)
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/pipelines/{id}';
+};
+
+export type GetPipelineErrors = {
+    /**
+     * Pipeline not found
+     */
+    404: unknown;
+};
+
+export type GetPipelineResponses = {
+    /**
+     * Pipeline loaded
+     */
+    200: Pipeline;
+};
+
+export type GetPipelineResponse = GetPipelineResponses[keyof GetPipelineResponses];
+
+export type UpdatePipelineData = {
+    body: Pipeline;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/pipelines/{id}';
+};
+
+export type UpdatePipelineErrors = {
+    /**
+     * Invalid pipeline
+     */
+    400: unknown;
+    /**
+     * Pipeline not found
+     */
+    404: unknown;
+};
+
+export type UpdatePipelineResponses = {
+    /**
+     * Pipeline updated
+     */
+    200: SavePipelineResponse;
+};
+
+export type UpdatePipelineResponse = UpdatePipelineResponses[keyof UpdatePipelineResponses];
+
+export type ExecutePipelineData = {
+    body: ExecutePipelineRequest;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/pipelines/{id}/run';
+};
+
+export type ExecutePipelineErrors = {
+    /**
+     * Invalid pipeline
+     */
+    400: unknown;
+    /**
+     * Pipeline not found
+     */
+    404: unknown;
+};
+
+export type ExecutePipelineResponses = {
+    /**
+     * Pipeline execution started, returns SSE stream
      */
     200: unknown;
 };
@@ -3588,6 +5892,167 @@ export type ReplyResponses = {
 
 export type ReplyResponse = ReplyResponses[keyof ReplyResponses];
 
+export type ListRunsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Max results
+         */
+        limit?: number | null;
+        /**
+         * Offset
+         */
+        offset?: number | null;
+    };
+    url: '/runs';
+};
+
+export type ListRunsResponses = {
+    /**
+     * List of runs
+     */
+    200: Array<AcpRun>;
+};
+
+export type ListRunsResponse = ListRunsResponses[keyof ListRunsResponses];
+
+export type CreateRunData = {
+    body: RunCreateRequest;
+    path?: never;
+    query?: never;
+    url: '/runs';
+};
+
+export type CreateRunResponses = {
+    /**
+     * Run created (stream/sync)
+     */
+    200: AcpRun;
+    /**
+     * Run created (async)
+     */
+    202: AcpRun;
+};
+
+export type CreateRunResponse = CreateRunResponses[keyof CreateRunResponses];
+
+export type GetRunData = {
+    body?: never;
+    path: {
+        /**
+         * Run ID
+         */
+        run_id: string;
+    };
+    query?: never;
+    url: '/runs/{run_id}';
+};
+
+export type GetRunErrors = {
+    /**
+     * Run not found
+     */
+    404: unknown;
+};
+
+export type GetRunResponses = {
+    /**
+     * Run details
+     */
+    200: AcpRun;
+};
+
+export type GetRunResponse = GetRunResponses[keyof GetRunResponses];
+
+export type ResumeRunData = {
+    body: RunResumeRequest;
+    path: {
+        /**
+         * Run ID
+         */
+        run_id: string;
+    };
+    query?: never;
+    url: '/runs/{run_id}';
+};
+
+export type ResumeRunErrors = {
+    /**
+     * Run not found
+     */
+    404: unknown;
+    /**
+     * Run not in awaiting state
+     */
+    409: unknown;
+};
+
+export type ResumeRunResponses = {
+    /**
+     * Run resumed
+     */
+    200: AcpRun;
+};
+
+export type ResumeRunResponse = ResumeRunResponses[keyof ResumeRunResponses];
+
+export type CancelRunData = {
+    body?: never;
+    path: {
+        /**
+         * Run ID
+         */
+        run_id: string;
+    };
+    query?: never;
+    url: '/runs/{run_id}/cancel';
+};
+
+export type CancelRunErrors = {
+    /**
+     * Run not found
+     */
+    404: unknown;
+};
+
+export type CancelRunResponses = {
+    /**
+     * Run cancelled
+     */
+    200: AcpRun;
+};
+
+export type CancelRunResponse = CancelRunResponses[keyof CancelRunResponses];
+
+export type GetRunEventsData = {
+    body?: never;
+    path: {
+        /**
+         * Run ID
+         */
+        run_id: string;
+    };
+    query?: never;
+    url: '/runs/{run_id}/events';
+};
+
+export type GetRunEventsErrors = {
+    /**
+     * Run not found
+     */
+    404: unknown;
+};
+
+export type GetRunEventsResponses = {
+    /**
+     * Run events
+     */
+    200: Array<unknown>;
+};
+
+export type GetRunEventsResponse = GetRunEventsResponses[keyof GetRunEventsResponses];
+
 export type CreateScheduleData = {
     body: CreateScheduleRequest;
     path?: never;
@@ -3888,6 +6353,34 @@ export type UnpauseScheduleResponses = {
 
 export type UnpauseScheduleResponse = UnpauseScheduleResponses[keyof UnpauseScheduleResponses];
 
+export type GetAcpSessionData = {
+    body?: never;
+    path: {
+        /**
+         * Session ID
+         */
+        session_id: string;
+    };
+    query?: never;
+    url: '/session/{session_id}';
+};
+
+export type GetAcpSessionErrors = {
+    /**
+     * Session not found
+     */
+    404: unknown;
+};
+
+export type GetAcpSessionResponses = {
+    /**
+     * ACP session view
+     */
+    200: AcpSession;
+};
+
+export type GetAcpSessionResponse = GetAcpSessionResponses[keyof GetAcpSessionResponses];
+
 export type ListSessionsData = {
     body?: never;
     path?: never;
@@ -3914,6 +6407,33 @@ export type ListSessionsResponses = {
 };
 
 export type ListSessionsResponse = ListSessionsResponses[keyof ListSessionsResponses];
+
+export type GetSessionAnalyticsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/sessions/analytics';
+};
+
+export type GetSessionAnalyticsErrors = {
+    /**
+     * Unauthorized - Invalid or missing API key
+     */
+    401: unknown;
+    /**
+     * Internal server error
+     */
+    500: unknown;
+};
+
+export type GetSessionAnalyticsResponses = {
+    /**
+     * Session analytics retrieved successfully
+     */
+    200: SessionAnalytics;
+};
+
+export type GetSessionAnalyticsResponse = GetSessionAnalyticsResponses[keyof GetSessionAnalyticsResponses];
 
 export type ImportSessionData = {
     body: ImportSessionRequest;
@@ -4091,6 +6611,36 @@ export type GetSessionResponses = {
 
 export type GetSessionResponse = GetSessionResponses[keyof GetSessionResponses];
 
+export type ClearSessionData = {
+    body?: never;
+    path: {
+        /**
+         * Unique identifier for the session
+         */
+        session_id: string;
+    };
+    query?: never;
+    url: '/sessions/{session_id}/clear';
+};
+
+export type ClearSessionErrors = {
+    /**
+     * Session not found
+     */
+    404: unknown;
+    /**
+     * Internal server error
+     */
+    500: unknown;
+};
+
+export type ClearSessionResponses = {
+    /**
+     * Session cleared successfully
+     */
+    200: unknown;
+};
+
 export type ExportSessionData = {
     body?: never;
     path: {
@@ -4202,6 +6752,36 @@ export type ForkSessionResponses = {
 };
 
 export type ForkSessionResponse = ForkSessionResponses[keyof ForkSessionResponses];
+
+export type AddMessageData = {
+    body: Message;
+    path: {
+        /**
+         * Unique identifier for the session
+         */
+        session_id: string;
+    };
+    query?: never;
+    url: '/sessions/{session_id}/messages';
+};
+
+export type AddMessageErrors = {
+    /**
+     * Session not found
+     */
+    404: unknown;
+    /**
+     * Internal server error
+     */
+    500: unknown;
+};
+
+export type AddMessageResponses = {
+    /**
+     * Message added successfully
+     */
+    200: unknown;
+};
 
 export type UpdateSessionNameData = {
     body: UpdateSessionNameRequest;

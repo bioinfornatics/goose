@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AddExtensionData, AddExtensionErrors, AddExtensionResponses, AgentAddExtensionData, AgentAddExtensionErrors, AgentAddExtensionResponses, AgentRemoveExtensionData, AgentRemoveExtensionErrors, AgentRemoveExtensionResponses, BackupConfigData, BackupConfigErrors, BackupConfigResponses, CallToolData, CallToolErrors, CallToolResponses, CancelDownloadData, CancelDownloadErrors, CancelDownloadResponses, CancelLocalModelDownloadData, CancelLocalModelDownloadErrors, CancelLocalModelDownloadResponses, CheckProviderData, ConfigureProviderOauthData, ConfigureProviderOauthErrors, ConfigureProviderOauthResponses, ConfirmToolActionData, ConfirmToolActionErrors, ConfirmToolActionResponses, CreateCustomProviderData, CreateCustomProviderErrors, CreateCustomProviderResponses, CreateRecipeData, CreateRecipeErrors, CreateRecipeResponses, CreateScheduleData, CreateScheduleErrors, CreateScheduleResponses, DecodeRecipeData, DecodeRecipeErrors, DecodeRecipeResponses, DeleteLocalModelData, DeleteLocalModelErrors, DeleteLocalModelResponses, DeleteModelData, DeleteModelErrors, DeleteModelResponses, DeleteRecipeData, DeleteRecipeErrors, DeleteRecipeResponses, DeleteScheduleData, DeleteScheduleErrors, DeleteScheduleResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, DetectProviderData, DetectProviderErrors, DetectProviderResponses, DiagnosticsData, DiagnosticsErrors, DiagnosticsResponses, DownloadHfModelData, DownloadHfModelErrors, DownloadHfModelResponses, DownloadModelData, DownloadModelErrors, DownloadModelResponses, EncodeRecipeData, EncodeRecipeErrors, EncodeRecipeResponses, ExportAppData, ExportAppErrors, ExportAppResponses, ExportSessionData, ExportSessionErrors, ExportSessionResponses, ForkSessionData, ForkSessionErrors, ForkSessionResponses, GetCanonicalModelInfoData, GetCanonicalModelInfoResponses, GetCustomProviderData, GetCustomProviderErrors, GetCustomProviderResponses, GetDictationConfigData, GetDictationConfigResponses, GetDownloadProgressData, GetDownloadProgressErrors, GetDownloadProgressResponses, GetExtensionsData, GetExtensionsErrors, GetExtensionsResponses, GetLocalModelDownloadProgressData, GetLocalModelDownloadProgressErrors, GetLocalModelDownloadProgressResponses, GetModelSettingsData, GetModelSettingsErrors, GetModelSettingsResponses, GetPromptData, GetPromptErrors, GetPromptResponses, GetPromptsData, GetPromptsResponses, GetProviderCatalogData, GetProviderCatalogErrors, GetProviderCatalogResponses, GetProviderCatalogTemplateData, GetProviderCatalogTemplateErrors, GetProviderCatalogTemplateResponses, GetProviderModelsData, GetProviderModelsErrors, GetProviderModelsResponses, GetRepoFilesData, GetRepoFilesResponses, GetSessionData, GetSessionErrors, GetSessionExtensionsData, GetSessionExtensionsErrors, GetSessionExtensionsResponses, GetSessionInsightsData, GetSessionInsightsErrors, GetSessionInsightsResponses, GetSessionResponses, GetSlashCommandsData, GetSlashCommandsResponses, GetToolsData, GetToolsErrors, GetToolsResponses, GetTunnelStatusData, GetTunnelStatusResponses, ImportAppData, ImportAppErrors, ImportAppResponses, ImportSessionData, ImportSessionErrors, ImportSessionResponses, InitConfigData, InitConfigErrors, InitConfigResponses, InspectRunningJobData, InspectRunningJobErrors, InspectRunningJobResponses, KillRunningJobData, KillRunningJobResponses, ListAppsData, ListAppsErrors, ListAppsResponses, ListLocalModelsData, ListLocalModelsResponses, ListModelsData, ListModelsResponses, ListRecipesData, ListRecipesErrors, ListRecipesResponses, ListSchedulesData, ListSchedulesErrors, ListSchedulesResponses, ListSessionsData, ListSessionsErrors, ListSessionsResponses, McpUiProxyData, McpUiProxyErrors, McpUiProxyResponses, ParseRecipeData, ParseRecipeErrors, ParseRecipeResponses, PauseScheduleData, PauseScheduleErrors, PauseScheduleResponses, ProvidersData, ProvidersResponses, ReadAllConfigData, ReadAllConfigResponses, ReadConfigData, ReadConfigErrors, ReadConfigResponses, ReadResourceData, ReadResourceErrors, ReadResourceResponses, RecipeToYamlData, RecipeToYamlErrors, RecipeToYamlResponses, RecoverConfigData, RecoverConfigErrors, RecoverConfigResponses, RemoveConfigData, RemoveConfigErrors, RemoveConfigResponses, RemoveCustomProviderData, RemoveCustomProviderErrors, RemoveCustomProviderResponses, RemoveExtensionData, RemoveExtensionErrors, RemoveExtensionResponses, ReplyData, ReplyErrors, ReplyResponses, ResetPromptData, ResetPromptErrors, ResetPromptResponses, RestartAgentData, RestartAgentErrors, RestartAgentResponses, ResumeAgentData, ResumeAgentErrors, ResumeAgentResponses, RunNowHandlerData, RunNowHandlerErrors, RunNowHandlerResponses, SavePromptData, SavePromptErrors, SavePromptResponses, SaveRecipeData, SaveRecipeErrors, SaveRecipeResponses, ScanRecipeData, ScanRecipeResponses, ScheduleRecipeData, ScheduleRecipeErrors, ScheduleRecipeResponses, SearchHfModelsData, SearchHfModelsErrors, SearchHfModelsResponses, SearchSessionsData, SearchSessionsErrors, SearchSessionsResponses, SendTelemetryEventData, SendTelemetryEventResponses, SessionsHandlerData, SessionsHandlerErrors, SessionsHandlerResponses, SetConfigProviderData, SetRecipeSlashCommandData, SetRecipeSlashCommandErrors, SetRecipeSlashCommandResponses, StartAgentData, StartAgentErrors, StartAgentResponses, StartOpenrouterSetupData, StartOpenrouterSetupResponses, StartTetrateSetupData, StartTetrateSetupResponses, StartTunnelData, StartTunnelErrors, StartTunnelResponses, StatusData, StatusResponses, StopAgentData, StopAgentErrors, StopAgentResponses, StopTunnelData, StopTunnelErrors, StopTunnelResponses, SystemInfoData, SystemInfoResponses, TranscribeDictationData, TranscribeDictationErrors, TranscribeDictationResponses, UnpauseScheduleData, UnpauseScheduleErrors, UnpauseScheduleResponses, UpdateAgentProviderData, UpdateAgentProviderErrors, UpdateAgentProviderResponses, UpdateCustomProviderData, UpdateCustomProviderErrors, UpdateCustomProviderResponses, UpdateFromSessionData, UpdateFromSessionErrors, UpdateFromSessionResponses, UpdateModelSettingsData, UpdateModelSettingsErrors, UpdateModelSettingsResponses, UpdateScheduleData, UpdateScheduleErrors, UpdateScheduleResponses, UpdateSessionNameData, UpdateSessionNameErrors, UpdateSessionNameResponses, UpdateSessionUserRecipeValuesData, UpdateSessionUserRecipeValuesErrors, UpdateSessionUserRecipeValuesResponses, UpdateWorkingDirData, UpdateWorkingDirErrors, UpdateWorkingDirResponses, UpsertConfigData, UpsertConfigErrors, UpsertConfigResponses, UpsertPermissionsData, UpsertPermissionsErrors, UpsertPermissionsResponses, ValidateConfigData, ValidateConfigErrors, ValidateConfigResponses } from './types.gen';
+import type { AddExtensionData, AddExtensionErrors, AddExtensionResponses, AddMessageData, AddMessageErrors, AddMessageResponses, AddOidcProviderData, AddOidcProviderResponses, AgentAddExtensionData, AgentAddExtensionErrors, AgentAddExtensionResponses, AgentCatalogData, AgentCatalogResponses, AgentRemoveExtensionData, AgentRemoveExtensionErrors, AgentRemoveExtensionResponses, AuthStatusData, AuthStatusResponses, BackupConfigData, BackupConfigErrors, BackupConfigResponses, BindExtensionToAgentData, BindExtensionToAgentResponses, CallToolData, CallToolErrors, CallToolResponses, CancelDownloadData, CancelDownloadErrors, CancelDownloadResponses, CancelInstanceData, CancelInstanceErrors, CancelInstanceResponses, CancelRunData, CancelRunErrors, CancelRunResponses, CheckProviderData, ClearSessionData, ClearSessionErrors, ClearSessionResponses, CompareEvalRunsData, CompareEvalRunsResponses, ConfigureProviderOauthData, ConfigureProviderOauthErrors, ConfigureProviderOauthResponses, ConfirmToolActionData, ConfirmToolActionErrors, ConfirmToolActionResponses, ConnectAgentData, ConnectAgentErrors, ConnectAgentResponses, CreateCustomProviderData, CreateCustomProviderErrors, CreateCustomProviderResponses, CreateEvalDatasetData, CreateEvalDatasetResponses, CreateRecipeData, CreateRecipeErrors, CreateRecipeResponses, CreateRunData, CreateRunResponses, CreateScheduleData, CreateScheduleErrors, CreateScheduleResponses, CreateSessionData, CreateSessionErrors, CreateSessionResponses, DecodeRecipeData, DecodeRecipeErrors, DecodeRecipeResponses, DeleteEvalDatasetData, DeleteEvalDatasetResponses, DeleteModelData, DeleteModelErrors, DeleteModelResponses, DeletePipelineData, DeletePipelineErrors, DeletePipelineResponses, DeleteRecipeData, DeleteRecipeErrors, DeleteRecipeResponses, DeleteScheduleData, DeleteScheduleErrors, DeleteScheduleResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, DetectProviderData, DetectProviderErrors, DetectProviderResponses, DiagnosticsData, DiagnosticsErrors, DiagnosticsResponses, DisconnectAgentData, DisconnectAgentErrors, DisconnectAgentResponses, DisconnectExtensionData, DisconnectExtensionErrors, DisconnectExtensionResponses, DiscoverAgentData, DiscoverAgentErrors, DiscoverAgentResponses, DownloadModelData, DownloadModelErrors, DownloadModelResponses, EncodeRecipeData, EncodeRecipeErrors, EncodeRecipeResponses, ExecutePipelineData, ExecutePipelineErrors, ExecutePipelineResponses, ExportAppData, ExportAppErrors, ExportAppResponses, ExportSessionData, ExportSessionErrors, ExportSessionResponses, ForkSessionData, ForkSessionErrors, ForkSessionResponses, GetAcpSessionData, GetAcpSessionErrors, GetAcpSessionResponses, GetActiveAgentsData, GetActiveAgentsResponses, GetAgentData, GetAgentErrors, GetAgentPerformanceData, GetAgentPerformanceResponses, GetAgentResponses, GetCustomProviderData, GetCustomProviderErrors, GetCustomProviderResponses, GetDashboardData, GetDashboardResponses, GetDictationConfigData, GetDictationConfigResponses, GetDownloadProgressData, GetDownloadProgressErrors, GetDownloadProgressResponses, GetEvalDatasetData, GetEvalDatasetResponses, GetEvalOverviewData, GetEvalOverviewResponses, GetEvalRunData, GetEvalRunResponses, GetEvalTopicsData, GetEvalTopicsResponses, GetExtensionPromptData, GetExtensionPromptErrors, GetExtensionPromptResponses, GetExtensionsData, GetExtensionsErrors, GetExtensionsResponses, GetHealthData, GetHealthResponses, GetInstanceCardData, GetInstanceCardErrors, GetInstanceCardResponses, GetInstanceData, GetInstanceErrors, GetInstanceResponses, GetInstanceResultData, GetInstanceResultErrors, GetInstanceResultResponses, GetLiveExtensionData, GetLiveExtensionErrors, GetLiveExtensionResponses, GetLiveMonitoringData, GetLiveMonitoringResponses, GetPipelineData, GetPipelineErrors, GetPipelineResponses, GetPricingData, GetPricingResponses, GetPromptData, GetPromptErrors, GetPromptResponses, GetPromptsData, GetPromptsResponses, GetProviderModelsData, GetProviderModelsErrors, GetProviderModelsResponses, GetReasoningEffortData, GetReasoningEffortOverridesData, GetReasoningEffortOverridesResponses, GetReasoningEffortResponses, GetResponseQualityData, GetResponseQualityResponses, GetRunData, GetRunErrors, GetRunEventsData, GetRunEventsErrors, GetRunEventsResponses, GetRunResponses, GetSessionAnalyticsData, GetSessionAnalyticsErrors, GetSessionAnalyticsResponses, GetSessionData, GetSessionErrors, GetSessionExtensionsData, GetSessionExtensionsErrors, GetSessionExtensionsResponses, GetSessionInsightsData, GetSessionInsightsErrors, GetSessionInsightsResponses, GetSessionResponses, GetSlashCommandsData, GetSlashCommandsResponses, GetToolAnalyticsData, GetToolAnalyticsResponses, GetToolsData, GetToolsErrors, GetToolsResponses, GetTunnelStatusData, GetTunnelStatusResponses, GetUserInfoData, GetUserInfoResponses, ImportAppData, ImportAppErrors, ImportAppResponses, ImportSessionData, ImportSessionErrors, ImportSessionResponses, InitConfigData, InitConfigErrors, InitConfigResponses, InspectRunningJobData, InspectRunningJobErrors, InspectRunningJobResponses, KillRunningJobData, KillRunningJobResponses, ListAgents2Data, ListAgents2Responses, ListAgentsData, ListAgentsResponses, ListAppsData, ListAppsErrors, ListAppsResponses, ListBuiltinAgentsData, ListBuiltinAgentsResponses, ListEvalDatasetsData, ListEvalDatasetsResponses, ListEvalRunsData, ListEvalRunsResponses, ListExtensionPromptsData, ListExtensionPromptsErrors, ListExtensionPromptsResponses, ListInstancesData, ListInstancesResponses, ListLiveExtensionsData, ListLiveExtensionsResponses, ListModelsData, ListModelsResponses, ListOidcProvidersData, ListOidcProvidersResponses, ListPersonasData, ListPersonasResponses, ListPipelinesData, ListPipelinesErrors, ListPipelinesResponses, ListRecipesData, ListRecipesErrors, ListRecipesResponses, ListRunsData, ListRunsResponses, ListSchedulesData, ListSchedulesErrors, ListSchedulesResponses, ListSessionsData, ListSessionsErrors, ListSessionsResponses, LoginData, LoginErrors, LoginResponses, LogoutData, LogoutResponses, McpUiProxyData, McpUiProxyErrors, McpUiProxyResponses, OidcAuthUrlData, OidcAuthUrlErrors, OidcAuthUrlResponses, OidcCodeExchangeData, OidcCodeExchangeErrors, OidcCodeExchangeResponses, OidcLoginData, OidcLoginErrors, OidcLoginResponses, OidcRefreshData, OidcRefreshErrors, OidcRefreshResponses, OrchestratorStatusData, OrchestratorStatusResponses, ParseRecipeData, ParseRecipeErrors, ParseRecipeResponses, PauseScheduleData, PauseScheduleErrors, PauseScheduleResponses, PingData, PingResponses, PromptAgentData, PromptAgentErrors, PromptAgentResponses, ProvidersData, ProvidersResponses, ReadAllConfigData, ReadAllConfigResponses, ReadConfigData, ReadConfigErrors, ReadConfigResponses, ReadResourceData, ReadResourceErrors, ReadResourceResponses, RecipeToYamlData, RecipeToYamlErrors, RecipeToYamlResponses, RecoverConfigData, RecoverConfigErrors, RecoverConfigResponses, RefreshTokenData, RefreshTokenErrors, RefreshTokenResponses, RemoveConfigData, RemoveConfigErrors, RemoveConfigResponses, RemoveCustomProviderData, RemoveCustomProviderErrors, RemoveCustomProviderResponses, RemoveExtensionData, RemoveExtensionErrors, RemoveExtensionResponses, RemoveOidcProviderData, RemoveOidcProviderResponses, ReplyData, ReplyErrors, ReplyResponses, ResetPromptData, ResetPromptErrors, ResetPromptResponses, RestartAgentData, RestartAgentErrors, RestartAgentResponses, ResumeAgentData, ResumeAgentErrors, ResumeAgentResponses, ResumeRunData, ResumeRunErrors, ResumeRunResponses, RunEvalData, RunEvalResponses, RunNowHandlerData, RunNowHandlerErrors, RunNowHandlerResponses, SavePipelineData, SavePipelineErrors, SavePipelineResponses, SavePromptData, SavePromptErrors, SavePromptResponses, SaveRecipeData, SaveRecipeErrors, SaveRecipeResponses, ScanRecipeData, ScanRecipeResponses, ScheduleRecipeData, ScheduleRecipeErrors, ScheduleRecipeResponses, SearchSessionsData, SearchSessionsErrors, SearchSessionsResponses, SendTelemetryEventData, SendTelemetryEventResponses, SessionsHandlerData, SessionsHandlerErrors, SessionsHandlerResponses, SetConfigProviderData, SetModeData, SetModeErrors, SetModeResponses, SetReasoningEffortData, SetReasoningEffortOverridesData, SetReasoningEffortOverridesResponses, SetReasoningEffortResponses, SetRecipeSlashCommandData, SetRecipeSlashCommandErrors, SetRecipeSlashCommandResponses, SpawnInstanceData, SpawnInstanceErrors, SpawnInstanceResponses, StartAgentData, StartAgentErrors, StartAgentResponses, StartOpenrouterSetupData, StartOpenrouterSetupResponses, StartTetrateSetupData, StartTetrateSetupResponses, StartTunnelData, StartTunnelErrors, StartTunnelResponses, StatusData, StatusResponses, StopAgentData, StopAgentErrors, StopAgentResponses, StopTunnelData, StopTunnelErrors, StopTunnelResponses, StreamInstanceEventsData, StreamInstanceEventsErrors, StreamInstanceEventsResponses, SystemInfoData, SystemInfoResponses, ToggleBuiltinAgentData, ToggleBuiltinAgentErrors, ToggleBuiltinAgentResponses, TranscribeDictationData, TranscribeDictationErrors, TranscribeDictationResponses, UnbindExtensionFromAgentData, UnbindExtensionFromAgentResponses, UnpauseScheduleData, UnpauseScheduleErrors, UnpauseScheduleResponses, UpdateAgentProviderData, UpdateAgentProviderErrors, UpdateAgentProviderResponses, UpdateCustomProviderData, UpdateCustomProviderErrors, UpdateCustomProviderResponses, UpdateEvalDatasetData, UpdateEvalDatasetResponses, UpdateFromSessionData, UpdateFromSessionErrors, UpdateFromSessionResponses, UpdatePipelineData, UpdatePipelineErrors, UpdatePipelineResponses, UpdateScheduleData, UpdateScheduleErrors, UpdateScheduleResponses, UpdateSessionNameData, UpdateSessionNameErrors, UpdateSessionNameResponses, UpdateSessionUserRecipeValuesData, UpdateSessionUserRecipeValuesErrors, UpdateSessionUserRecipeValuesResponses, UpdateWorkingDirData, UpdateWorkingDirErrors, UpdateWorkingDirResponses, UpsertConfigData, UpsertConfigErrors, UpsertConfigResponses, UpsertPermissionsData, UpsertPermissionsErrors, UpsertPermissionsResponses, ValidateConfigData, ValidateConfigErrors, ValidateConfigResponses, ValidatePipelineData, ValidatePipelineResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<TData, ThrowOnError> & {
     /**
@@ -17,6 +17,69 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
      */
     meta?: Record<string, unknown>;
 };
+
+/**
+ * List all available personas.
+ */
+export const listPersonas = <ThrowOnError extends boolean = false>(options?: Options<ListPersonasData, ThrowOnError>) => (options?.client ?? client).get<ListPersonasResponses, unknown, ThrowOnError>({ url: '/a2a/agents', ...options });
+
+/**
+ * Discover a remote A2A agent by fetching its agent card.
+ */
+export const discoverAgent = <ThrowOnError extends boolean = false>(options: Options<DiscoverAgentData, ThrowOnError>) => (options.client ?? client).post<DiscoverAgentResponses, DiscoverAgentErrors, ThrowOnError>({
+    url: '/a2a/discover',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * List all pool instances with their current status.
+ */
+export const listInstances = <ThrowOnError extends boolean = false>(options?: Options<ListInstancesData, ThrowOnError>) => (options?.client ?? client).get<ListInstancesResponses, unknown, ThrowOnError>({ url: '/a2a/instances', ...options });
+
+/**
+ * Spawn a new agent instance in the pool.
+ */
+export const spawnInstance = <ThrowOnError extends boolean = false>(options: Options<SpawnInstanceData, ThrowOnError>) => (options.client ?? client).post<SpawnInstanceResponses, SpawnInstanceErrors, ThrowOnError>({
+    url: '/a2a/instances',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Cancel a running instance.
+ */
+export const cancelInstance = <ThrowOnError extends boolean = false>(options: Options<CancelInstanceData, ThrowOnError>) => (options.client ?? client).delete<CancelInstanceResponses, CancelInstanceErrors, ThrowOnError>({ url: '/a2a/instances/{instance_id}', ...options });
+
+/**
+ * Get status of a specific instance.
+ */
+export const getInstance = <ThrowOnError extends boolean = false>(options: Options<GetInstanceData, ThrowOnError>) => (options.client ?? client).get<GetInstanceResponses, GetInstanceErrors, ThrowOnError>({ url: '/a2a/instances/{instance_id}', ...options });
+
+/**
+ * Get the A2A agent card for a specific instance.
+ */
+export const getInstanceCard = <ThrowOnError extends boolean = false>(options: Options<GetInstanceCardData, ThrowOnError>) => (options.client ?? client).get<GetInstanceCardResponses, GetInstanceCardErrors, ThrowOnError>({ url: '/a2a/instances/{instance_id}/card', ...options });
+
+/**
+ * Stream real-time events from a running pool instance via SSE.
+ *
+ * Subscribes to the instance's broadcast channel and streams PoolEvents
+ * as Server-Sent Events. The stream closes when the instance completes
+ * or the client disconnects.
+ */
+export const streamInstanceEvents = <ThrowOnError extends boolean = false>(options: Options<StreamInstanceEventsData, ThrowOnError>) => (options.client ?? client).get<StreamInstanceEventsResponses, StreamInstanceEventsErrors, ThrowOnError>({ url: '/a2a/instances/{instance_id}/events', ...options });
+
+/**
+ * Get the result of a completed instance.
+ */
+export const getInstanceResult = <ThrowOnError extends boolean = false>(options: Options<GetInstanceResultData, ThrowOnError>) => (options.client ?? client).get<GetInstanceResultResponses, GetInstanceResultErrors, ThrowOnError>({ url: '/a2a/instances/{instance_id}/result', ...options });
 
 export const confirmToolAction = <ThrowOnError extends boolean = false>(options: Options<ConfirmToolActionData, ThrowOnError>) => (options.client ?? client).post<ConfirmToolActionResponses, ConfirmToolActionErrors, ThrowOnError>({
     url: '/action-required/tool-confirmation',
@@ -57,6 +120,17 @@ export const importApp = <ThrowOnError extends boolean = false>(options: Options
 });
 
 export const listApps = <ThrowOnError extends boolean = false>(options?: Options<ListAppsData, ThrowOnError>) => (options?.client ?? client).get<ListAppsResponses, ListAppsErrors, ThrowOnError>({ url: '/agent/list_apps', ...options });
+
+export const listExtensionPrompts = <ThrowOnError extends boolean = false>(options: Options<ListExtensionPromptsData, ThrowOnError>) => (options.client ?? client).get<ListExtensionPromptsResponses, ListExtensionPromptsErrors, ThrowOnError>({ url: '/agent/prompts', ...options });
+
+export const getExtensionPrompt = <ThrowOnError extends boolean = false>(options: Options<GetExtensionPromptData, ThrowOnError>) => (options.client ?? client).post<GetExtensionPromptResponses, GetExtensionPromptErrors, ThrowOnError>({
+    url: '/agent/prompts/get',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
 
 export const readResource = <ThrowOnError extends boolean = false>(options: Options<ReadResourceData, ThrowOnError>) => (options.client ?? client).post<ReadResourceResponses, ReadResourceErrors, ThrowOnError>({
     url: '/agent/read_resource',
@@ -141,18 +215,266 @@ export const updateWorkingDir = <ThrowOnError extends boolean = false>(options: 
     }
 });
 
-export const readAllConfig = <ThrowOnError extends boolean = false>(options?: Options<ReadAllConfigData, ThrowOnError>) => (options?.client ?? client).get<ReadAllConfigResponses, unknown, ThrowOnError>({ url: '/config', ...options });
+/**
+ * ACP v0.2.0 GET /agents — one manifest per agent persona (runtime-aware).
+ */
+export const listAgents = <ThrowOnError extends boolean = false>(options?: Options<ListAgentsData, ThrowOnError>) => (options?.client ?? client).get<ListAgentsResponses, unknown, ThrowOnError>({ url: '/agents', ...options });
 
-export const backupConfig = <ThrowOnError extends boolean = false>(options?: Options<BackupConfigData, ThrowOnError>) => (options?.client ?? client).post<BackupConfigResponses, BackupConfigErrors, ThrowOnError>({ url: '/config/backup', ...options });
+export const listBuiltinAgents = <ThrowOnError extends boolean = false>(options?: Options<ListBuiltinAgentsData, ThrowOnError>) => (options?.client ?? client).get<ListBuiltinAgentsResponses, unknown, ThrowOnError>({ url: '/agents/builtin', ...options });
 
-export const getCanonicalModelInfo = <ThrowOnError extends boolean = false>(options: Options<GetCanonicalModelInfoData, ThrowOnError>) => (options.client ?? client).post<GetCanonicalModelInfoResponses, unknown, ThrowOnError>({
-    url: '/config/canonical-model-info',
+export const bindExtensionToAgent = <ThrowOnError extends boolean = false>(options: Options<BindExtensionToAgentData, ThrowOnError>) => (options.client ?? client).post<BindExtensionToAgentResponses, unknown, ThrowOnError>({
+    url: '/agents/builtin/{name}/extensions/bind',
     ...options,
     headers: {
         'Content-Type': 'application/json',
         ...options.headers
     }
 });
+
+export const unbindExtensionFromAgent = <ThrowOnError extends boolean = false>(options: Options<UnbindExtensionFromAgentData, ThrowOnError>) => (options.client ?? client).post<UnbindExtensionFromAgentResponses, unknown, ThrowOnError>({
+    url: '/agents/builtin/{name}/extensions/unbind',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+export const toggleBuiltinAgent = <ThrowOnError extends boolean = false>(options: Options<ToggleBuiltinAgentData, ThrowOnError>) => (options.client ?? client).post<ToggleBuiltinAgentResponses, ToggleBuiltinAgentErrors, ThrowOnError>({ url: '/agents/builtin/{name}/toggle', ...options });
+
+export const agentCatalog = <ThrowOnError extends boolean = false>(options?: Options<AgentCatalogData, ThrowOnError>) => (options?.client ?? client).get<AgentCatalogResponses, unknown, ThrowOnError>({ url: '/agents/catalog', ...options });
+
+export const listAgents2 = <ThrowOnError extends boolean = false>(options?: Options<ListAgents2Data, ThrowOnError>) => (options?.client ?? client).get<ListAgents2Responses, unknown, ThrowOnError>({ url: '/agents/external', ...options });
+
+export const connectAgent = <ThrowOnError extends boolean = false>(options: Options<ConnectAgentData, ThrowOnError>) => (options.client ?? client).post<ConnectAgentResponses, ConnectAgentErrors, ThrowOnError>({
+    url: '/agents/external/connect',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+export const disconnectAgent = <ThrowOnError extends boolean = false>(options: Options<DisconnectAgentData, ThrowOnError>) => (options.client ?? client).delete<DisconnectAgentResponses, DisconnectAgentErrors, ThrowOnError>({ url: '/agents/external/{agent_id}', ...options });
+
+export const setMode = <ThrowOnError extends boolean = false>(options: Options<SetModeData, ThrowOnError>) => (options.client ?? client).post<SetModeResponses, SetModeErrors, ThrowOnError>({
+    url: '/agents/external/{agent_id}/mode',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+export const promptAgent = <ThrowOnError extends boolean = false>(options: Options<PromptAgentData, ThrowOnError>) => (options.client ?? client).post<PromptAgentResponses, PromptAgentErrors, ThrowOnError>({
+    url: '/agents/external/{agent_id}/prompt',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+export const createSession = <ThrowOnError extends boolean = false>(options: Options<CreateSessionData, ThrowOnError>) => (options.client ?? client).post<CreateSessionResponses, CreateSessionErrors, ThrowOnError>({
+    url: '/agents/external/{agent_id}/session',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * ACP v0.2.0 GET /agents/{name} (runtime-aware).
+ */
+export const getAgent = <ThrowOnError extends boolean = false>(options: Options<GetAgentData, ThrowOnError>) => (options.client ?? client).get<GetAgentResponses, GetAgentErrors, ThrowOnError>({ url: '/agents/{name}', ...options });
+
+export const compareEvalRuns = <ThrowOnError extends boolean = false>(options: Options<CompareEvalRunsData, ThrowOnError>) => (options.client ?? client).get<CompareEvalRunsResponses, unknown, ThrowOnError>({ url: '/analytics/eval/compare', ...options });
+
+export const listEvalDatasets = <ThrowOnError extends boolean = false>(options?: Options<ListEvalDatasetsData, ThrowOnError>) => (options?.client ?? client).get<ListEvalDatasetsResponses, unknown, ThrowOnError>({ url: '/analytics/eval/datasets', ...options });
+
+export const createEvalDataset = <ThrowOnError extends boolean = false>(options: Options<CreateEvalDatasetData, ThrowOnError>) => (options.client ?? client).post<CreateEvalDatasetResponses, unknown, ThrowOnError>({
+    url: '/analytics/eval/datasets',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+export const deleteEvalDataset = <ThrowOnError extends boolean = false>(options: Options<DeleteEvalDatasetData, ThrowOnError>) => (options.client ?? client).delete<DeleteEvalDatasetResponses, unknown, ThrowOnError>({ url: '/analytics/eval/datasets/{id}', ...options });
+
+export const getEvalDataset = <ThrowOnError extends boolean = false>(options: Options<GetEvalDatasetData, ThrowOnError>) => (options.client ?? client).get<GetEvalDatasetResponses, unknown, ThrowOnError>({ url: '/analytics/eval/datasets/{id}', ...options });
+
+export const updateEvalDataset = <ThrowOnError extends boolean = false>(options: Options<UpdateEvalDatasetData, ThrowOnError>) => (options.client ?? client).put<UpdateEvalDatasetResponses, unknown, ThrowOnError>({
+    url: '/analytics/eval/datasets/{id}',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+export const getEvalOverview = <ThrowOnError extends boolean = false>(options?: Options<GetEvalOverviewData, ThrowOnError>) => (options?.client ?? client).get<GetEvalOverviewResponses, unknown, ThrowOnError>({ url: '/analytics/eval/overview', ...options });
+
+export const runEval = <ThrowOnError extends boolean = false>(options: Options<RunEvalData, ThrowOnError>) => (options.client ?? client).post<RunEvalResponses, unknown, ThrowOnError>({
+    url: '/analytics/eval/run',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+export const listEvalRuns = <ThrowOnError extends boolean = false>(options?: Options<ListEvalRunsData, ThrowOnError>) => (options?.client ?? client).get<ListEvalRunsResponses, unknown, ThrowOnError>({ url: '/analytics/eval/runs', ...options });
+
+export const getEvalRun = <ThrowOnError extends boolean = false>(options: Options<GetEvalRunData, ThrowOnError>) => (options.client ?? client).get<GetEvalRunResponses, unknown, ThrowOnError>({ url: '/analytics/eval/runs/{id}', ...options });
+
+export const getEvalTopics = <ThrowOnError extends boolean = false>(options?: Options<GetEvalTopicsData, ThrowOnError>) => (options?.client ?? client).get<GetEvalTopicsResponses, unknown, ThrowOnError>({ url: '/analytics/eval/topics', ...options });
+
+/**
+ * Get live monitoring metrics (recent activity snapshot)
+ */
+export const getLiveMonitoring = <ThrowOnError extends boolean = false>(options?: Options<GetLiveMonitoringData, ThrowOnError>) => (options?.client ?? client).get<GetLiveMonitoringResponses, unknown, ThrowOnError>({ url: '/analytics/monitoring/live', ...options });
+
+/**
+ * Get response quality metrics
+ */
+export const getResponseQuality = <ThrowOnError extends boolean = false>(options?: Options<GetResponseQualityData, ThrowOnError>) => (options?.client ?? client).get<GetResponseQualityResponses, unknown, ThrowOnError>({ url: '/analytics/quality', ...options });
+
+export const getToolAnalytics = <ThrowOnError extends boolean = false>(options?: Options<GetToolAnalyticsData, ThrowOnError>) => (options?.client ?? client).get<GetToolAnalyticsResponses, unknown, ThrowOnError>({ url: '/analytics/tools', ...options });
+
+export const getAgentPerformance = <ThrowOnError extends boolean = false>(options?: Options<GetAgentPerformanceData, ThrowOnError>) => (options?.client ?? client).get<GetAgentPerformanceResponses, unknown, ThrowOnError>({ url: '/analytics/tools/agents', ...options });
+
+/**
+ * Login with API key and receive a session token
+ */
+export const login = <ThrowOnError extends boolean = false>(options: Options<LoginData, ThrowOnError>) => (options.client ?? client).post<LoginResponses, LoginErrors, ThrowOnError>({
+    url: '/auth/login',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Login with an OIDC ID token (obtained after the authorization code exchange).
+ *
+ * The CLI exchanges the auth code for tokens client-side, then sends the ID token here.
+ */
+export const oidcLogin = <ThrowOnError extends boolean = false>(options: Options<OidcLoginData, ThrowOnError>) => (options.client ?? client).post<OidcLoginResponses, OidcLoginErrors, ThrowOnError>({
+    url: '/auth/login/oidc',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Exchange an OIDC authorization code for a session token.
+ *
+ * The server handles the code-to-token exchange with the OIDC provider,
+ * validates the resulting ID token, and returns a goose session JWT.
+ */
+export const oidcCodeExchange = <ThrowOnError extends boolean = false>(options: Options<OidcCodeExchangeData, ThrowOnError>) => (options.client ?? client).post<OidcCodeExchangeResponses, OidcCodeExchangeErrors, ThrowOnError>({
+    url: '/auth/login/oidc/code',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Generate an OIDC authorization URL for starting the login flow.
+ *
+ * The CLI or frontend calls this to get a URL to open in the browser.
+ */
+export const oidcAuthUrl = <ThrowOnError extends boolean = false>(options: Options<OidcAuthUrlData, ThrowOnError>) => (options.client ?? client).post<OidcAuthUrlResponses, OidcAuthUrlErrors, ThrowOnError>({
+    url: '/auth/login/oidc/url',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Logout — revoke the current session token
+ */
+export const logout = <ThrowOnError extends boolean = false>(options?: Options<LogoutData, ThrowOnError>) => (options?.client ?? client).post<LogoutResponses, unknown, ThrowOnError>({ url: '/auth/logout', ...options });
+
+/**
+ * Get current user info from request headers
+ */
+export const getUserInfo = <ThrowOnError extends boolean = false>(options?: Options<GetUserInfoData, ThrowOnError>) => (options?.client ?? client).get<GetUserInfoResponses, unknown, ThrowOnError>({ url: '/auth/me', ...options });
+
+/**
+ * Remove an OIDC provider by issuer URL.
+ */
+export const removeOidcProvider = <ThrowOnError extends boolean = false>(options: Options<RemoveOidcProviderData, ThrowOnError>) => (options.client ?? client).delete<RemoveOidcProviderResponses, unknown, ThrowOnError>({
+    url: '/auth/oidc/providers',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * List configured OIDC providers.
+ */
+export const listOidcProviders = <ThrowOnError extends boolean = false>(options?: Options<ListOidcProvidersData, ThrowOnError>) => (options?.client ?? client).get<ListOidcProvidersResponses, unknown, ThrowOnError>({ url: '/auth/oidc/providers', ...options });
+
+/**
+ * Add an OIDC provider for JWT validation.
+ */
+export const addOidcProvider = <ThrowOnError extends boolean = false>(options: Options<AddOidcProviderData, ThrowOnError>) => (options.client ?? client).post<AddOidcProviderResponses, unknown, ThrowOnError>({
+    url: '/auth/oidc/providers',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Refresh an existing session token
+ */
+export const refreshToken = <ThrowOnError extends boolean = false>(options: Options<RefreshTokenData, ThrowOnError>) => (options.client ?? client).post<RefreshTokenResponses, RefreshTokenErrors, ThrowOnError>({
+    url: '/auth/refresh',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Refresh OIDC tokens using a stored refresh_token.
+ *
+ * Exchanges the refresh_token with the OIDC provider for new tokens,
+ * validates the new ID token, and issues a fresh session JWT.
+ */
+export const oidcRefresh = <ThrowOnError extends boolean = false>(options: Options<OidcRefreshData, ThrowOnError>) => (options.client ?? client).post<OidcRefreshResponses, OidcRefreshErrors, ThrowOnError>({
+    url: '/auth/refresh/oidc',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Get auth system status.
+ */
+export const authStatus = <ThrowOnError extends boolean = false>(options?: Options<AuthStatusData, ThrowOnError>) => (options?.client ?? client).get<AuthStatusResponses, unknown, ThrowOnError>({ url: '/auth/status', ...options });
+
+export const readAllConfig = <ThrowOnError extends boolean = false>(options?: Options<ReadAllConfigData, ThrowOnError>) => (options?.client ?? client).get<ReadAllConfigResponses, unknown, ThrowOnError>({ url: '/config', ...options });
+
+export const backupConfig = <ThrowOnError extends boolean = false>(options?: Options<BackupConfigData, ThrowOnError>) => (options?.client ?? client).post<BackupConfigResponses, BackupConfigErrors, ThrowOnError>({ url: '/config/backup', ...options });
 
 export const checkProvider = <ThrowOnError extends boolean = false>(options: Options<CheckProviderData, ThrowOnError>) => (options.client ?? client).post<unknown, unknown, ThrowOnError>({
     url: '/config/check_provider',
@@ -218,6 +540,15 @@ export const upsertPermissions = <ThrowOnError extends boolean = false>(options:
     }
 });
 
+export const getPricing = <ThrowOnError extends boolean = false>(options: Options<GetPricingData, ThrowOnError>) => (options.client ?? client).post<GetPricingResponses, unknown, ThrowOnError>({
+    url: '/config/pricing',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
 export const getPrompts = <ThrowOnError extends boolean = false>(options?: Options<GetPromptsData, ThrowOnError>) => (options?.client ?? client).get<GetPromptsResponses, unknown, ThrowOnError>({ url: '/config/prompts', ...options });
 
 export const resetPrompt = <ThrowOnError extends boolean = false>(options: Options<ResetPromptData, ThrowOnError>) => (options.client ?? client).delete<ResetPromptResponses, ResetPromptErrors, ThrowOnError>({ url: '/config/prompts/{name}', ...options });
@@ -233,10 +564,6 @@ export const savePrompt = <ThrowOnError extends boolean = false>(options: Option
     }
 });
 
-export const getProviderCatalog = <ThrowOnError extends boolean = false>(options?: Options<GetProviderCatalogData, ThrowOnError>) => (options?.client ?? client).get<GetProviderCatalogResponses, GetProviderCatalogErrors, ThrowOnError>({ url: '/config/provider-catalog', ...options });
-
-export const getProviderCatalogTemplate = <ThrowOnError extends boolean = false>(options: Options<GetProviderCatalogTemplateData, ThrowOnError>) => (options.client ?? client).get<GetProviderCatalogTemplateResponses, GetProviderCatalogTemplateErrors, ThrowOnError>({ url: '/config/provider-catalog/{id}', ...options });
-
 export const providers = <ThrowOnError extends boolean = false>(options?: Options<ProvidersData, ThrowOnError>) => (options?.client ?? client).get<ProvidersResponses, unknown, ThrowOnError>({ url: '/config/providers', ...options });
 
 export const getProviderModels = <ThrowOnError extends boolean = false>(options: Options<GetProviderModelsData, ThrowOnError>) => (options.client ?? client).get<GetProviderModelsResponses, GetProviderModelsErrors, ThrowOnError>({ url: '/config/providers/{name}/models', ...options });
@@ -245,6 +572,40 @@ export const configureProviderOauth = <ThrowOnError extends boolean = false>(opt
 
 export const readConfig = <ThrowOnError extends boolean = false>(options: Options<ReadConfigData, ThrowOnError>) => (options.client ?? client).post<ReadConfigResponses, ReadConfigErrors, ThrowOnError>({
     url: '/config/read',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Get the current reasoning effort override
+ */
+export const getReasoningEffort = <ThrowOnError extends boolean = false>(options?: Options<GetReasoningEffortData, ThrowOnError>) => (options?.client ?? client).get<GetReasoningEffortResponses, unknown, ThrowOnError>({ url: '/config/reasoning-effort', ...options });
+
+/**
+ * Set the reasoning effort dynamically (affects all future LLM calls)
+ */
+export const setReasoningEffort = <ThrowOnError extends boolean = false>(options: Options<SetReasoningEffortData, ThrowOnError>) => (options.client ?? client).post<SetReasoningEffortResponses, unknown, ThrowOnError>({
+    url: '/config/reasoning-effort',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Get all per-agent/mode reasoning effort overrides
+ */
+export const getReasoningEffortOverrides = <ThrowOnError extends boolean = false>(options?: Options<GetReasoningEffortOverridesData, ThrowOnError>) => (options?.client ?? client).get<GetReasoningEffortOverridesResponses, unknown, ThrowOnError>({ url: '/config/reasoning-effort-overrides', ...options });
+
+/**
+ * Set per-agent/mode reasoning effort overrides (replaces all existing overrides)
+ */
+export const setReasoningEffortOverrides = <ThrowOnError extends boolean = false>(options: Options<SetReasoningEffortOverridesData, ThrowOnError>) => (options.client ?? client).post<SetReasoningEffortOverridesResponses, unknown, ThrowOnError>({
+    url: '/config/reasoning-effort-overrides',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -308,43 +669,90 @@ export const transcribeDictation = <ThrowOnError extends boolean = false>(option
     }
 });
 
+/**
+ * List all active MCP connections
+ */
+export const listLiveExtensions = <ThrowOnError extends boolean = false>(options?: Options<ListLiveExtensionsData, ThrowOnError>) => (options?.client ?? client).get<ListLiveExtensionsResponses, unknown, ThrowOnError>({ url: '/extensions/live', ...options });
+
+/**
+ * Check if a specific extension is connected
+ */
+export const getLiveExtension = <ThrowOnError extends boolean = false>(options: Options<GetLiveExtensionData, ThrowOnError>) => (options.client ?? client).get<GetLiveExtensionResponses, GetLiveExtensionErrors, ThrowOnError>({ url: '/extensions/live/{name}', ...options });
+
+/**
+ * Disconnect (stop) an active MCP extension
+ */
+export const disconnectExtension = <ThrowOnError extends boolean = false>(options: Options<DisconnectExtensionData, ThrowOnError>) => (options.client ?? client).delete<DisconnectExtensionResponses, DisconnectExtensionErrors, ThrowOnError>({ url: '/extensions/live/{name}/disconnect', ...options });
+
 export const startOpenrouterSetup = <ThrowOnError extends boolean = false>(options?: Options<StartOpenrouterSetupData, ThrowOnError>) => (options?.client ?? client).post<StartOpenrouterSetupResponses, unknown, ThrowOnError>({ url: '/handle_openrouter', ...options });
 
 export const startTetrateSetup = <ThrowOnError extends boolean = false>(options?: Options<StartTetrateSetupData, ThrowOnError>) => (options?.client ?? client).post<StartTetrateSetupResponses, unknown, ThrowOnError>({ url: '/handle_tetrate', ...options });
 
-export const downloadHfModel = <ThrowOnError extends boolean = false>(options: Options<DownloadHfModelData, ThrowOnError>) => (options.client ?? client).post<DownloadHfModelResponses, DownloadHfModelErrors, ThrowOnError>({
-    url: '/local-inference/download',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-    }
-});
-
-export const listLocalModels = <ThrowOnError extends boolean = false>(options?: Options<ListLocalModelsData, ThrowOnError>) => (options?.client ?? client).get<ListLocalModelsResponses, unknown, ThrowOnError>({ url: '/local-inference/models', ...options });
-
-export const deleteLocalModel = <ThrowOnError extends boolean = false>(options: Options<DeleteLocalModelData, ThrowOnError>) => (options.client ?? client).delete<DeleteLocalModelResponses, DeleteLocalModelErrors, ThrowOnError>({ url: '/local-inference/models/{model_id}', ...options });
-
-export const cancelLocalModelDownload = <ThrowOnError extends boolean = false>(options: Options<CancelLocalModelDownloadData, ThrowOnError>) => (options.client ?? client).delete<CancelLocalModelDownloadResponses, CancelLocalModelDownloadErrors, ThrowOnError>({ url: '/local-inference/models/{model_id}/download', ...options });
-
-export const getLocalModelDownloadProgress = <ThrowOnError extends boolean = false>(options: Options<GetLocalModelDownloadProgressData, ThrowOnError>) => (options.client ?? client).get<GetLocalModelDownloadProgressResponses, GetLocalModelDownloadProgressErrors, ThrowOnError>({ url: '/local-inference/models/{model_id}/download', ...options });
-
-export const getModelSettings = <ThrowOnError extends boolean = false>(options: Options<GetModelSettingsData, ThrowOnError>) => (options.client ?? client).get<GetModelSettingsResponses, GetModelSettingsErrors, ThrowOnError>({ url: '/local-inference/models/{model_id}/settings', ...options });
-
-export const updateModelSettings = <ThrowOnError extends boolean = false>(options: Options<UpdateModelSettingsData, ThrowOnError>) => (options.client ?? client).put<UpdateModelSettingsResponses, UpdateModelSettingsErrors, ThrowOnError>({
-    url: '/local-inference/models/{model_id}/settings',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-    }
-});
-
-export const getRepoFiles = <ThrowOnError extends boolean = false>(options: Options<GetRepoFilesData, ThrowOnError>) => (options.client ?? client).get<GetRepoFilesResponses, unknown, ThrowOnError>({ url: '/local-inference/repo/{author}/{repo}/files', ...options });
-
-export const searchHfModels = <ThrowOnError extends boolean = false>(options: Options<SearchHfModelsData, ThrowOnError>) => (options.client ?? client).get<SearchHfModelsResponses, SearchHfModelsErrors, ThrowOnError>({ url: '/local-inference/search', ...options });
-
 export const mcpUiProxy = <ThrowOnError extends boolean = false>(options: Options<McpUiProxyData, ThrowOnError>) => (options.client ?? client).get<McpUiProxyResponses, McpUiProxyErrors, ThrowOnError>({ url: '/mcp-ui-proxy', ...options });
+
+/**
+ * GET /observatory/active-agents — real-time agent status.
+ */
+export const getActiveAgents = <ThrowOnError extends boolean = false>(options?: Options<GetActiveAgentsData, ThrowOnError>) => (options?.client ?? client).get<GetActiveAgentsResponses, unknown, ThrowOnError>({ url: '/observatory/active-agents', ...options });
+
+/**
+ * GET /observatory/dashboard — unified system health + agents + performance.
+ */
+export const getDashboard = <ThrowOnError extends boolean = false>(options?: Options<GetDashboardData, ThrowOnError>) => (options?.client ?? client).get<GetDashboardResponses, unknown, ThrowOnError>({ url: '/observatory/dashboard', ...options });
+
+/**
+ * GET /observatory/health — system health check.
+ */
+export const getHealth = <ThrowOnError extends boolean = false>(options?: Options<GetHealthData, ThrowOnError>) => (options?.client ?? client).get<GetHealthResponses, unknown, ThrowOnError>({ url: '/observatory/health', ...options });
+
+export const orchestratorStatus = <ThrowOnError extends boolean = false>(options?: Options<OrchestratorStatusData, ThrowOnError>) => (options?.client ?? client).get<OrchestratorStatusResponses, unknown, ThrowOnError>({ url: '/orchestrator/status', ...options });
+
+/**
+ * ACP v0.2.0 GET /ping
+ */
+export const ping = <ThrowOnError extends boolean = false>(options?: Options<PingData, ThrowOnError>) => (options?.client ?? client).get<PingResponses, unknown, ThrowOnError>({ url: '/ping', ...options });
+
+export const listPipelines = <ThrowOnError extends boolean = false>(options?: Options<ListPipelinesData, ThrowOnError>) => (options?.client ?? client).get<ListPipelinesResponses, ListPipelinesErrors, ThrowOnError>({ url: '/pipelines/list', ...options });
+
+export const savePipeline = <ThrowOnError extends boolean = false>(options: Options<SavePipelineData, ThrowOnError>) => (options.client ?? client).post<SavePipelineResponses, SavePipelineErrors, ThrowOnError>({
+    url: '/pipelines/save',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+export const validatePipeline = <ThrowOnError extends boolean = false>(options: Options<ValidatePipelineData, ThrowOnError>) => (options.client ?? client).post<ValidatePipelineResponses, unknown, ThrowOnError>({
+    url: '/pipelines/validate',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+export const deletePipeline = <ThrowOnError extends boolean = false>(options: Options<DeletePipelineData, ThrowOnError>) => (options.client ?? client).delete<DeletePipelineResponses, DeletePipelineErrors, ThrowOnError>({ url: '/pipelines/{id}', ...options });
+
+export const getPipeline = <ThrowOnError extends boolean = false>(options: Options<GetPipelineData, ThrowOnError>) => (options.client ?? client).get<GetPipelineResponses, GetPipelineErrors, ThrowOnError>({ url: '/pipelines/{id}', ...options });
+
+export const updatePipeline = <ThrowOnError extends boolean = false>(options: Options<UpdatePipelineData, ThrowOnError>) => (options.client ?? client).put<UpdatePipelineResponses, UpdatePipelineErrors, ThrowOnError>({
+    url: '/pipelines/{id}',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+export const executePipeline = <ThrowOnError extends boolean = false>(options: Options<ExecutePipelineData, ThrowOnError>) => (options.client ?? client).post<ExecutePipelineResponses, ExecutePipelineErrors, ThrowOnError>({
+    url: '/pipelines/{id}/run',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
 
 export const createRecipe = <ThrowOnError extends boolean = false>(options: Options<CreateRecipeData, ThrowOnError>) => (options.client ?? client).post<CreateRecipeResponses, CreateRecipeErrors, ThrowOnError>({
     url: '/recipes/create',
@@ -447,6 +855,32 @@ export const reply = <ThrowOnError extends boolean = false>(options: Options<Rep
     }
 });
 
+export const listRuns = <ThrowOnError extends boolean = false>(options?: Options<ListRunsData, ThrowOnError>) => (options?.client ?? client).get<ListRunsResponses, unknown, ThrowOnError>({ url: '/runs', ...options });
+
+export const createRun = <ThrowOnError extends boolean = false>(options: Options<CreateRunData, ThrowOnError>) => (options.client ?? client).post<CreateRunResponses, unknown, ThrowOnError>({
+    url: '/runs',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+export const getRun = <ThrowOnError extends boolean = false>(options: Options<GetRunData, ThrowOnError>) => (options.client ?? client).get<GetRunResponses, GetRunErrors, ThrowOnError>({ url: '/runs/{run_id}', ...options });
+
+export const resumeRun = <ThrowOnError extends boolean = false>(options: Options<ResumeRunData, ThrowOnError>) => (options.client ?? client).post<ResumeRunResponses, ResumeRunErrors, ThrowOnError>({
+    url: '/runs/{run_id}',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+export const cancelRun = <ThrowOnError extends boolean = false>(options: Options<CancelRunData, ThrowOnError>) => (options.client ?? client).post<CancelRunResponses, CancelRunErrors, ThrowOnError>({ url: '/runs/{run_id}/cancel', ...options });
+
+export const getRunEvents = <ThrowOnError extends boolean = false>(options: Options<GetRunEventsData, ThrowOnError>) => (options.client ?? client).get<GetRunEventsResponses, GetRunEventsErrors, ThrowOnError>({ url: '/runs/{run_id}/events', ...options });
+
 export const createSchedule = <ThrowOnError extends boolean = false>(options: Options<CreateScheduleData, ThrowOnError>) => (options.client ?? client).post<CreateScheduleResponses, CreateScheduleErrors, ThrowOnError>({
     url: '/schedule/create',
     ...options,
@@ -481,7 +915,14 @@ export const sessionsHandler = <ThrowOnError extends boolean = false>(options: O
 
 export const unpauseSchedule = <ThrowOnError extends boolean = false>(options: Options<UnpauseScheduleData, ThrowOnError>) => (options.client ?? client).post<UnpauseScheduleResponses, UnpauseScheduleErrors, ThrowOnError>({ url: '/schedule/{id}/unpause', ...options });
 
+/**
+ * ACP-compatible GET /session/{session_id} — returns ACP Session schema.
+ */
+export const getAcpSession = <ThrowOnError extends boolean = false>(options: Options<GetAcpSessionData, ThrowOnError>) => (options.client ?? client).get<GetAcpSessionResponses, GetAcpSessionErrors, ThrowOnError>({ url: '/session/{session_id}', ...options });
+
 export const listSessions = <ThrowOnError extends boolean = false>(options?: Options<ListSessionsData, ThrowOnError>) => (options?.client ?? client).get<ListSessionsResponses, ListSessionsErrors, ThrowOnError>({ url: '/sessions', ...options });
+
+export const getSessionAnalytics = <ThrowOnError extends boolean = false>(options?: Options<GetSessionAnalyticsData, ThrowOnError>) => (options?.client ?? client).get<GetSessionAnalyticsResponses, GetSessionAnalyticsErrors, ThrowOnError>({ url: '/sessions/analytics', ...options });
 
 export const importSession = <ThrowOnError extends boolean = false>(options: Options<ImportSessionData, ThrowOnError>) => (options.client ?? client).post<ImportSessionResponses, ImportSessionErrors, ThrowOnError>({
     url: '/sessions/import',
@@ -500,12 +941,23 @@ export const deleteSession = <ThrowOnError extends boolean = false>(options: Opt
 
 export const getSession = <ThrowOnError extends boolean = false>(options: Options<GetSessionData, ThrowOnError>) => (options.client ?? client).get<GetSessionResponses, GetSessionErrors, ThrowOnError>({ url: '/sessions/{session_id}', ...options });
 
+export const clearSession = <ThrowOnError extends boolean = false>(options: Options<ClearSessionData, ThrowOnError>) => (options.client ?? client).post<ClearSessionResponses, ClearSessionErrors, ThrowOnError>({ url: '/sessions/{session_id}/clear', ...options });
+
 export const exportSession = <ThrowOnError extends boolean = false>(options: Options<ExportSessionData, ThrowOnError>) => (options.client ?? client).get<ExportSessionResponses, ExportSessionErrors, ThrowOnError>({ url: '/sessions/{session_id}/export', ...options });
 
 export const getSessionExtensions = <ThrowOnError extends boolean = false>(options: Options<GetSessionExtensionsData, ThrowOnError>) => (options.client ?? client).get<GetSessionExtensionsResponses, GetSessionExtensionsErrors, ThrowOnError>({ url: '/sessions/{session_id}/extensions', ...options });
 
 export const forkSession = <ThrowOnError extends boolean = false>(options: Options<ForkSessionData, ThrowOnError>) => (options.client ?? client).post<ForkSessionResponses, ForkSessionErrors, ThrowOnError>({
     url: '/sessions/{session_id}/fork',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+export const addMessage = <ThrowOnError extends boolean = false>(options: Options<AddMessageData, ThrowOnError>) => (options.client ?? client).post<AddMessageResponses, AddMessageErrors, ThrowOnError>({
+    url: '/sessions/{session_id}/messages',
     ...options,
     headers: {
         'Content-Type': 'application/json',

@@ -1,11 +1,11 @@
-import { NavigateFunction } from 'react-router-dom';
-import { Recipe } from '../api';
-import { UserInput } from '../types/message';
+import type { NavigateFunction } from 'react-router-dom';
+import type { Recipe } from '@/api';
+import type { UserInput } from '@/types/message';
 
 export type View =
   | 'welcome'
   | 'chat'
-  | 'pair'
+  | 'session'
   | 'settings'
   | 'extensions'
   | 'moreModels'
@@ -18,6 +18,10 @@ export type View =
   | 'sharedSession'
   | 'loading'
   | 'recipes'
+  | 'agents'
+  | 'analytics'
+  | 'monitoring'
+  | 'evaluate'
   | 'permission';
 
 export type ViewOptions = {
@@ -34,6 +38,10 @@ export type ViewOptions = {
   shareToken?: string;
   resumeSessionId?: string;
   pendingScheduleDeepLink?: string;
+
+  // Used to force navigation updates when the route + search params are unchanged.
+  // This is intentionally not consumed by route components.
+  __navNonce?: string;
 };
 
 export const createNavigationHandler = (navigate: NavigateFunction) => {
@@ -42,30 +50,37 @@ export const createNavigationHandler = (navigate: NavigateFunction) => {
       case 'chat':
         navigate('/', { state: options });
         break;
-      case 'pair': {
-        // Put resumeSessionId in URL search params (not just state) so that:
-        // 1. The sidebar can read it to highlight the active session
-        // 2. Page refresh preserves which session is active
-        // 3. Browser back/forward navigation works correctly
-        const searchParams = new URLSearchParams();
+      case 'session': {
         if (options?.resumeSessionId) {
-          searchParams.set('resumeSessionId', options.resumeSessionId);
+          navigate(`/sessions/${encodeURIComponent(options.resumeSessionId)}`, { state: options });
+        } else {
+          navigate('/sessions/history', { state: options });
         }
-        const url = searchParams.toString() ? `/pair?${searchParams.toString()}` : '/pair';
-        navigate(url, { state: options });
         break;
       }
       case 'settings':
         navigate('/settings', { state: options });
         break;
       case 'sessions':
-        navigate('/sessions', { state: options });
+        navigate('/sessions/history', { state: options });
         break;
       case 'schedules':
         navigate('/schedules', { state: options });
         break;
       case 'recipes':
         navigate('/recipes', { state: options });
+        break;
+      case 'agents':
+        navigate('/agents', { state: options });
+        break;
+      case 'analytics':
+        navigate('/monitoring', { state: options });
+        break;
+      case 'monitoring':
+        navigate('/monitoring', { state: options });
+        break;
+      case 'evaluate':
+        navigate('/evaluate', { state: options });
         break;
       case 'permission':
         navigate('/permission', { state: options });

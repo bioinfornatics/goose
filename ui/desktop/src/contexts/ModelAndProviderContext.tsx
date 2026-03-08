@@ -1,0 +1,282 @@
+import type React from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { type ProviderMetadata, setConfigProvider, updateAgentProvider } from '@/api';
+import type Model from '@/components/organisms/settings/models/modelInterface';
+import { getProviderMetadata } from '@/components/organisms/settings/models/modelInterface';
+import {
+  getModelDisplayName,
+  getProviderDisplayName,
+} from '@/components/organisms/settings/models/predefinedModelsUtils';
+import { AppEvents } from '@/constants/events';
+import { toastError, toastSuccess } from '@/toasts';
+import { errorMessage } from '@/utils/conversionUtils';
+import { useConfig } from './ConfigContext';
+
+export const UNKNOWN_PROVIDER_TITLE = 'Provider name lookup';
+export const UNKNOWN_PROVIDER_MSG = 'Unknown provider in config -- please inspect your config.yaml';
+
+// success
+const CHANGE_MODEL_TOAST_TITLE = 'Model changed';
+const SWITCH_MODEL_SUCCESS_MSG = 'Successfully switched models';
+
+interface ModelAndProviderContextType {
+  currentModel: string | null;
+  currentProvider: string | null;
+  isChangingModel: boolean;
+  changeModel: (sessionId: string | null, model: Model) => Promise<void>;
+  getCurrentModelAndProvider: () => Promise<{ model: string; provider: string }>;
+  getFallbackModelAndProvider: () => Promise<{ model: string; provider: string }>;
+  getCurrentModelAndProviderForDisplay: () => Promise<{ model: string; provider: string }>;
+  getCurrentModelDisplayName: () => Promise<string>;
+  getCurrentProviderDisplayName: () => Promise<string>;
+  refreshCurrentModelAndProvider: () => Promise<void>;
+  setProviderAndModel: (provider: string, model: string) => void;
+}
+
+interface ModelAndProviderProviderProps {
+  children: React.ReactNode;
+}
+
+const ModelAndProviderContext = createContext<ModelAndProviderContextType | undefined>(undefined);
+
+export const ModelAndProviderProvider: React.FC<ModelAndProviderProviderProps> = ({ children }) => {
+  const [currentModel, setCurrentModel] = useState<string | null>(null);
+  const [currentProvider, setCurrentProvider] = useState<string | null>(null);
+  const [isChangingModel, setIsChangingModel] = useState(false);
+  const { read, getProviders } = useConfig();
+
+  const changeModel = useCallback(
+    async (sessionId: string | null, model: Model) => {
+      if (isChangingModel) return;
+      setIsChangingModel(true);
+
+      const modelName = model.name;
+      const providerName = model.provider;
+      const previousModel = currentModel;
+      const previousProvider = currentProvider;
+
+      try {
+        if (sessionId) {
+          await updateAgentProvider({
+            body: {
+              session_id: sessionId,
+              provider: providerName,
+              model: modelName,
+              context_limit: model.context_limit,
+              request_params: model.request_params,
+            },
+          });
+        }
+      } catch (error) {
+        console.error(`Failed to update agent provider -- ${modelName} ${providerName}`);
+        toastError({
+          title: `${providerName}/${modelName} failed`,
+          msg: `${error}`,
+          traceback: errorMessage(error),
+        });
+        setIsChangingModel(false);
+        return;
+      }
+
+      try {
+        await setConfigProvider({
+          body: {
+            provider: providerName,
+            model: modelName,
+          },
+          throwOnError: true,
+        });
+      } catch (error) {
+        // Config persist failed — attempt to roll back the agent to the previous model.
+        if (sessionId && previousProvider && previousModel) {
+          try {
+            await updateAgentProvider({
+              body: {
+                session_id: sessionId,
+                provider: previousProvider,
+                model: previousModel,
+              },
+            });
+          } catch {
+            // Rollback also failed — update state to match agent's actual (new) state.
+            setCurrentProvider(providerName);
+            setCurrentModel(modelName);
+            toastError({
+              title: `${providerName}/${modelName} config save failed`,
+              msg: 'Model is active for this session but may revert on restart. Rollback also failed.',
+              traceback: errorMessage(error),
+            });
+            setIsChangingModel(false);
+            return;
+          }
+        }
+        console.error(`Config persist failed, rolled back agent -- ${modelName} ${providerName}`);
+        toastError({
+          title: `${providerName}/${modelName} config save failed`,
+          msg: 'Model change was rolled back',
+          traceback: errorMessage(error),
+        });
+        setIsChangingModel(false);
+        return;
+      }
+
+      setCurrentProvider(providerName);
+      setCurrentModel(modelName);
+      setIsChangingModel(false);
+
+      window.dispatchEvent(
+        new CustomEvent(AppEvents.MODEL_CHANGED, {
+          detail: { model: modelName, provider: providerName },
+        })
+      );
+
+      toastSuccess({
+        title: CHANGE_MODEL_TOAST_TITLE,
+        msg: `${SWITCH_MODEL_SUCCESS_MSG} -- using ${model.alias ?? modelName} from ${model.subtext ?? providerName}`,
+      });
+    },
+    [isChangingModel, currentModel, currentProvider]
+  );
+
+  const getFallbackModelAndProvider = useCallback(async () => {
+    const provider = window.appConfig.get('GOOSE_DEFAULT_PROVIDER') as string;
+    const model = window.appConfig.get('GOOSE_DEFAULT_MODEL') as string;
+    if (provider && model) {
+      try {
+        await setConfigProvider({
+          body: {
+            provider: provider,
+            model: model,
+          },
+          throwOnError: true,
+        });
+      } catch (error) {
+        console.error('[getFallbackModelAndProvider] Failed to write to config', error);
+      }
+    }
+    return { model: model, provider: provider };
+  }, []);
+
+  const getCurrentModelAndProvider = useCallback(async () => {
+    let model: string;
+    let provider: string;
+
+    // read from config
+    try {
+      model = (await read('GOOSE_MODEL', false)) as string;
+      provider = (await read('GOOSE_PROVIDER', false)) as string;
+    } catch {
+      console.error(`Failed to read GOOSE_MODEL or GOOSE_PROVIDER from config`);
+      throw new Error('Failed to read GOOSE_MODEL or GOOSE_PROVIDER from config');
+    }
+    if (!model || !provider) {
+      return getFallbackModelAndProvider();
+    }
+    return { model: model, provider: provider };
+  }, [read, getFallbackModelAndProvider]);
+
+  const getCurrentModelAndProviderForDisplay = useCallback(async () => {
+    const modelProvider = await getCurrentModelAndProvider();
+    const gooseModel = modelProvider.model;
+    const gooseProvider = modelProvider.provider;
+
+    // lookup display name
+    let metadata: ProviderMetadata;
+
+    try {
+      metadata = await getProviderMetadata(String(gooseProvider), getProviders);
+    } catch {
+      return { model: gooseModel, provider: gooseProvider };
+    }
+    const providerDisplayName = metadata.display_name;
+
+    return { model: gooseModel, provider: providerDisplayName };
+  }, [getCurrentModelAndProvider, getProviders]);
+
+  const getCurrentModelDisplayName = useCallback(async () => {
+    try {
+      const currentModelName = (await read('GOOSE_MODEL', false)) as string;
+      return getModelDisplayName(currentModelName);
+    } catch {
+      return 'Select Model';
+    }
+  }, [read]);
+
+  const getCurrentProviderDisplayName = useCallback(async () => {
+    try {
+      const currentModelName = (await read('GOOSE_MODEL', false)) as string;
+      const providerDisplayName = getProviderDisplayName(currentModelName);
+      if (providerDisplayName) {
+        return providerDisplayName;
+      }
+      // Fall back to regular provider display name lookup
+      const { provider } = await getCurrentModelAndProviderForDisplay();
+      return provider;
+    } catch {
+      return '';
+    }
+  }, [read, getCurrentModelAndProviderForDisplay]);
+
+  const refreshCurrentModelAndProvider = useCallback(async () => {
+    try {
+      const { model, provider } = await getCurrentModelAndProvider();
+      setCurrentModel(model);
+      setCurrentProvider(provider);
+    } catch (_error) {
+      console.error('Failed to refresh current model and provider:', _error);
+    }
+  }, [getCurrentModelAndProvider]);
+
+  const setProviderAndModel = useCallback((provider: string, model: string) => {
+    setCurrentProvider(provider);
+    setCurrentModel(model);
+  }, []);
+
+  // Load initial model and provider on mount
+  useEffect(() => {
+    refreshCurrentModelAndProvider();
+  }, [refreshCurrentModelAndProvider]);
+
+  const contextValue = useMemo(
+    () => ({
+      currentModel,
+      currentProvider,
+      isChangingModel,
+      changeModel,
+      getCurrentModelAndProvider,
+      getFallbackModelAndProvider,
+      getCurrentModelAndProviderForDisplay,
+      getCurrentModelDisplayName,
+      getCurrentProviderDisplayName,
+      refreshCurrentModelAndProvider,
+      setProviderAndModel,
+    }),
+    [
+      currentModel,
+      currentProvider,
+      isChangingModel,
+      changeModel,
+      getCurrentModelAndProvider,
+      getFallbackModelAndProvider,
+      getCurrentModelAndProviderForDisplay,
+      getCurrentModelDisplayName,
+      getCurrentProviderDisplayName,
+      refreshCurrentModelAndProvider,
+      setProviderAndModel,
+    ]
+  );
+
+  return (
+    <ModelAndProviderContext.Provider value={contextValue}>
+      {children}
+    </ModelAndProviderContext.Provider>
+  );
+};
+
+export const useModelAndProvider = () => {
+  const context = useContext(ModelAndProviderContext);
+  if (context === undefined) {
+    throw new Error('useModelAndProvider must be used within a ModelAndProviderProvider');
+  }
+  return context;
+};

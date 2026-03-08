@@ -1,5 +1,5 @@
-import SplitType from 'split-type';
 import { useEffect, useRef } from 'react';
+import SplitType from 'split-type';
 
 interface TextSplitterOptions {
   resizeCallback?: () => void;
@@ -11,6 +11,7 @@ export class TextSplitter {
   onResize: (() => void) | null;
   splitText: SplitType;
   previousContainerWidth: number | null = null;
+  resizeObserver: ResizeObserver | null = null;
 
   constructor(textElement: HTMLElement, options: TextSplitterOptions = {}) {
     if (!textElement || !(textElement instanceof HTMLElement)) {
@@ -30,11 +31,11 @@ export class TextSplitter {
   }
 
   initResizeObserver() {
-    const resizeObserver = new ResizeObserver(() => {
+    this.resizeObserver = new ResizeObserver(() => {
       if (this.textElement) {
         const currentWidth = Math.floor(this.textElement.getBoundingClientRect().width);
 
-        if (this.previousContainerWidth && this.previousContainerWidth !== currentWidth) {
+        if (this.previousContainerWidth !== null && this.previousContainerWidth !== currentWidth) {
           this.splitText.split({ types: ['chars'] });
           this.onResize?.();
         }
@@ -43,7 +44,13 @@ export class TextSplitter {
       }
     });
 
-    resizeObserver.observe(this.textElement);
+    this.resizeObserver.observe(this.textElement);
+  }
+
+  destroy() {
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
+    this.splitText.revert();
   }
 
   getLines(): HTMLElement[] {
@@ -119,10 +126,15 @@ export class TextAnimator {
   }
 
   private splitText() {
+    const updateOriginalChars = () => {
+      this.originalChars = this.splitter.getChars().map((char) => char.textContent || '');
+    };
+
     this.splitter = new TextSplitter(this.textElement, {
+      resizeCallback: updateOriginalChars,
       splitTypeTypes: ['words', 'chars'],
     });
-    this.originalChars = this.splitter.getChars().map((char) => char.textContent || '');
+    updateOriginalChars();
   }
 
   animate() {
@@ -194,17 +206,27 @@ export class TextAnimator {
   }
 
   reset() {
-    this.activeTimeouts.forEach((timeoutId) => clearTimeout(timeoutId));
+    this.activeTimeouts.forEach((timeoutId) => {
+      clearTimeout(timeoutId);
+    });
     this.activeTimeouts = [];
-    this.activeAnimations.forEach((animation) => animation.cancel());
+    this.activeAnimations.forEach((animation) => {
+      animation.cancel();
+    });
     this.activeAnimations = [];
 
     const chars = this.splitter.getChars();
     chars.forEach((char, index) => {
-      if (this.originalChars[index]) {
-        char.textContent = this.originalChars[index];
+      const original = this.originalChars[index];
+      if (original !== undefined) {
+        char.textContent = original;
       }
     });
+  }
+
+  destroy() {
+    this.reset();
+    this.splitter.destroy();
   }
 }
 
@@ -216,7 +238,7 @@ function prefersReducedMotion(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
-export function useTextAnimator({ text }: UseTextAnimatorProps) {
+export function useTextAnimator({ text: _text }: UseTextAnimatorProps) {
   const elementRef = useRef<HTMLDivElement>(null);
   const animator = useRef<TextAnimator | null>(null);
 
@@ -235,11 +257,10 @@ export function useTextAnimator({ text }: UseTextAnimatorProps) {
 
     return () => {
       window.clearTimeout(timeoutId);
-      if (animator.current) {
-        animator.current.reset();
-      }
+      animator.current?.destroy();
+      animator.current = null;
     };
-  }, [text]);
+  }, []);
 
   return elementRef;
 }

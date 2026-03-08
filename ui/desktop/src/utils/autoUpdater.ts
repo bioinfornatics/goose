@@ -1,30 +1,30 @@
-import { autoUpdater, UpdateInfo } from 'electron-updater';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import type { MenuItemConstructorOptions } from 'electron';
 import {
-  BrowserWindow,
-  ipcMain,
-  nativeImage,
-  Tray,
-  shell,
   app,
+  BrowserWindow,
   dialog,
+  ipcMain,
   Menu,
-  MenuItemConstructorOptions,
   Notification,
+  nativeImage,
+  shell,
+  type Tray,
 } from 'electron';
-import * as path from 'path';
-import * as fs from 'fs/promises';
-import log from './logger';
-import { githubUpdater } from './githubUpdater';
-import { loadRecentDirs } from './recentDirs';
-import { errorMessage } from './conversionUtils';
+import { autoUpdater, type UpdateInfo } from 'electron-updater';
 import {
-  trackUpdateCheckStarted,
   trackUpdateCheckCompleted,
-  trackUpdateDownloadStarted,
-  trackUpdateDownloadProgress,
+  trackUpdateCheckStarted,
   trackUpdateDownloadCompleted,
+  trackUpdateDownloadProgress,
+  trackUpdateDownloadStarted,
   trackUpdateInstallInitiated,
 } from './analytics';
+import { errorMessage } from './conversionUtils';
+import { githubUpdater } from './githubUpdater';
+import log from './logger';
+import { loadRecentDirs } from './recentDirs';
 
 let updateAvailable = false;
 let trayRef: Tray | null = null;
@@ -156,7 +156,11 @@ export function registerUpdateIpcHandlers() {
 
             // Auto-download for GitHub fallback (matching autoDownload behavior)
             log.info('Auto-downloading update via GitHub fallback...');
-            await githubAutoDownload(result.downloadUrl!, result.latestVersion!, 'manual check');
+            if (result.downloadUrl && result.latestVersion) {
+              await githubAutoDownload(result.downloadUrl, result.latestVersion, 'manual check');
+            } else {
+              log.error('GitHub update info missing downloadUrl or latestVersion');
+            }
           } else {
             trackUpdateCheckCompleted('not_available', currentVersion, {
               latestVersion: result.latestVersion,
@@ -487,7 +491,11 @@ export function setupAutoUpdater(tray?: Tray) {
 
                 // Auto-download for GitHub fallback (matching autoDownload behavior)
                 log.info('Auto-downloading update via GitHub fallback on startup...');
-                await githubAutoDownload(result.downloadUrl!, result.latestVersion!, 'on startup');
+                if (result.downloadUrl && result.latestVersion) {
+                  await githubAutoDownload(result.downloadUrl, result.latestVersion, 'on startup');
+                } else {
+                  log.error('GitHub update info missing downloadUrl or latestVersion');
+                }
               } else {
                 trackUpdateCheckCompleted('not_available', currentVersion, {
                   latestVersion: result.latestVersion,
@@ -593,7 +601,11 @@ export function setupAutoUpdater(tray?: Tray) {
 
           // Auto-download for GitHub fallback (matching autoDownload behavior)
           log.info('Auto-downloading update via GitHub fallback after error...');
-          await githubAutoDownload(result.downloadUrl!, result.latestVersion!, 'after error');
+          if (result.downloadUrl && result.latestVersion) {
+            await githubAutoDownload(result.downloadUrl, result.latestVersion, 'after error');
+          } else {
+            log.error('GitHub update info missing downloadUrl or latestVersion');
+          }
         } else {
           updateAvailable = false;
           updateTrayIcon(false);

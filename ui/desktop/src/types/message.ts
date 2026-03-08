@@ -1,11 +1,11 @@
-import {
+import type {
+  ActionRequired,
   Message,
   MessageEvent,
-  ActionRequired,
+  ToolConfirmationRequest,
   ToolRequest,
   ToolResponse,
-  ToolConfirmationRequest,
-} from '../api';
+} from '@/api';
 
 export type ToolRequestMessageContent = ToolRequest & { type: 'toolRequest' };
 export type ToolResponseMessageContent = ToolResponse & { type: 'toolResponse' };
@@ -13,6 +13,23 @@ export type ToolConfirmationRequestContent = ToolConfirmationRequest & {
   type: 'toolConfirmationRequest';
 };
 export type NotificationEvent = Extract<MessageEvent, { type: 'Notification' }>;
+
+export interface ModelAttribution {
+  model: string;
+  mode: string;
+}
+
+export interface RoutingInfo {
+  agentName: string;
+  modeSlug: string;
+  confidence: number;
+  reasoning: string;
+}
+
+export type MessageWithAttribution = Message & {
+  _modelInfo?: ModelAttribution;
+  _routingInfo?: RoutingInfo;
+};
 
 // Compaction response message - must match backend constant
 const COMPACTION_THINKING_TEXT = 'goose is compacting the conversation...';
@@ -95,18 +112,6 @@ export function getTextAndImageContent(message: Message): {
   }
 
   return { textContent, imagePaths };
-}
-
-export function getReasoningContent(message: Message): string | null {
-  const reasoningContents = message.content
-    .filter((content) => content.type === 'reasoning')
-    .map((content) => {
-      if ('text' in content) return content.text;
-      return '';
-    })
-    .filter((text) => text.length > 0);
-
-  return reasoningContents.length > 0 ? reasoningContents.join('') : null;
 }
 
 export function getToolRequests(message: Message): (ToolRequest & { type: 'toolRequest' })[] {

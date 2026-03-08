@@ -1,10 +1,10 @@
-import { app } from 'electron';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { compareVersions } from 'compare-versions';
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import * as os from 'os';
+import { app } from 'electron';
+import { errorMessage, safeJsonParse } from './conversionUtils';
 import log from './logger';
-import { safeJsonParse, errorMessage } from './conversionUtils';
 
 interface GitHubRelease {
   tag_name: string;
@@ -29,8 +29,8 @@ interface UpdateCheckResult {
 export class GitHubUpdater {
   private readonly owner = process.env.GITHUB_OWNER || 'block';
   private readonly repo = process.env.GITHUB_REPO || 'goose';
-  private readonly bundleName = process.env.GOOSE_BUNDLE_NAME || 'Goose';
-  private readonly apiUrl = `https://api.github.com/repos/${this.owner}/${this.repo}/releases/latest`;
+  private readonly apiUrl =
+    `https://api.github.com/repos/${this.owner}/${this.repo}/releases/latest`;
 
   async checkForUpdates(): Promise<UpdateCheckResult> {
     const startTime = Date.now();
@@ -104,16 +104,16 @@ export class GitHubUpdater {
       if (platform === 'darwin') {
         // macOS
         if (arch === 'arm64') {
-          assetName = `${this.bundleName}.zip`;
+          assetName = 'Goose.zip';
         } else {
-          assetName = `${this.bundleName}_intel_mac.zip`;
+          assetName = 'Goose_intel_mac.zip';
         }
       } else if (platform === 'win32') {
         // Windows - for future support
-        assetName = `${this.bundleName}-win32-x64.zip`;
+        assetName = 'Goose-win32-x64.zip';
       } else {
         // Linux - for future support
-        assetName = `${this.bundleName}-linux-${arch}.zip`;
+        assetName = `Goose-linux-${arch}.zip`;
       }
 
       log.info(`GitHubUpdater: Looking for asset named: ${assetName}`);
@@ -255,7 +255,7 @@ export class GitHubUpdater {
 
       // Save to Downloads directory
       const downloadsDir = path.join(os.homedir(), 'Downloads');
-      const fileName = `${this.bundleName}-${latestVersion}.zip`;
+      const fileName = `goose-${latestVersion}.zip`;
       const downloadPath = path.join(downloadsDir, fileName);
 
       log.info(`GitHubUpdater: Writing file to ${downloadPath}...`);

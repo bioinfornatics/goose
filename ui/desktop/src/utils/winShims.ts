@@ -1,6 +1,6 @@
 import fs from 'node:fs';
-import path from 'node:path';
 import os from 'node:os';
+import path from 'node:path';
 import log from './logger';
 
 /**
@@ -21,7 +21,7 @@ export async function ensureWinShims(): Promise<void> {
     await fs.promises.mkdir(tgtDir, { recursive: true });
 
     // Copy command-line tools, NOT goosed.exe (which should always be used locally)
-    const shims = ['uvx.exe', 'uv.exe', 'npx.cmd'];
+    const shims = ['uvx.exe', 'uv.exe', 'npx.cmd', 'install-node.cmd'];
 
     await Promise.all(
       shims.map(async (shim) => {

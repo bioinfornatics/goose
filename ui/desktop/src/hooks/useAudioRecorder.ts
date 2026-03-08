@@ -1,7 +1,7 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
-import { transcribeDictation, getDictationConfig, DictationProvider } from '../api';
-import { useConfig } from '../components/ConfigContext';
-import { errorMessage } from '../utils/conversionUtils';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { type DictationProvider, getDictationConfig, transcribeDictation } from '@/api';
+import { useConfig } from '@/contexts/ConfigContext';
+import { errorMessage } from '@/utils/conversionUtils';
 
 interface UseAudioRecorderOptions {
   onTranscription: (text: string) => void;
@@ -69,7 +69,7 @@ export const useAudioRecorder = ({ onTranscription, onError }: UseAudioRecorderO
   const [isEnabled, setIsEnabled] = useState(false);
   const [provider, setProvider] = useState<DictationProvider | null>(null);
 
-  const { read, config } = useConfig();
+  const { read } = useConfig();
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -109,7 +109,7 @@ export const useAudioRecorder = ({ onTranscription, onError }: UseAudioRecorderO
       }
     };
     check();
-  }, [read, config]);
+  }, [read]);
 
   const transcribeChunk = useCallback(async (samples: Float32Array) => {
     const prov = providerRef.current;
@@ -190,7 +190,9 @@ export const useAudioRecorder = ({ onTranscription, onError }: UseAudioRecorderO
 
     audioContextRef.current?.close();
     audioContextRef.current = null;
-    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current?.getTracks().forEach((t) => {
+      t.stop();
+    });
     streamRef.current = null;
     setIsRecording(false);
   }, []);
@@ -235,7 +237,9 @@ export const useAudioRecorder = ({ onTranscription, onError }: UseAudioRecorderO
   useEffect(() => {
     return () => {
       audioContextRef.current?.close();
-      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current?.getTracks().forEach((t) => {
+        t.stop();
+      });
     };
   }, []);
 

@@ -1,5 +1,5 @@
-import { useCallback, useState, useRef, useEffect } from 'react';
-import { compressImageDataUrl, errorMessage } from '../utils/conversionUtils';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { compressImageDataUrl, errorMessage } from '@/utils/conversionUtils';
 
 export interface DroppedFile {
   id: string;

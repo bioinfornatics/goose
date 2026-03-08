@@ -1,10 +1,20 @@
-import { AppEvents } from '../constants/events';
 import { useCallback, useEffect, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { Session } from '../api';
-import { Message } from '../api';
-import { ChatState } from '../types/chatState';
-import { UserInput } from '../types/message';
+import { useLocation } from 'react-router-dom';
+
+import type { Message, Session } from '@/api';
+import { AppEvents } from '@/constants/events';
+import { ChatState } from '@/types/chatState';
+import type { UserInput } from '@/types/message';
+
+const getSessionIdFromPath = (pathname: string): string | undefined => {
+  const match = pathname.match(/^\/sessions\/([^/]+)$/);
+  if (!match) return undefined;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+};
 
 /**
  * Auto-submit scenarios:
@@ -34,13 +44,13 @@ export function useAutoSubmit({
   initialMessage,
   handleSubmit,
 }: UseAutoSubmitProps): UseAutoSubmitReturn {
-  const [searchParams] = useSearchParams();
+  const location = useLocation();
   const hasAutoSubmittedRef = useRef(false);
 
   // Reset auto-submit flag when session changes
   useEffect(() => {
     hasAutoSubmittedRef.current = false;
-  }, [sessionId]);
+  }, []);
 
   const clearInitialMessage = useCallback(() => {
     window.dispatchEvent(
@@ -50,21 +60,17 @@ export function useAutoSubmit({
     );
   }, [sessionId]);
 
-  const hasUnfilledParameters = useCallback((session: Session) => {
-    const recipe = session.recipe;
-    return recipe?.parameters && recipe.parameters.length > 0 && !session.user_recipe_values;
-  }, []);
-
   // Auto-submit logic
   useEffect(() => {
-    const currentSessionId = searchParams.get('resumeSessionId');
+    const currentSessionId = getSessionIdFromPath(location.pathname);
     const isCurrentSession = currentSessionId === sessionId;
-    const shouldStartAgent = isCurrentSession && searchParams.get('shouldStartAgent') === 'true';
+    const shouldStartAgent = isCurrentSession && location.state?.shouldStartAgent === true;
 
     if (!session || hasAutoSubmittedRef.current) {
       return;
     }
 
+    // Don't submit if already streaming or loading
     if (chatState !== ChatState.Idle) {
       return;
     }
@@ -72,11 +78,9 @@ export function useAutoSubmit({
     // Scenario 1: New session with initial message from Hub
     // Hub always creates new sessions, so message_count will be 0
     if (initialMessage && session.message_count === 0 && messages.length === 0) {
-      if (!hasUnfilledParameters(session)) {
-        hasAutoSubmittedRef.current = true;
-        handleSubmit(initialMessage);
-        clearInitialMessage();
-      }
+      hasAutoSubmittedRef.current = true;
+      handleSubmit(initialMessage);
+      clearInitialMessage();
       return;
     }
 
@@ -93,22 +97,19 @@ export function useAutoSubmit({
 
     // Scenario 3: Resume with shouldStartAgent (continue existing conversation)
     if (shouldStartAgent) {
-      if (!hasUnfilledParameters(session)) {
-        hasAutoSubmittedRef.current = true;
-        handleSubmit({ msg: '', images: [] });
-      }
-      return;
+      hasAutoSubmittedRef.current = true;
+      handleSubmit({ msg: '', images: [] });
     }
   }, [
     session,
     initialMessage,
-    searchParams,
+    location.pathname,
+    location.state,
     handleSubmit,
     sessionId,
     messages.length,
     chatState,
     clearInitialMessage,
-    hasUnfilledParameters,
   ]);
 
   return {

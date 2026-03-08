@@ -44,133 +44,102 @@ introducing unnecessary divergence between the feature branch and upstream PRs.
 
 ---
 
-## Revised PR Plan (5 PRs, additive)
+## PR Submission Order
 
-### PR-01: Dynamic Reasoning Effort (CLEANEST, START HERE)
-**Risk: 🟢 LOW** — Pure addition to existing ModelConfig, no conflicts
+> **Note (updated):** Pipeline PRs (02, 03, 06) are deferred to after all
+> infrastructure PRs land. Pipeline nodes cannot link to real agents until
+> the agent architecture, registry, and routing infrastructure are in place.
+> Branch names are unchanged — only submission order is affected.
 
-Upstream has `reasoning: Option<bool>` (on/off). We add `ReasoningEffort` enum
-(Low/Medium/High) with provider-specific mapping and dynamic control.
+### Wave 1: Standalone Foundation PRs (submit in parallel)
 
-**Rust changes:**
-- `model.rs`: Add `ReasoningEffort` enum, `reasoning_effort: Option<ReasoningEffort>` field,
-  `parse_reasoning_effort()`, `with_reasoning_effort()` builder
-- `providers/formats/openai.rs`: Live env var check in `create_request` for O-series models
-- `providers/formats/anthropic.rs`: Live env var check → `thinking.budget_tokens` override
-- `config_management.rs`: `GET/POST /config/reasoning-effort` endpoints
-- `state.rs`: `reasoning_effort` field in AppState
-- `openapi.rs`: Register new types/paths
+| Branch | Feature | Risk | Status |
+|--------|---------|------|--------|
+| `pr/01-reasoning-effort` | Dynamic reasoning effort (Low/Medium/High) for OpenAI + Anthropic | 🟢 LOW | Ready |
+| `pr/04-a2a-discovery` | A2A Agent Discovery protocol crate | 🟡 MED | Ready |
+| `pr/05-eval-analytics` | Eval & Analytics framework | 🟡 MED | Ready |
+| `pr/07-analyze-tool` | Developer Analyze Tool — multi-language AST | 🟡 MED | Ready |
 
-**UI changes:**
-- `ReasoningEffortSection.tsx`: Global selector (Low/Medium/High)
-- `ReasoningEffortSelectionItem.tsx`: Radio button component
-- `ChatSettingsSection.tsx`: Wire in new section
-- `reasoningEffortUtils.ts`: Model support detection
+### Wave 2: Core Infrastructure PRs (submit sequentially)
 
-**Tests:** ~15 (Rust unit + server integration)
-**ETA:** 1-2 days
-**Conflict risk:** LOW — only touches model.rs (adds field), format files (adds logic), new routes
+| Branch | Feature | Risk |
+|--------|---------|------|
+| `pr/08-editor-models` | Editor models (MorphLLM, OpenAI-compat, Relace) | 🟡 MED |
+| `pr/09-acp-compat` | ACP v0.2.0 compatibility layer | 🟡 MED |
+| `pr/10-policy-quotas` | Identity, Policy & Quotas framework | 🟡 MED |
+| `pr/11-goosed-client` | GoosedClient for CLI-to-goosed | 🟡 MED |
+| `pr/12-genui-workspace` | GenUI MCP service and Workspace | 🟡 MED |
+| `pr/13-audit` | Audit event system | 🟡 MED |
+| `pr/14-registry` | Extension Registry system | 🟡 MED |
+| `pr/15-prompts` | Prompt templates for specialist agents | 🟢 LOW |
+| `pr/16-developer-mcp` | Developer MCP server | 🟡 MED |
+| `pr/17-session-analytics` | Eval storage and tool analytics | 🟡 MED |
+| `pr/18-tunnel-refactor` | Tunnel proxy refactor + integration tests | 🟡 MED |
+| `pr/19-computercontroller-simplify` | Simplify ComputerController | 🟢 LOW |
+| `pr/20-server-fixes` | Server route improvements | 🟢 LOW |
+| `pr/21-token-counter-simplify` | Simplify tokenizer initialization | 🟢 LOW |
+| `pr/22-provider-trait-v2` | Provider trait v2 — model.rs + base.rs | 🔴 HIGH |
+| `pr/23-message-model` | Message model — JsonRenderSpec, remove Reasoning | 🟡 MED |
+| `pr/24-auth-oidc` | OIDC authentication and session tokens | 🟡 MED |
+| `pr/25-providers-update` | Update all providers for Provider trait v2 | 🔴 HIGH |
+| `pr/26-appstate-infra` | Extend AppState with auth, policy, registry, agent slots | 🟡 MED |
+| `pr/27-agent-architecture` | Multi-agent architecture — orchestrator, routing | 🔴 HIGH |
+| `pr/28-server-routes` | All server route handlers for multi-agent goosed | 🟡 MED |
+| `pr/29-goose-cli` | CLI-via-goosed — rewrite CLI to use HTTP | 🔴 HIGH |
 
-### PR-02: Pipeline Model & Visual Editor (STANDALONE)
-**Risk: 🟡 MEDIUM** — New module, no conflicts with existing code
+### Wave 3: Tests, Config, UI, Docs
 
-Add pipeline YAML model, validation, CRUD API, and visual DAG editor.
-No execution engine yet (that requires dispatch infrastructure).
+| Branch | Feature | Risk |
+|--------|---------|------|
+| `pr/30-tests-examples` | Updated tests, examples, MCP replay data | 🟢 LOW |
+| `pr/31-remaining-modules` | Remaining modules — dictation, gateway, security, tracing | 🟡 MED |
+| `pr/32-goose-acp` | Remove goose-acp crate (moved to acp_compat) | 🟢 LOW |
+| `pr/33-root-config` | Root config files — Cargo.toml, Justfile, deny.toml | 🟢 LOW |
+| `pr/34-ci-workflows` | CI/CD workflows | 🟢 LOW |
+| `pr/35-scripts` | Scripts and build tools | 🟢 LOW |
+| `pr/36-docs` | Documentation for multi-agent architecture | 🟢 LOW |
+| `pr/37-ui-atoms` | UI Atomic Design system — atoms, molecules, icons | 🟡 MED |
+| `pr/38-ui-organisms` | UI organisms, pages, layouts, templates | 🟡 MED |
+| `pr/39-ui-infra` | UI infrastructure — utils, hooks, contexts, API, tests | 🟡 MED |
+| `pr/40-ui-config` | UI config, core modules, remaining files | 🟡 MED |
+| `pr/41-arch-docs` | Architecture docs, design docs, reviews | 🟢 LOW |
+| `pr/42-misc` | Miscellaneous — config, evals, observability, recipes | 🟢 LOW |
 
-**Rust changes:**
-- `pipeline.rs`: NEW — Pipeline, PipelineNode, NodeKind, validation, cycle detection, CRUD
-- `lib.rs`: Add `pub mod pipeline;`
-- `routes/pipeline.rs`: NEW — list, get, save, update, delete, validate endpoints
-- `routes/mod.rs`: Register pipeline routes
-- `openapi.rs`: Register pipeline types/paths
+### Wave 4: Pipeline PRs (DEFERRED — after agent infrastructure lands)
 
-**UI changes:**
-- `workflows/types.ts`: Pipeline/node types
-- `workflows/serialization.ts`: Flow ↔ Pipeline conversion
-- `workflows/DagEditor.tsx`: ReactFlow canvas with drag-drop, undo/redo, save/export
-- `workflows/nodes/index.tsx`: Styled node components
-- `workflows/panels/NodePalette.tsx`: Draggable node palette with templates
-- `workflows/panels/PropertiesPanel.tsx`: Node property editor
-- `workflows/panels/TemplateGallery.tsx`: Pre-built pipeline templates
-- `PipelineManager.tsx`: Pipeline listing CRUD
-- `WorkflowsPage.tsx`: Page wrapper
+> **Rationale:** Pipeline nodes (Agent, Condition, Trigger, A2A) need to link
+> to real agents via the agent registry, routing infrastructure, and A2A
+> discovery. Without those, the pipeline editor is a visual shell with no
+> execution capability. These PRs are ready but should be submitted last.
 
-**Tests:** ~50 (22 Rust unit + 9 Rust integration + 34 TypeScript)
-**ETA:** 2-3 days
-**Conflict risk:** LOW — entirely new files, only touches lib.rs and routes/mod.rs
-
-### PR-03: Pipeline Execution Engine (DEPENDS ON PR-02)
-**Risk: 🟡 MEDIUM** — Uses subagent_handler for execution
-
-Maps pipeline nodes to subagent tasks and executes via existing subagent system.
-Uses upstream's `run_subagent_task` instead of our custom dispatch.
-
-**Rust changes:**
-- `pipeline_executor.rs`: NEW — pipeline_to_tasks, execute_pipeline, PipelineEvent SSE
-- `routes/pipeline.rs`: Add `POST /pipelines/{id}/run` SSE endpoint
-
-**UI changes:**
-- `DagEditor.tsx`: Run/Stop button, SSE streaming, node status updates
-
-**Tests:** ~25 (unit + integration + E2E)
-**ETA:** 2-3 days
-**Conflict risk:** LOW — new files only, integrates with existing subagent system
-
-### PR-04: A2A Agent Discovery (STANDALONE)
-**Risk: 🟡 MEDIUM** — New crate + routes
-
-Add A2A (Agent-to-Agent) protocol support for discovering and delegating to remote agents.
-
-**Rust changes:**
-- `crates/a2a/`: NEW crate — types, client (HTTP), server (transport, task store)
-- `routes/a2a.rs`: NEW — discover endpoint, persona listing
-- `Cargo.toml`: Add a2a dependency
-
-**UI changes:**
-- Enhanced A2A node in pipeline editor (discovery + skill selector)
-
-**Tests:** ~14 (A2A server tests)
-**ETA:** 2-3 days
-**Conflict risk:** LOW — new crate, new route file
-
-### PR-05: Eval & Analytics Framework (STANDALONE)
-**Risk: 🟡 MEDIUM** — New routes + UI
-
-Add routing evaluation datasets, runs, and analytics dashboard.
-
-**Rust changes:**
-- `session/eval_storage.rs`: NEW — SQLite-backed eval storage
-- `agents/routing_eval.rs`: NEW — evaluate orchestrator with streaming
-- `routes/analytics.rs`: NEW — eval endpoints with SSE streaming
-
-**UI changes:**
-- `analytics/DatasetsTab.tsx`: Dataset CRUD, eval run with SSE, tabbed results
-
-**Tests:** ~23 (unit + integration + E2E)
-**ETA:** 2-3 days
-**Conflict risk:** LOW — entirely new files
+| Branch | Feature | Depends On | Risk |
+|--------|---------|-----------|------|
+| `pr/02-pipeline-model` | Pipeline model, DAG editor, CRUD API | Agent registry, A2A | 🟡 MED |
+| `pr/06-pipeline-templates` | Pipeline templates, types, serialization | pr/02 | 🟡 MED |
+| `pr/03-pipeline-executor` | Pipeline execution engine with DAG scheduler + SSE | pr/02, pr/06, agent routing | 🟡 MED |
 
 ---
 
 ## Dependency Graph
 
 ```
-PR-01 Reasoning Effort    (standalone, start immediately)
-PR-02 Pipeline Model      (standalone, start immediately)
-PR-04 A2A Discovery       (standalone, start immediately)
-PR-05 Eval Framework      (standalone, start immediately)
-  │
-  └── PR-03 Pipeline Execution  (depends on PR-02)
+Wave 1 (parallel, standalone):
+  PR-01 Reasoning Effort
+  PR-04 A2A Discovery
+  PR-05 Eval Framework
+  PR-07 Analyze Tool
+
+Wave 2 (sequential, infrastructure):
+  PR-08..PR-29 (core infra, providers, agent architecture, CLI)
+
+Wave 3 (tests, UI, docs):
+  PR-30..PR-42
+
+Wave 4 (after agent infra lands):
+  PR-02 Pipeline Model
+    └── PR-06 Pipeline Templates
+        └── PR-03 Pipeline Executor
 ```
-
-## Execution Order
-
-| Wave | PRs | Parallelizable? | ETA |
-|------|-----|-----------------|-----|
-| **Wave 1** | PR-01, PR-02, PR-04, PR-05 | YES — all independent | 2-3 days |
-| **Wave 2** | PR-03 | After PR-02 lands | 2-3 days |
-
-**Total: 4-6 days**
 
 ## What's Deferred (needs RFC)
 

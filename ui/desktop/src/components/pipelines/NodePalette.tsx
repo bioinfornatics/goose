@@ -25,28 +25,25 @@ export function NodePalette() {
   };
 
   return (
-    <div className="w-56 border-r border-borderSubtle bg-bgApp overflow-y-auto flex-shrink-0">
-      <div className="p-3 border-b border-borderSubtle">
-        <h2 className="text-sm font-semibold">Nodes</h2>
-        <p className="text-xs text-textSubtle mt-0.5">Drag to add to canvas</p>
+    <div className="space-y-1">
+      <div className="text-xs font-medium text-gray-500 mb-2">
+        Drag a node onto the canvas
       </div>
-      <div className="p-2 space-y-1">
-        {nodeTypes.map((nodeType) => (
-          <div
-            key={nodeType.kind}
-            className="flex items-center gap-2 p-2 rounded-md border border-borderSubtle hover:bg-bgSubtle cursor-grab active:cursor-grabbing transition-colors"
-            draggable
-            onDragStart={(e) => onDragStart(e, nodeType.kind)}
-          >
-            <GripVertical className="size-3 text-textSubtle flex-shrink-0" />
-            <div className={`w-2.5 h-2.5 rounded-full ${nodeType.color} flex-shrink-0`} />
-            <div className="min-w-0">
-              <div className="text-sm font-medium">{nodeType.label}</div>
-              <div className="text-xs text-textSubtle truncate">{nodeType.description}</div>
-            </div>
+      {nodeTypes.map((nodeType) => (
+        <div
+          key={nodeType.kind}
+          className="flex items-center gap-2 p-2 rounded-md border border-borderSubtle hover:bg-bgSubtle cursor-grab active:cursor-grabbing transition-colors"
+          draggable
+          onDragStart={(e) => onDragStart(e, nodeType.kind)}
+        >
+          <GripVertical className="size-3 text-textSubtle flex-shrink-0" />
+          <div className={`w-2.5 h-2.5 rounded-full ${nodeType.color} flex-shrink-0`} />
+          <div className="min-w-0">
+            <div className="text-sm font-medium">{nodeType.label}</div>
+            <div className="text-xs text-textSubtle truncate">{nodeType.description}</div>
           </div>
-        ))}
-      </div>
+        </div>
+      ))}
     </div>
   );
 }

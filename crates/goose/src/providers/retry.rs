@@ -76,7 +76,6 @@ pub fn should_retry(error: &ProviderError) -> bool {
         error,
         ProviderError::RateLimitExceeded { .. }
             | ProviderError::ServerError(_)
-            | ProviderError::NetworkError(_)
             | ProviderError::RequestFailed(_)
     )
 }

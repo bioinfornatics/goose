@@ -7,14 +7,12 @@ use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-#[cfg(test)]
-use super::base::stream_from_single_message;
-use super::base::{MessageStream, Provider, ProviderDef, ProviderMetadata, ProviderUsage};
+use super::base::{Provider, ProviderDef, ProviderMetadata, ProviderUsage};
 use super::errors::ProviderError;
-use crate::conversation::message::{Message, ToolResponse};
+use crate::conversation::message::Message;
 use crate::model::ModelConfig;
 use futures::future::BoxFuture;
-use rmcp::model::{CallToolResult, Tool};
+use rmcp::model::Tool;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct TestInput {
@@ -83,28 +81,18 @@ impl TestProvider {
         let stable_messages: Vec<_> = messages
             .iter()
             .map(|msg| {
-                let mut cleaned_content: Vec<_> = msg.content.to_vec();
-
-                for content in &mut cleaned_content {
-                    match content {
-                        MessageContent::ToolRequest(ref mut req) => {
+                let cleaned_content: Vec<_> = msg
+                    .content
+                    .iter()
+                    .map(|c| match c {
+                        MessageContent::ToolRequest(req) => {
+                            let mut req = req.clone();
                             req.tool_meta = None;
+                            MessageContent::ToolRequest(req)
                         }
-                        MessageContent::ToolResponse(ToolResponse {
-                            tool_result:
-                                Ok(
-                                    ref mut result @ CallToolResult {
-                                        is_error: Some(false),
-                                        ..
-                                    },
-                                ),
-                            ..
-                        }) => {
-                            result.is_error = None;
-                        }
-                        _ => {}
-                    }
-                }
+                        other => other.clone(),
+                    })
+                    .collect();
                 (msg.role.clone(), cleaned_content)
             })
             .collect();
@@ -165,22 +153,21 @@ impl Provider for TestProvider {
         &self.name
     }
 
-    async fn stream(
+    async fn complete_with_model(
         &self,
-        model_config: &ModelConfig,
-        session_id: &str,
+        session_id: Option<&str>,
+        _model_config: &ModelConfig,
         system: &str,
         messages: &[Message],
         tools: &[Tool],
-    ) -> Result<MessageStream, ProviderError> {
+    ) -> Result<(Message, ProviderUsage), ProviderError> {
         let hash = Self::hash_input(messages);
 
         if let Some(inner) = &self.inner {
-            // Call inner provider's stream and collect it
-            let stream = inner
-                .stream(model_config, session_id, system, messages, tools)
+            let model_config = inner.get_model_config();
+            let (message, usage) = inner
+                .complete_with_model(session_id, &model_config, system, messages, tools)
                 .await?;
-            let (message, usage) = super::base::collect_stream(stream).await?;
 
             let record = TestRecord {
                 input: TestInput {
@@ -199,13 +186,11 @@ impl Provider for TestProvider {
                 records.insert(hash, record);
             }
 
-            Ok(super::base::stream_from_single_message(message, usage))
+            Ok((message, usage))
         } else {
             let records = self.records.lock().unwrap();
             if let Some(record) = records.get(&hash) {
-                let message = record.output.message.clone();
-                let usage = record.output.usage.clone();
-                Ok(super::base::stream_from_single_message(message, usage))
+                Ok((record.output.message.clone(), record.output.usage.clone()))
             } else {
                 Err(ProviderError::ExecutionError(format!(
                     "No recorded response found for input hash: {}",
@@ -241,27 +226,28 @@ mod tests {
             "mock-testprovider"
         }
 
-        async fn stream(
+        async fn complete_with_model(
             &self,
+            _session_id: Option<&str>,
             _model_config: &ModelConfig,
-            _session_id: &str,
             _system: &str,
             _messages: &[Message],
             _tools: &[Tool],
-        ) -> Result<MessageStream, ProviderError> {
-            let message = Message::new(
-                Role::Assistant,
-                Utc::now().timestamp(),
-                vec![MessageContent::Text(TextContent {
-                    raw: RawTextContent {
-                        text: self.response.clone(),
-                        meta: None,
-                    },
-                    annotations: None,
-                })],
-            );
-            let usage = ProviderUsage::new("mock-model".to_string(), Usage::default());
-            Ok(stream_from_single_message(message, usage))
+        ) -> Result<(Message, ProviderUsage), ProviderError> {
+            Ok((
+                Message::new(
+                    Role::Assistant,
+                    Utc::now().timestamp(),
+                    vec![MessageContent::Text(TextContent {
+                        raw: RawTextContent {
+                            text: self.response.clone(),
+                            meta: None,
+                        },
+                        annotations: None,
+                    })],
+                ),
+                ProviderUsage::new("mock-model".to_string(), Usage::default()),
+            ))
         }
 
         fn get_model_config(&self) -> ModelConfig {
@@ -284,16 +270,9 @@ mod tests {
 
         {
             let test_provider = TestProvider::new_recording(mock, &temp_file);
-            let model_config = test_provider.get_model_config();
 
             let result = test_provider
-                .complete(
-                    &model_config,
-                    "test-session-id",
-                    "You are helpful",
-                    &[],
-                    &[],
-                )
+                .complete("test-session-id", "You are helpful", &[], &[])
                 .await;
 
             assert!(result.is_ok());
@@ -309,16 +288,9 @@ mod tests {
 
         {
             let replay_provider = TestProvider::new_replaying(&temp_file).unwrap();
-            let model_config = replay_provider.get_model_config();
 
             let result = replay_provider
-                .complete(
-                    &model_config,
-                    "test-session-id",
-                    "You are helpful",
-                    &[],
-                    &[],
-                )
+                .complete("test-session-id", "You are helpful", &[], &[])
                 .await;
 
             assert!(result.is_ok());
@@ -341,16 +313,9 @@ mod tests {
         );
 
         let replay_provider = TestProvider::new_replaying(&temp_file).unwrap();
-        let model_config = replay_provider.get_model_config();
 
         let result = replay_provider
-            .complete(
-                &model_config,
-                "test-session-id",
-                "Different system prompt",
-                &[],
-                &[],
-            )
+            .complete("test-session-id", "Different system prompt", &[], &[])
             .await;
 
         assert!(result.is_err());

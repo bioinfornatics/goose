@@ -5,8 +5,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use super::base::{
-    collect_stream, stream_from_single_message, LeadWorkerProviderTrait, MessageStream, Provider,
-    ProviderDef, ProviderMetadata, ProviderUsage,
+    LeadWorkerProviderTrait, Provider, ProviderDef, ProviderMetadata, ProviderUsage,
 };
 use super::errors::ProviderError;
 use crate::conversation::message::{Message, MessageContent};
@@ -357,14 +356,14 @@ impl Provider for LeadWorkerProvider {
         self.lead_provider.get_model_config()
     }
 
-    async fn stream(
+    async fn complete_with_model(
         &self,
+        session_id: Option<&str>,
         _model_config: &ModelConfig,
-        session_id: &str,
         system: &str,
         messages: &[Message],
         tools: &[Tool],
-    ) -> Result<MessageStream, ProviderError> {
+    ) -> Result<(Message, ProviderUsage), ProviderError> {
         // Get the active provider
         let provider = self.get_active_provider().await;
 
@@ -411,13 +410,9 @@ impl Provider for LeadWorkerProvider {
 
         // Make the completion request
         let model_config = provider.get_model_config();
-        let stream_result = provider
-            .stream(&model_config, session_id, system, messages, tools)
+        let result = provider
+            .complete_with_model(session_id, &model_config, system, messages, tools)
             .await;
-        let result = match stream_result {
-            Ok(stream) => collect_stream(stream).await,
-            Err(e) => Err(e),
-        };
 
         // For technical failures, try with default model (lead provider) instead
         let final_result = match &result {
@@ -426,14 +421,10 @@ impl Provider for LeadWorkerProvider {
 
                 // Try with lead provider as the default/fallback for technical failures
                 let model_config = self.lead_provider.get_model_config();
-                let default_stream_result = self
+                let default_result = self
                     .lead_provider
-                    .stream(&model_config, session_id, system, messages, tools)
+                    .complete_with_model(session_id, &model_config, system, messages, tools)
                     .await;
-                let default_result = match default_stream_result {
-                    Ok(stream) => collect_stream(stream).await,
-                    Err(e) => Err(e),
-                };
 
                 match &default_result {
                     Ok(_) => {
@@ -454,10 +445,7 @@ impl Provider for LeadWorkerProvider {
         // Handle the result and update tracking (only for successful completions)
         self.handle_completion_result(&final_result).await;
 
-        match final_result {
-            Ok((message, usage)) => Ok(stream_from_single_message(message, usage)),
-            Err(e) => Err(e),
-        }
+        final_result
     }
 
     async fn fetch_supported_models(&self) -> Result<Vec<String>, ProviderError> {
@@ -526,27 +514,28 @@ mod tests {
             self.model_config.clone()
         }
 
-        async fn stream(
+        async fn complete_with_model(
             &self,
+            _session_id: Option<&str>,
             _model_config: &ModelConfig,
-            _session_id: &str,
             _system: &str,
             _messages: &[Message],
             _tools: &[Tool],
-        ) -> Result<MessageStream, ProviderError> {
-            let message = Message::new(
-                Role::Assistant,
-                Utc::now().timestamp(),
-                vec![MessageContent::Text(
-                    RawTextContent {
-                        text: format!("Response from {}", self.name),
-                        meta: None,
-                    }
-                    .no_annotation(),
-                )],
-            );
-            let usage = ProviderUsage::new(self.name.clone(), Usage::default());
-            Ok(stream_from_single_message(message, usage))
+        ) -> Result<(Message, ProviderUsage), ProviderError> {
+            Ok((
+                Message::new(
+                    Role::Assistant,
+                    Utc::now().timestamp(),
+                    vec![MessageContent::Text(
+                        RawTextContent {
+                            text: format!("Response from {}", self.name),
+                            meta: None,
+                        }
+                        .no_annotation(),
+                    )],
+                ),
+                ProviderUsage::new(self.name.clone(), Usage::default()),
+            ))
         }
     }
 
@@ -563,12 +552,11 @@ mod tests {
         });
 
         let provider = LeadWorkerProvider::new(lead_provider, worker_provider, Some(3));
-        let model_config = provider.get_model_config();
 
         // First three turns should use lead provider
         for i in 0..3 {
             let (_message, usage) = provider
-                .complete(&model_config, "test-session-id", "system", &[], &[])
+                .complete("test-session-id", "system", &[], &[])
                 .await
                 .unwrap();
             assert_eq!(usage.model, "lead");
@@ -579,7 +567,7 @@ mod tests {
         // Subsequent turns should use worker provider
         for i in 3..6 {
             let (_message, usage) = provider
-                .complete(&model_config, "test-session-id", "system", &[], &[])
+                .complete("test-session-id", "system", &[], &[])
                 .await
                 .unwrap();
             assert_eq!(usage.model, "worker");
@@ -594,7 +582,7 @@ mod tests {
         assert!(!provider.is_in_fallback_mode().await);
 
         let (_message, usage) = provider
-            .complete(&model_config, "test-session-id", "system", &[], &[])
+            .complete("test-session-id", "system", &[], &[])
             .await
             .unwrap();
         assert_eq!(usage.model, "lead");
@@ -615,12 +603,11 @@ mod tests {
         });
 
         let provider = LeadWorkerProvider::new(lead_provider, worker_provider, Some(2));
-        let model_config = provider.get_model_config();
 
         // First two turns use lead (should succeed)
         for _i in 0..2 {
             let result = provider
-                .complete(&model_config, "test-session-id", "system", &[], &[])
+                .complete("test-session-id", "system", &[], &[])
                 .await;
             assert!(result.is_ok());
             assert_eq!(result.unwrap().1.model, "lead");
@@ -628,9 +615,8 @@ mod tests {
         }
 
         // Next turn uses worker (will fail, but should retry with lead and succeed)
-        let model_config = provider.get_model_config();
         let result = provider
-            .complete(&model_config, "test-session-id", "system", &[], &[])
+            .complete("test-session-id", "system", &[], &[])
             .await;
         assert!(result.is_ok()); // Should succeed because lead provider is used as fallback
         assert_eq!(result.unwrap().1.model, "lead"); // Should be lead provider
@@ -638,9 +624,8 @@ mod tests {
         assert!(!provider.is_in_fallback_mode().await); // Not in fallback mode
 
         // Another turn - should still try worker first, then retry with lead
-        let model_config = provider.get_model_config();
         let result = provider
-            .complete(&model_config, "test-session-id", "system", &[], &[])
+            .complete("test-session-id", "system", &[], &[])
             .await;
         assert!(result.is_ok()); // Should succeed because lead provider is used as fallback
         assert_eq!(result.unwrap().1.model, "lead"); // Should be lead provider
@@ -678,18 +663,16 @@ mod tests {
         }
 
         // Should use lead provider in fallback mode
-        let model_config = provider.get_model_config();
         let result = provider
-            .complete(&model_config, "test-session-id", "system", &[], &[])
+            .complete("test-session-id", "system", &[], &[])
             .await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap().1.model, "lead");
         assert!(provider.is_in_fallback_mode().await);
 
         // One more fallback turn
-        let model_config = provider.get_model_config();
         let result = provider
-            .complete(&model_config, "test-session-id", "system", &[], &[])
+            .complete("test-session-id", "system", &[], &[])
             .await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap().1.model, "lead");
@@ -713,32 +696,33 @@ mod tests {
             self.model_config.clone()
         }
 
-        async fn stream(
+        async fn complete_with_model(
             &self,
+            _session_id: Option<&str>,
             _model_config: &ModelConfig,
-            _session_id: &str,
             _system: &str,
             _messages: &[Message],
             _tools: &[Tool],
-        ) -> Result<MessageStream, ProviderError> {
+        ) -> Result<(Message, ProviderUsage), ProviderError> {
             if self.should_fail {
                 Err(ProviderError::ExecutionError(
                     "Simulated failure".to_string(),
                 ))
             } else {
-                let message = Message::new(
-                    Role::Assistant,
-                    Utc::now().timestamp(),
-                    vec![MessageContent::Text(
-                        RawTextContent {
-                            text: format!("Response from {}", self.name),
-                            meta: None,
-                        }
-                        .no_annotation(),
-                    )],
-                );
-                let usage = ProviderUsage::new(self.name.clone(), Usage::default());
-                Ok(stream_from_single_message(message, usage))
+                Ok((
+                    Message::new(
+                        Role::Assistant,
+                        Utc::now().timestamp(),
+                        vec![MessageContent::Text(
+                            RawTextContent {
+                                text: format!("Response from {}", self.name),
+                                meta: None,
+                            }
+                            .no_annotation(),
+                        )],
+                    ),
+                    ProviderUsage::new(self.name.clone(), Usage::default()),
+                ))
             }
         }
     }

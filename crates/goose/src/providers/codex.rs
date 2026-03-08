@@ -10,9 +10,7 @@ use tempfile::NamedTempFile;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
-use super::base::{
-    ConfigKey, MessageStream, Provider, ProviderDef, ProviderMetadata, ProviderUsage, Usage,
-};
+use super::base::{ConfigKey, Provider, ProviderDef, ProviderMetadata, ProviderUsage, Usage};
 use super::errors::ProviderError;
 use super::utils::{filter_extensions_from_system_prompt, RequestLog};
 use crate::config::base::{CodexCommand, CodexReasoningEffort, CodexSkipGitCheck};
@@ -411,6 +409,51 @@ impl CodexProvider {
 
         Ok((message, usage))
     }
+
+    /// Generate a simple session description without calling subprocess
+    fn generate_simple_session_description(
+        &self,
+        messages: &[Message],
+    ) -> Result<(Message, ProviderUsage), ProviderError> {
+        // Extract the first user message text
+        let description = messages
+            .iter()
+            .find(|m| m.role == Role::User)
+            .and_then(|m| {
+                m.content.iter().find_map(|c| match c {
+                    MessageContent::Text(text_content) => Some(&text_content.text),
+                    _ => None,
+                })
+            })
+            .map(|text| {
+                // Take first few words, limit to 4 words
+                text.split_whitespace()
+                    .take(4)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .unwrap_or_else(|| "Simple task".to_string());
+
+        if std::env::var("GOOSE_CODEX_DEBUG").is_ok() {
+            println!("=== CODEX PROVIDER DEBUG ===");
+            println!("Generated simple session description: {}", description);
+            println!("Skipped subprocess call for session description");
+            println!("============================");
+        }
+
+        let message = Message::new(
+            Role::Assistant,
+            chrono::Utc::now().timestamp(),
+            vec![MessageContent::text(description.clone())],
+        );
+
+        let usage = Usage::default();
+
+        Ok((
+            message,
+            ProviderUsage::new(self.model.model_name.clone(), usage),
+        ))
+    }
 }
 
 /// Builds the text prompt and extracts images to temp files in a single pass.
@@ -600,11 +643,12 @@ impl ProviderDef for CodexProvider {
             CODEX_KNOWN_MODELS.to_vec(),
             CODEX_DOC_URL,
             vec![
-                ConfigKey::from_value_type::<CodexCommand>(true, false, true),
-                ConfigKey::from_value_type::<CodexReasoningEffort>(false, false, true),
-                ConfigKey::from_value_type::<CodexSkipGitCheck>(false, false, true),
+                ConfigKey::from_value_type::<CodexCommand>(true, false),
+                ConfigKey::from_value_type::<CodexReasoningEffort>(false, false),
+                ConfigKey::from_value_type::<CodexSkipGitCheck>(false, false),
             ],
         )
+        .with_unlisted_models()
     }
 
     fn from_env(
@@ -672,23 +716,17 @@ impl Provider for CodexProvider {
         skip(self, model_config, system, messages, tools),
         fields(model_config, input, output, input_tokens, output_tokens, total_tokens)
     )]
-    async fn stream(
+    async fn complete_with_model(
         &self,
+        _session_id: Option<&str>, // CLI has no external session-id flag to propagate.
         model_config: &ModelConfig,
-        _session_id: &str, // CLI has no external session-id flag to propagate.
         system: &str,
         messages: &[Message],
         tools: &[Tool],
-    ) -> Result<MessageStream, ProviderError> {
-        if super::cli_common::is_session_description_request(system) {
-            let (message, provider_usage) = super::cli_common::generate_simple_session_description(
-                &model_config.model_name,
-                messages,
-            )?;
-            return Ok(super::base::stream_from_single_message(
-                message,
-                provider_usage,
-            ));
+    ) -> Result<(Message, ProviderUsage), ProviderError> {
+        // Check if this is a session description request
+        if system.contains("four words or less") || system.contains("4 words or less") {
+            return self.generate_simple_session_description(messages);
         }
 
         let lines = self.execute_command(system, messages, tools).await?;
@@ -717,10 +755,9 @@ impl Provider for CodexProvider {
             ProviderError::RequestFailed(format!("Failed to write request log: {}", e))
         })?;
 
-        let provider_usage = ProviderUsage::new(model_config.model_name.clone(), usage);
-        Ok(super::base::stream_from_single_message(
+        Ok((
             message,
-            provider_usage,
+            ProviderUsage::new(model_config.model_name.clone(), usage),
         ))
     }
 
@@ -876,8 +913,12 @@ mod tests {
     fn test_prepare_input_tool_request() {
         use rmcp::model::CallToolRequestParams;
         let dir = tempfile::tempdir().unwrap();
-        let tool_call = Ok(CallToolRequestParams::new("developer__shell")
-            .with_arguments(serde_json::from_value(json!({"cmd": "ls"})).unwrap()));
+        let tool_call = Ok(CallToolRequestParams {
+            name: "developer__shell".into(),
+            arguments: Some(serde_json::from_value(json!({"cmd": "ls"})).unwrap()),
+            meta: None,
+            task: None,
+        });
         let messages = vec![Message::new(
             Role::Assistant,
             0,
@@ -892,7 +933,12 @@ mod tests {
     fn test_prepare_input_tool_response() {
         use rmcp::model::{CallToolResult, Content};
         let dir = tempfile::tempdir().unwrap();
-        let result = CallToolResult::success(vec![Content::text("file1.txt\nfile2.txt")]);
+        let result = CallToolResult {
+            content: vec![Content::text("file1.txt\nfile2.txt")],
+            is_error: None,
+            structured_content: None,
+            meta: None,
+        };
         let messages = vec![Message::new(
             Role::User,
             0,
@@ -1146,6 +1192,15 @@ mod tests {
 
     #[test]
     fn test_session_description_generation() {
+        let provider = CodexProvider {
+            command: PathBuf::from("codex"),
+            model: ModelConfig::new("gpt-5.2-codex").unwrap(),
+            name: "codex".to_string(),
+            reasoning_effort: "high".to_string(),
+            skip_git_check: false,
+            mcp_config_overrides: Vec::new(),
+        };
+
         let messages = vec![Message::new(
             Role::User,
             chrono::Utc::now().timestamp(),
@@ -1154,15 +1209,12 @@ mod tests {
             )],
         )];
 
-        let result = crate::providers::cli_common::generate_simple_session_description(
-            "gpt-5.2-codex",
-            &messages,
-        );
+        let result = provider.generate_simple_session_description(&messages);
         assert!(result.is_ok());
 
-        let (message, usage) = result.unwrap();
-        assert_eq!(usage.model, "gpt-5.2-codex");
+        let (message, _usage) = result.unwrap();
         if let MessageContent::Text(text) = &message.content[0] {
+            // Should be truncated to 4 words
             let word_count = text.text.split_whitespace().count();
             assert!(word_count <= 4);
         } else {
@@ -1172,12 +1224,18 @@ mod tests {
 
     #[test]
     fn test_session_description_empty_messages() {
+        let provider = CodexProvider {
+            command: PathBuf::from("codex"),
+            model: ModelConfig::new("gpt-5.2-codex").unwrap(),
+            name: "codex".to_string(),
+            reasoning_effort: "high".to_string(),
+            skip_git_check: false,
+            mcp_config_overrides: Vec::new(),
+        };
+
         let messages: Vec<Message> = vec![];
 
-        let result = crate::providers::cli_common::generate_simple_session_description(
-            "gpt-5.2-codex",
-            &messages,
-        );
+        let result = provider.generate_simple_session_description(&messages);
         assert!(result.is_ok());
 
         let (message, _usage) = result.unwrap();

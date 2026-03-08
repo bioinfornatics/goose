@@ -154,8 +154,7 @@ impl OllamaInterpreter {
         messages.push(user_message);
 
         let model_config = ModelConfig::new(model)
-            .map_err(|e| ProviderError::RequestFailed(format!("Model config error: {e}")))?
-            .with_canonical_limits("ollama");
+            .map_err(|e| ProviderError::RequestFailed(format!("Model config error: {e}")))?;
 
         let mut payload = create_request(
             &model_config,
@@ -226,10 +225,12 @@ impl OllamaInterpreter {
                                 let arguments = item["arguments"].clone();
 
                                 // Add the tool call to our result vector
-                                tool_calls.push(
-                                    CallToolRequestParams::new(name)
-                                        .with_arguments(object(arguments)),
-                                );
+                                tool_calls.push(CallToolRequestParams {
+                                    meta: None,
+                                    task: None,
+                                    name: name.into(),
+                                    arguments: Some(object(arguments)),
+                                });
                             }
                         }
                     }

@@ -25,9 +25,7 @@ impl ProviderEntry {
         extensions: Vec<ExtensionConfig>,
     ) -> Result<Arc<dyn Provider>> {
         let default_model = &self.metadata.default_model;
-        let provider_name = &self.metadata.name;
-        let model_config =
-            ModelConfig::new(default_model.as_str())?.with_canonical_limits(provider_name);
+        let model_config = ModelConfig::new(default_model.as_str())?;
         (self.constructor)(model_config, extensions).await
     }
 }
@@ -109,13 +107,8 @@ impl ProviderRegistry {
                 config_keys.remove(api_key_index);
             } else if !config.api_key_env.is_empty() {
                 let api_key_required = provider_type == ProviderType::Declarative;
-                config_keys[api_key_index] = super::base::ConfigKey::new(
-                    &config.api_key_env,
-                    api_key_required,
-                    true,
-                    None,
-                    true,
-                );
+                config_keys[api_key_index] =
+                    super::base::ConfigKey::new(&config.api_key_env, api_key_required, true, None);
             }
         }
 
@@ -127,6 +120,7 @@ impl ProviderRegistry {
             known_models,
             model_doc_link: base_metadata.model_doc_link,
             config_keys,
+            allows_unlisted_models: false,
         };
 
         self.entries.insert(

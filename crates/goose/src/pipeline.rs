@@ -336,8 +336,6 @@ pub fn get_pipeline(id: &str) -> Result<Pipeline> {
 }
 
 pub fn save_pipeline(id: &str, pipeline: &mut Pipeline) -> Result<String> {
-    pipeline.validate()?;
-
     let dir = pipelines_dir();
     fs::create_dir_all(&dir)?;
 

@@ -153,7 +153,7 @@ where
     Ok((param_map, missing_params))
 }
 
-pub fn resolve_sub_recipe_path(
+fn resolve_sub_recipe_path(
     sub_recipe_path: &str,
     parent_recipe_dir: &Path,
 ) -> Result<String, RecipeError> {

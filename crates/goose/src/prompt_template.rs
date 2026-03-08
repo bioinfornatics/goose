@@ -16,8 +16,8 @@ static TEMPLATE_REGISTRY: &[(&str, &str)] = &[
         "Prompt for summarizing conversation history when context limits are reached",
     ),
     (
-        "subagent_system.md",
-        "System prompt for subagents spawned to handle specific tasks",
+        "specialist.md",
+        "System prompt for specialists spawned to handle specific tasks",
     ),
     (
         "recipe.md",
@@ -40,12 +40,142 @@ static TEMPLATE_REGISTRY: &[(&str, &str)] = &[
         "Prompt used when goose creates step-by-step plans. CLI only",
     ),
     (
-        "tiny_model_system.md",
-        "System prompt for tiny local models using shell command emulation",
+        "genui.md",
+        "Prompt for generating inline json-render dashboards and visualizations",
+    ),
+    // Goose Agent (universal public modes)
+    (
+        "goose/ask.md",
+        "Goose Ask — read-only exploration, search, and Q&A",
     ),
     (
-        "session_name.md",
-        "System prompt for generating short session names from conversation history",
+        "goose/plan.md",
+        "Goose Plan — strategy, architecture, and step-by-step plans",
+    ),
+    (
+        "goose/write.md",
+        "Goose Write — create/edit files, run commands, build artifacts",
+    ),
+    (
+        "goose/review.md",
+        "Goose Review — evaluate code, docs, and artifacts for quality",
+    ),
+    // Developer Agent (universal modes)
+    (
+        "developer/ask.md",
+        "Developer Ask — read-only exploration, search, and Q&A",
+    ),
+    (
+        "developer/plan.md",
+        "Developer Plan — design, architecture, ADRs, and implementation plans",
+    ),
+    (
+        "developer/write.md",
+        "Developer Write — implement code, configs, tests with full tool access",
+    ),
+    (
+        "developer/review.md",
+        "Developer Review — code review, audit, and quality assessment",
+    ),
+    (
+        "developer/debug.md",
+        "Developer Debug — systematic diagnosis and root-cause analysis",
+    ),
+    // QA Agent — universal modes
+    (
+        "qa/ask.md",
+        "QA Agent Ask — read-only exploration of testing and quality",
+    ),
+    (
+        "qa/plan.md",
+        "QA Agent Plan — test strategy and test plan design",
+    ),
+    (
+        "qa/write.md",
+        "QA Agent Write — implement tests and quality infrastructure",
+    ),
+    (
+        "qa/review.md",
+        "QA Agent Review — evaluate test adequacy and code quality",
+    ),
+    (
+        "qa/debug.md",
+        "QA Agent Debug — debug test failures, flaky tests, and environment issues",
+    ),
+    // PM Agent — universal modes
+    (
+        "pm/ask.md",
+        "PM Agent Ask — product questions, requirements exploration",
+    ),
+    (
+        "pm/plan.md",
+        "PM Agent Plan — PRDs, roadmaps, prioritization",
+    ),
+    (
+        "pm/write.md",
+        "PM Agent Write — produce product documents and specs",
+    ),
+    (
+        "pm/review.md",
+        "PM Agent Review — evaluate requirements and specs quality",
+    ),
+    // Security Agent — universal modes
+    (
+        "security/ask.md",
+        "Security Agent Ask — security questions and analysis",
+    ),
+    (
+        "security/plan.md",
+        "Security Agent Plan — threat models and remediation plans",
+    ),
+    (
+        "security/write.md",
+        "Security Agent Write — security patches and hardening",
+    ),
+    (
+        "security/review.md",
+        "Security Agent Review — security code review and audit",
+    ),
+    (
+        "security/debug.md",
+        "Security Agent Debug — debug security incidents, auth failures, and exploit paths",
+    ),
+    // Research Agent — universal modes
+    (
+        "research/ask.md",
+        "Research Agent Ask — answer questions with evidence",
+    ),
+    (
+        "research/plan.md",
+        "Research Agent Plan — research strategy and investigation design",
+    ),
+    (
+        "research/write.md",
+        "Research Agent Write — produce research reports and comparisons",
+    ),
+    (
+        "research/review.md",
+        "Research Agent Review — evaluate research quality and sources",
+    ),
+    (
+        "orchestrator/system.md",
+        "Orchestrator system prompt — meta-coordinator for routing to agents/modes",
+    ),
+    (
+        "orchestrator/routing.md",
+        "Orchestrator routing prompt — structured output for agent/mode selection",
+    ),
+    (
+        "orchestrator/splitting.md",
+        "Orchestrator splitting prompt — detect and decompose compound requests into sub-tasks",
+    ),
+    (
+        "orchestrator/aggregation.md",
+        "Orchestrator aggregation — synthesize compound sub-task results into one response",
+    ),
+    (
+        "knowledge_extraction.md",
+        "GraphRAG-lite — extract entities and relations from conversation into knowledge graph",
     ),
 ];
 
@@ -75,6 +205,31 @@ pub fn render_string<T: Serialize>(
     let mut env = Environment::new();
     env.set_trim_blocks(true);
     env.set_lstrip_blocks(true);
+
+    env.set_loader(|name| {
+        let is_safe_path = !name.starts_with('/')
+            && !name.starts_with('\\')
+            && !name.contains("..")
+            && !name.contains(':');
+        if !is_safe_path {
+            return Ok(None);
+        }
+
+        let user_path = user_prompts_dir().join(name);
+        if user_path.exists() {
+            let content = std::fs::read_to_string(&user_path).map_err(|e| {
+                MiniJinjaError::new(
+                    minijinja::ErrorKind::InvalidOperation,
+                    format!("Failed to read user template: {e}"),
+                )
+            })?;
+            return Ok(Some(content));
+        }
+
+        let file = CORE_PROMPTS_DIR.get_file(name);
+        Ok(file.map(|f| String::from_utf8_lossy(f.contents()).to_string()))
+    });
+
     env.add_template("template", template_str)?;
     let tmpl = env.get_template("template")?;
     let ctx = MJValue::from_serialize(context);
@@ -238,5 +393,26 @@ mod tests {
                 "Each template should have content"
             );
         }
+    }
+
+    #[test]
+    fn test_render_string_supports_includes() {
+        let context: HashMap<String, String> = HashMap::new();
+        let result = render_string(
+            "{% include \"partials/genui_output_contract.md\" %}",
+            &context,
+        );
+        assert!(result.is_ok(), "Should be able to render includes");
+        let text = result.unwrap();
+        assert!(text.contains("Output contract"));
+        assert!(text.contains("json-render"));
+    }
+
+    #[test]
+    fn test_render_template_with_includes() {
+        let context: HashMap<String, String> = HashMap::new();
+        let rendered = render_template("genui.md", &context).expect("Should render genui.md");
+        assert!(rendered.contains("Output contract"));
+        assert!(rendered.contains("json-render"));
     }
 }

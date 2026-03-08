@@ -21,6 +21,7 @@ export const DEFAULT_ITEM_ORDER = [
   'home',
   'chat',
   'recipes',
+  'pipelines',
   'apps',
   'scheduler',
   'extensions',
@@ -98,7 +99,14 @@ export const NavigationProvider: React.FC<NavigationProviderProps> = ({ children
     const stored = localStorage.getItem('navigation_preferences');
     if (stored) {
       try {
-        return JSON.parse(stored);
+        const parsed = JSON.parse(stored) as NavigationPreferences;
+        const newItems = DEFAULT_ITEM_ORDER.filter((id) => !parsed.itemOrder.includes(id));
+        if (newItems.length > 0) {
+          parsed.itemOrder = [...parsed.itemOrder, ...newItems];
+          parsed.enabledItems = [...parsed.enabledItems, ...newItems];
+          localStorage.setItem('navigation_preferences', JSON.stringify(parsed));
+        }
+        return parsed;
       } catch {
         console.error('Failed to parse navigation preferences');
       }

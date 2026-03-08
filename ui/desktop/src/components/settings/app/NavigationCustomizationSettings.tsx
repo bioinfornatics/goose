@@ -11,6 +11,7 @@ const ITEM_LABELS: Record<string, string> = {
   home: 'Home',
   chat: 'Chat',
   recipes: 'Recipes',
+  pipelines: 'Pipelines',
   apps: 'Apps',
   scheduler: 'Scheduler',
   extensions: 'Extensions',

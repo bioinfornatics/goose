@@ -5,13 +5,14 @@ mod elicitation;
 mod export;
 mod input;
 mod output;
-pub mod streaming_buffer;
 mod task_execution_display;
 mod thinking;
 
+use crate::goosed_client::{GoosedClient, SseEvent};
 use crate::session::task_execution_display::{
     format_task_execution_notification, TASK_EXECUTION_NOTIFICATION_TYPE,
 };
+use futures::StreamExt;
 use goose::conversation::Conversation;
 use std::io::Write;
 use std::str::FromStr;
@@ -21,19 +22,14 @@ use tokio_util::task::AbortOnDropHandle;
 pub use self::export::message_to_markdown;
 pub use builder::{build_session, SessionBuilderConfig};
 use console::Color;
-use goose::agents::AgentEvent;
 use goose::agents::SUBAGENT_TOOL_REQUEST_TYPE;
-use goose::permission::permission_confirmation::PrincipalType;
 use goose::permission::Permission;
-use goose::permission::PermissionConfirmation;
-use goose::providers::base::Provider;
 use goose::utils::safe_truncate;
 
 use anyhow::{Context, Result};
 use completion::GooseCompleter;
 use goose::agents::extension::{Envs, ExtensionConfig, PLATFORM_EXTENSIONS};
-use goose::agents::types::RetryConfig;
-use goose::agents::{Agent, SessionConfig, COMPACT_TRIGGERS};
+use goose::agents::COMPACT_TRIGGERS;
 use goose::config::{Config, GooseMode};
 use input::InputResult;
 use rmcp::model::PromptMessage;
@@ -45,8 +41,7 @@ use goose::conversation::message::{ActionRequiredData, Message, MessageContent};
 use rustyline::EditMode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
-use std::io::IsTerminal;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -80,6 +75,12 @@ enum StreamEvent {
     ModelChange {
         model: String,
         mode: String,
+    },
+    RoutingDecision {
+        agent_name: String,
+        mode_slug: String,
+        confidence: f32,
+        reasoning: String,
     },
     Error {
         error: String,
@@ -155,16 +156,13 @@ impl HistoryManager {
 }
 
 pub struct CliSession {
-    agent: Agent,
+    goosed: GoosedClient,
     messages: Conversation,
     session_id: String,
     completion_cache: Arc<std::sync::RwLock<CompletionCache>>,
     debug: bool,
     run_mode: RunMode,
-    scheduled_job_id: Option<String>,
-    max_turns: Option<u32>,
     edit_mode: Option<EditMode>,
-    retry_config: Option<RetryConfig>,
     output_format: String,
 }
 
@@ -194,74 +192,28 @@ impl CompletionCache {
     }
 }
 
-pub enum PlannerResponseType {
-    Plan,
-    ClarifyingQuestions,
-}
-
-/// Decide if the planner's response is a plan or a clarifying question
-///
-/// This function is called after the planner has generated a response
-/// to the user's message. The response is either a plan or a clarifying
-/// question.
-pub async fn classify_planner_response(
-    session_id: &str,
-    message_text: String,
-    provider: Arc<dyn Provider>,
-) -> Result<PlannerResponseType> {
-    let prompt = format!("The text below is the output from an AI model which can either provide a plan or list of clarifying questions. Based on the text below, decide if the output is a \"plan\" or \"clarifying questions\".\n---\n{message_text}");
-
-    let message = Message::user().with_text(&prompt);
-    let model_config = provider.get_model_config();
-    let (result, _usage) = provider
-        .complete(
-            &model_config,
-            session_id,
-            "Reply only with the classification label: \"plan\" or \"clarifying questions\"",
-            &[message],
-            &[],
-        )
-        .await?;
-
-    let predicted = result.as_concat_text();
-    if predicted.to_lowercase().contains("plan") {
-        Ok(PlannerResponseType::Plan)
-    } else {
-        Ok(PlannerResponseType::ClarifyingQuestions)
-    }
-}
-
 impl CliSession {
-    #[allow(clippy::too_many_arguments)]
     pub async fn new(
-        agent: Agent,
+        goosed: GoosedClient,
         session_id: String,
         debug: bool,
-        scheduled_job_id: Option<String>,
-        max_turns: Option<u32>,
         edit_mode: Option<EditMode>,
-        retry_config: Option<RetryConfig>,
         output_format: String,
     ) -> Self {
-        let messages = agent
-            .config
-            .session_manager
-            .get_session(&session_id, true)
+        let messages = goosed
+            .get_session(&session_id)
             .await
             .map(|session| session.conversation.unwrap_or_default())
-            .unwrap();
+            .unwrap_or_default();
 
         CliSession {
-            agent,
+            goosed,
             messages,
             session_id,
             completion_cache: Arc::new(std::sync::RwLock::new(CompletionCache::new())),
             debug,
             run_mode: RunMode::Normal,
-            scheduled_job_id,
-            max_turns,
             edit_mode,
-            retry_config,
             output_format,
         }
     }
@@ -374,8 +326,8 @@ impl CliSession {
 
     async fn add_and_persist_extensions(&mut self, configs: Vec<ExtensionConfig>) -> Result<()> {
         for config in configs {
-            self.agent
-                .add_extension(config, &self.session_id)
+            self.goosed
+                .add_extension(&self.session_id, config)
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to start extension: {}", e))?;
         }
@@ -407,7 +359,11 @@ impl CliSession {
         &mut self,
         extension: Option<String>,
     ) -> Result<HashMap<String, Vec<String>>> {
-        let prompts = self.agent.list_extension_prompts(&self.session_id).await;
+        let prompts = self
+            .goosed
+            .list_prompts(&self.session_id)
+            .await
+            .unwrap_or_default();
 
         // Early validation if filtering by extension
         if let Some(filter) = &extension {
@@ -428,7 +384,11 @@ impl CliSession {
     }
 
     pub async fn get_prompt_info(&mut self, name: &str) -> Result<Option<output::PromptInfo>> {
-        let prompts = self.agent.list_extension_prompts(&self.session_id).await;
+        let prompts = self
+            .goosed
+            .list_prompts(&self.session_id)
+            .await
+            .unwrap_or_default();
 
         // Find which extension has this prompt
         for (extension, prompt_list) in prompts {
@@ -436,7 +396,7 @@ impl CliSession {
                 return Ok(Some(output::PromptInfo {
                     name: prompt.name.clone(),
                     description: prompt.description.clone(),
-                    arguments: prompt.arguments.clone(),
+                    arguments: prompt.into_prompt_arguments(),
                     extension: Some(extension),
                 }));
             }
@@ -445,12 +405,14 @@ impl CliSession {
         Ok(None)
     }
 
-    pub async fn get_prompt(&mut self, name: &str, arguments: Value) -> Result<Vec<PromptMessage>> {
-        Ok(self
-            .agent
+    pub async fn get_prompt(
+        &mut self,
+        name: &str,
+        arguments: Value,
+    ) -> Result<crate::goosed_client::GetPromptResultResponse> {
+        self.goosed
             .get_prompt(&self.session_id, name, arguments)
-            .await?
-            .messages)
+            .await
     }
 
     /// Process a single message and get the response
@@ -479,9 +441,11 @@ impl CliSession {
         let history_manager = HistoryManager::new();
         history_manager.load(&mut editor);
 
+        output::display_greeting();
         loop {
             self.display_context_usage().await?;
 
+            // Convert conversation messages to strings for editor mode
             let conversation_strings: Vec<String> = self
                 .messages
                 .iter()
@@ -504,9 +468,8 @@ impl CliSession {
         }
 
         println!(
-            "\n  {} {}",
-            console::style("●").red(),
-            console::style(format!("session closed · {}", &self.session_id)).dim()
+            "Closing session. Session ID: {}",
+            console::style(&self.session_id).cyan()
         );
 
         Ok(())
@@ -628,8 +591,6 @@ impl CliSession {
                     );
                 }
 
-                let _provider = self.agent.provider().await?;
-
                 output::run_status_hook("thinking");
                 output::show_thinking();
                 let start_time = Instant::now();
@@ -639,14 +600,13 @@ impl CliSession {
 
                 let elapsed = start_time.elapsed();
                 let elapsed_str = format_elapsed_time(elapsed);
-                println!("{}", console::style(format!("  ⏱ {}", elapsed_str)).dim());
+                println!(
+                    "\n{}",
+                    console::style(format!("⏱️  Elapsed time: {}", elapsed_str)).dim()
+                );
             }
             RunMode::Plan => {
-                let mut plan_messages = self.messages.clone();
-                plan_messages.push(Message::user().with_text(content));
-                let reasoner = get_reasoner().await?;
-                self.plan_with_reasoner_model(plan_messages, reasoner)
-                    .await?;
+                self.plan_via_goosed(content).await?;
             }
         }
         Ok(())
@@ -736,37 +696,12 @@ impl CliSession {
             return Ok(());
         }
 
-        let mut plan_messages = self.messages.clone();
-        plan_messages.push(Message::user().with_text(&options.message_text));
-
-        let reasoner = get_reasoner().await?;
-        self.plan_with_reasoner_model(plan_messages, reasoner).await
+        self.plan_via_goosed(&options.message_text).await
     }
 
     async fn handle_clear(&mut self) -> Result<()> {
-        if let Err(e) = self
-            .agent
-            .config
-            .session_manager
-            .replace_conversation(&self.session_id, &Conversation::default())
-            .await
-        {
+        if let Err(e) = self.goosed.clear_session(&self.session_id).await {
             output::render_error(&format!("Failed to clear session: {}", e));
-            return Ok(());
-        }
-
-        if let Err(e) = self
-            .agent
-            .config
-            .session_manager
-            .update(&self.session_id)
-            .total_tokens(Some(0))
-            .input_tokens(Some(0))
-            .output_tokens(Some(0))
-            .apply()
-            .await
-        {
-            output::render_error(&format!("Failed to reset token counts: {}", e));
             return Ok(());
         }
 
@@ -783,10 +718,7 @@ impl CliSession {
         println!("{}", console::style("Generating Recipe").green());
 
         output::show_thinking();
-        let recipe = self
-            .agent
-            .create_recipe(&self.session_id, self.messages.clone())
-            .await;
+        let recipe = self.goosed.create_recipe(&self.session_id).await;
         output::hide_thinking();
 
         match recipe {
@@ -835,86 +767,134 @@ impl CliSession {
         Ok(())
     }
 
-    async fn plan_with_reasoner_model(
-        &mut self,
-        plan_messages: Conversation,
-        reasoner: Arc<dyn Provider>,
-    ) -> Result<(), anyhow::Error> {
-        let plan_prompt = self.agent.get_plan_prompt(&self.session_id).await?;
-        output::show_thinking();
-        let model_config = reasoner.get_model_config();
-        let (plan_response, _usage) = reasoner
-            .complete(
-                &model_config,
-                &self.session_id,
-                &plan_prompt,
-                plan_messages.messages(),
-                &[],
-            )
-            .await?;
-        output::render_message(&plan_response, self.debug);
-        output::hide_thinking();
-        let planner_response_type = classify_planner_response(
-            &self.session_id,
-            plan_response.as_concat_text(),
-            self.agent.provider().await?,
-        )
-        .await?;
+    /// Send a plan request via goosed and handle the structured PlanProposal response.
+    /// This is UI-agnostic on the server side — the orchestrator produces a structured
+    /// plan proposal, and any UI (CLI, desktop, web) can render it appropriately.
+    async fn plan_via_goosed(&mut self, user_text: &str) -> Result<()> {
+        let goosed = self.goosed.handle();
+        let user_message = Message::user().with_text(user_text);
 
-        match planner_response_type {
-            PlannerResponseType::Plan => {
-                println!();
-                let should_act = match cliclack::confirm(
-                    "Do you want to clear message history & act on this plan?",
+        output::show_thinking();
+        let mut stream = tokio_stream::wrappers::ReceiverStream::new(
+            goosed
+                .reply_with_mode(
+                    &self.session_id,
+                    user_message,
+                    Some(self.messages.messages().clone()),
+                    Some("plan".to_string()),
                 )
+                .await?,
+        );
+
+        let mut proposal = None;
+        while let Some(event) = stream.next().await {
+            match event {
+                Ok(SseEvent::PlanProposal {
+                    is_compound,
+                    tasks,
+                    clarifying_questions,
+                }) => {
+                    proposal = Some((is_compound, tasks, clarifying_questions));
+                }
+                Ok(SseEvent::Finish { .. }) => break,
+                Ok(SseEvent::Error { error }) => {
+                    output::hide_thinking();
+                    output::render_error(&error);
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
+        output::hide_thinking();
+
+        let Some((is_compound, tasks, clarifying_questions)) = proposal else {
+            output::render_error("No plan proposal received from server");
+            return Ok(());
+        };
+
+        // If the orchestrator returned clarifying questions, display them and
+        // stay in plan mode so the user can answer.
+        if let Some(questions) = clarifying_questions {
+            let questions_text = questions.join(
+                "
+",
+            );
+            let msg = Message::assistant().with_text(&questions_text);
+            output::render_message(&msg, self.debug);
+            self.push_message(msg);
+            return Ok(());
+        }
+
+        // Render the structured plan
+        output::render_plan_proposal(is_compound, &tasks);
+
+        // Ask confirmation
+        println!();
+        let should_act =
+            match cliclack::confirm("Do you want to clear message history & act on this plan?")
                 .initial_value(true)
                 .interact()
-                {
-                    Ok(choice) => choice,
-                    Err(e) => {
-                        if e.kind() == std::io::ErrorKind::Interrupted {
-                            false // If interrupted, set should_act to false
-                        } else {
-                            return Err(e.into());
-                        }
+            {
+                Ok(choice) => choice,
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::Interrupted {
+                        false
+                    } else {
+                        return Err(e.into());
                     }
-                };
-                if should_act {
-                    output::render_act_on_plan();
-                    self.run_mode = RunMode::Normal;
-                    // set goose mode: auto if that isn't already the case
-                    let config = Config::global();
-                    let curr_goose_mode = config.get_goose_mode().unwrap_or(GooseMode::Auto);
-                    if curr_goose_mode != GooseMode::Auto {
-                        config.set_goose_mode(GooseMode::Auto).unwrap();
-                    }
-
-                    // clear the messages before acting on the plan
-                    self.messages.clear();
-                    // add the plan response as a user message
-                    let plan_message = Message::user().with_text(plan_response.as_concat_text());
-                    self.push_message(plan_message);
-                    // act on the plan
-                    output::show_thinking();
-                    self.process_agent_response(true, CancellationToken::default())
-                        .await?;
-                    output::hide_thinking();
-
-                    // Reset run & goose mode
-                    if curr_goose_mode != GooseMode::Auto {
-                        config.set_goose_mode(curr_goose_mode)?;
-                    }
-                } else {
-                    // add the plan response (assistant message) & carry the conversation forward
-                    // in the next round, the user might wanna slightly modify the plan
-                    self.push_message(plan_response);
                 }
+            };
+
+        if should_act {
+            output::render_act_on_plan();
+            self.run_mode = RunMode::Normal;
+
+            let config = Config::global();
+            let curr_goose_mode = config.get_goose_mode().unwrap_or(GooseMode::Auto);
+            if curr_goose_mode != GooseMode::Auto {
+                config.set_goose_mode(GooseMode::Auto).unwrap();
             }
-            PlannerResponseType::ClarifyingQuestions => {
-                // add the plan response (assistant message) & carry the conversation forward
-                // in the next round, the user will answer the clarifying questions
-                self.push_message(plan_response);
+
+            // Build a plan description to execute
+            let plan_text = tasks
+                .iter()
+                .enumerate()
+                .map(|(i, t)| format!("{}. [{}] {}", i + 1, t.mode_name, t.description))
+                .collect::<Vec<_>>()
+                .join(
+                    "
+",
+                );
+
+            self.messages.clear();
+            let plan_message = Message::user().with_text(format!(
+                "Execute this plan:
+{}",
+                plan_text
+            ));
+            self.push_message(plan_message);
+
+            output::show_thinking();
+            self.process_agent_response(true, CancellationToken::default())
+                .await?;
+            output::hide_thinking();
+
+            if curr_goose_mode != GooseMode::Auto {
+                config.set_goose_mode(curr_goose_mode)?;
             }
+        } else {
+            // Keep the plan as an assistant message so the user can refine it
+            let plan_text = tasks
+                .iter()
+                .enumerate()
+                .map(|(i, t)| format!("{}. [{}] {}", i + 1, t.mode_name, t.description))
+                .collect::<Vec<_>>()
+                .join(
+                    "
+",
+                );
+            let plan_msg = Message::assistant().with_text(&plan_text);
+            self.push_message(plan_msg);
         }
 
         Ok(())
@@ -933,19 +913,16 @@ impl CliSession {
         interactive: bool,
         cancel_token: CancellationToken,
     ) -> Result<()> {
+        let goosed = self.goosed.handle();
+
         let is_json_mode = self.output_format == "json";
         let is_stream_json_mode = self.output_format == "stream-json";
 
-        let session_config = SessionConfig {
-            id: self.session_id.clone(),
-            schedule_id: self.scheduled_job_id.clone(),
-            max_turns: self.max_turns,
-            retry_config: self.retry_config.clone(),
-        };
         let user_message = self
             .messages
             .last()
-            .ok_or_else(|| anyhow::anyhow!("No user message"))?;
+            .ok_or_else(|| anyhow::anyhow!("No user message"))?
+            .clone();
 
         let cancel_token_interrupt = cancel_token.clone();
         let handle = tokio::spawn(async move {
@@ -955,39 +932,29 @@ impl CliSession {
         });
         let _drop_handle = AbortOnDropHandle::new(handle);
 
-        let mut stream = self
-            .agent
-            .reply(
-                user_message.clone(),
-                session_config.clone(),
-                Some(cancel_token.clone()),
-            )
-            .await?;
+        let mut stream = tokio_stream::wrappers::ReceiverStream::new(
+            goosed.reply(&self.session_id, user_message, None).await?,
+        );
 
-        let mut progress_bars = output::McpSpinners::new();
         let cancel_token_clone = cancel_token.clone();
-        let mut markdown_buffer = streaming_buffer::MarkdownBuffer::new();
-        let mut prompted_credits_urls: HashSet<String> = HashSet::new();
-        let mut thinking_header_shown = false;
+        let mut progress_bars = output::McpSpinners::new();
 
-        use futures::StreamExt;
         loop {
             tokio::select! {
-                result = stream.next() => {
-                    match result {
-                        Some(Ok(AgentEvent::Message(message))) => {
+                event = stream.next() => {
+                    match event {
+                        Some(Ok(SseEvent::Message { message, .. })) => {
                             if let Some((id, security_prompt)) = find_tool_confirmation(&message) {
+                                output::hide_thinking();
+                                let _ = progress_bars.hide();
+
                                 let permission = prompt_tool_confirmation(&security_prompt)?;
 
                                 if permission == Permission::Cancel {
                                     output::render_text("Tool call cancelled. Returning to chat...", Some(Color::Yellow), true);
-                                    self.agent.handle_confirmation(id.clone(), PermissionConfirmation {
-                                        principal_type: PrincipalType::Tool,
-                                        permission: Permission::DenyOnce,
-                                    }).await;
                                     let mut response_message = Message::user();
                                     response_message.content.push(MessageContent::tool_response(
-                                        id,
+                                        id.clone(),
                                         Err(ErrorData {
                                             code: ErrorCode::INVALID_REQUEST,
                                             message: std::borrow::Cow::from("Tool call cancelled by user"),
@@ -999,10 +966,11 @@ impl CliSession {
                                     drop(stream);
                                     break;
                                 }
-                                self.agent.handle_confirmation(id, PermissionConfirmation {
-                                    principal_type: PrincipalType::Tool,
+                                goosed.confirm_tool_action(
+                                    &self.session_id,
+                                    &id,
                                     permission,
-                                }).await;
+                                ).await?;
                             } else if let Some((elicitation_id, elicitation_message, schema)) = find_elicitation_request(&message) {
                                 output::hide_thinking();
                                 let _ = progress_bars.hide();
@@ -1018,9 +986,10 @@ impl CliSession {
                                             ))
                                             .with_visibility(false, true);
                                         self.messages.push(response_message.clone());
-                                        // Elicitation responses return an empty stream - the response
-                                        // unblocks the waiting tool call via ActionRequiredManager
-                                        let _ = self.agent.reply(response_message, session_config.clone(), Some(cancel_token.clone())).await?;
+                                        goosed.send_elicitation_response(
+                                            &self.session_id,
+                                            response_message,
+                                        ).await?;
                                     }
                                     Ok(None) => {
                                         output::render_text("Information request cancelled.", Some(Color::Yellow), true);
@@ -1045,38 +1014,57 @@ impl CliSession {
                                 if is_stream_json_mode {
                                     emit_stream_event(&StreamEvent::Message { message: message.clone() });
                                 } else if !is_json_mode {
-                                    output::render_message_streaming(&message, &mut markdown_buffer, &mut thinking_header_shown, self.debug);
-                                    maybe_open_credits_top_up_url(
-                                        &message,
-                                        interactive,
-                                        &mut prompted_credits_urls,
-                                    );
+                                    output::render_message(&message, self.debug);
                                 }
                             }
                         }
-                        Some(Ok(AgentEvent::McpNotification((extension_id, notification)))) => {
-                            handle_mcp_notification(
-                                &extension_id,
-                                &notification,
-                                &mut progress_bars,
-                                is_stream_json_mode,
-                                interactive,
-                                is_json_mode,
-                                self.debug,
-                            );
-                        }
-                        Some(Ok(AgentEvent::HistoryReplaced(updated_conversation))) => {
-                            self.messages = updated_conversation;
-                        }
-                        Some(Ok(AgentEvent::ModelChange { model, mode })) => {
-                            if is_stream_json_mode {
-                                emit_stream_event(&StreamEvent::ModelChange { model: model.clone(), mode: mode.clone() });
-                            } else if self.debug {
-                                eprintln!("Model changed to {} in {} mode", model, mode);
+                        Some(Ok(SseEvent::Notification { message: notif_value, .. })) => {
+                            if let Ok(notification) = serde_json::from_value::<ServerNotification>(notif_value) {
+                                handle_mcp_notification(
+                                    "extension",
+                                    &notification,
+                                    &mut progress_bars,
+                                    is_stream_json_mode,
+                                    interactive,
+                                    is_json_mode,
+                                    self.debug,
+                                );
                             }
                         }
-                        Some(Err(e)) => {
-                            handle_agent_error(&e, is_stream_json_mode);
+                        Some(Ok(SseEvent::UpdateConversation { conversation })) => {
+                            if let Ok(conv) = Conversation::new(conversation) {
+                                self.messages = conv;
+                            }
+                        }
+                        Some(Ok(SseEvent::ModelChange { model, mode })) => {
+                            if is_stream_json_mode {
+                                emit_stream_event(&StreamEvent::ModelChange { model: model.clone(), mode: mode.clone() });
+                            } else if !is_json_mode {
+                                println!("{}", console::style(format!("─── {} · {} ───", model, mode)).dim());
+                            }
+                        }
+                        Some(Ok(SseEvent::RoutingDecision { agent_name, mode_slug, confidence, reasoning })) => {
+                            if is_stream_json_mode {
+                                emit_stream_event(&StreamEvent::RoutingDecision {
+                                    agent_name: agent_name.clone(),
+                                    mode_slug: mode_slug.clone(),
+                                    confidence,
+                                    reasoning: reasoning.clone(),
+                                });
+                            } else if !is_json_mode {
+                                println!("{}", console::style(format!("⟶ {} · {} (confidence: {:.0}%)", agent_name, mode_slug, confidence * 100.0)).dim());
+                            }
+                        }
+                        Some(Ok(SseEvent::ToolAvailabilityChange { previous_count, current_count })) => {
+                            let msg = format!("⚠ Tool availability changed: {} → {}", previous_count, current_count);
+                            if is_stream_json_mode {
+                                eprintln!("{}", msg);
+                            } else if !is_json_mode {
+                                println!("{}", console::style(msg).yellow());
+                            }
+                        }
+                        Some(Ok(SseEvent::Error { error })) => {
+                            handle_agent_error(&anyhow::anyhow!("{}", error), is_stream_json_mode);
                             cancel_token_clone.cancel();
                             drop(stream);
                             if let Err(e) = self.handle_interrupted_messages(false).await {
@@ -1088,6 +1076,20 @@ impl CliSession {
                                     We've removed the conversation up to the most recent user message\n\
                                     - depending on the error you may be able to continue",
                                 );
+                            }
+                            break;
+                        }
+                        Some(Ok(SseEvent::Finish { .. })) => {
+                            break;
+                        }
+                        Some(Ok(SseEvent::PlanProposal { .. })) => {}
+                        Some(Ok(SseEvent::Ping)) => {}
+                        Some(Err(e)) => {
+                            handle_agent_error(&e, is_stream_json_mode);
+                            cancel_token_clone.cancel();
+                            drop(stream);
+                            if let Err(e) = self.handle_interrupted_messages(false).await {
+                                eprintln!("Error handling interruption: {}", e);
                             }
                             break;
                         }
@@ -1104,18 +1106,8 @@ impl CliSession {
             }
         }
 
-        if !is_json_mode && !is_stream_json_mode {
-            output::flush_markdown_buffer_current_theme(&mut markdown_buffer);
-        }
-
         if is_json_mode {
-            let metadata = match self
-                .agent
-                .config
-                .session_manager
-                .get_session(&self.session_id, false)
-                .await
-            {
+            let metadata = match goosed.get_session(&self.session_id).await {
                 Ok(session) => JsonMetadata {
                     total_tokens: session.total_tokens,
                     status: "completed".to_string(),
@@ -1131,11 +1123,8 @@ impl CliSession {
             };
             println!("{}", serde_json::to_string_pretty(&json_output)?);
         } else if is_stream_json_mode {
-            let total_tokens = self
-                .agent
-                .config
-                .session_manager
-                .get_session(&self.session_id, false)
+            let total_tokens = goosed
+                .get_session(&self.session_id)
                 .await
                 .ok()
                 .and_then(|s| s.total_tokens);
@@ -1170,10 +1159,20 @@ impl CliSession {
                     .collect()
             });
 
-        let interrupt_prompt = "Yes — what would you like me to do?";
-
         if !tool_requests.is_empty() {
+            // Interrupted during a tool request
+            // Create tool responses for all interrupted tool requests
+            // TODO(Douwe): if we need this, it should happen in agent reply
             let mut response_message = Message::user();
+            let last_tool_name = tool_requests
+                .last()
+                .and_then(|(_, tool_call)| {
+                    tool_call
+                        .as_ref()
+                        .ok()
+                        .map(|tool| tool.name.to_string().clone())
+                })
+                .unwrap_or_else(|| "tool".to_string());
 
             let notification = if interrupt {
                 "Interrupted by the user to make a correction".to_string()
@@ -1191,29 +1190,36 @@ impl CliSession {
                 ));
             }
             self.push_message(response_message);
-            self.push_message(Message::assistant().with_text(interrupt_prompt));
-            output::render_message(
-                &Message::assistant().with_text(interrupt_prompt),
-                self.debug,
+            let prompt = format!(
+                "The existing call to {} was interrupted. How would you like to proceed?",
+                last_tool_name
             );
-        } else if let Some(last_msg) = self.messages.last() {
-            if last_msg.role == rmcp::model::Role::User {
-                match last_msg.content.first() {
-                    Some(MessageContent::ToolResponse(_)) => {
-                        self.push_message(Message::assistant().with_text(interrupt_prompt));
-                        output::render_message(
-                            &Message::assistant().with_text(interrupt_prompt),
-                            self.debug,
-                        );
-                    }
-                    Some(_) => {
-                        self.messages.pop();
-                        let assistant_msg = Message::assistant().with_text(interrupt_prompt);
-                        self.push_message(assistant_msg.clone());
-                        output::render_message(&assistant_msg, self.debug);
-                    }
-                    None => {
-                        // Empty message content — nothing to do, just continue gracefully
+            self.push_message(Message::assistant().with_text(&prompt));
+            output::render_message(&Message::assistant().with_text(&prompt), self.debug);
+        } else {
+            // An interruption occurred outside of a tool request-response.
+            if let Some(last_msg) = self.messages.last() {
+                if last_msg.role == rmcp::model::Role::User {
+                    match last_msg.content.first() {
+                        Some(MessageContent::ToolResponse(_)) => {
+                            // Interruption occurred after a tool had completed but not assistant reply
+                            let prompt = "The tool calling loop was interrupted. How would you like to proceed?";
+                            self.push_message(Message::assistant().with_text(prompt));
+                            output::render_message(
+                                &Message::assistant().with_text(prompt),
+                                self.debug,
+                            );
+                        }
+                        Some(_) => {
+                            // A real users message
+                            self.messages.pop();
+                            let prompt = "Interrupted before the model replied and removed the last message.";
+                            output::render_message(
+                                &Message::assistant().with_text(prompt),
+                                self.debug,
+                            );
+                        }
+                        None => panic!("No content in last message"),
                     }
                 }
             }
@@ -1225,7 +1231,11 @@ impl CliSession {
     /// This should be called before the interactive session starts
     pub async fn update_completion_cache(&mut self) -> Result<()> {
         // Get fresh data
-        let prompts = self.agent.list_extension_prompts(&self.session_id).await;
+        let prompts = self
+            .goosed
+            .list_prompts(&self.session_id)
+            .await
+            .unwrap_or_default();
 
         // Update the cache with write lock
         let mut cache = self.completion_cache.write().unwrap();
@@ -1242,7 +1252,7 @@ impl CliSession {
                     output::PromptInfo {
                         name: prompt.name.clone(),
                         description: prompt.description.clone(),
-                        arguments: prompt.arguments.clone(),
+                        arguments: prompt.into_prompt_arguments(),
                         extension: Some(extension.clone()),
                     },
                 );
@@ -1272,10 +1282,11 @@ impl CliSession {
             return;
         }
 
+        // Print session restored message
         println!(
-            "\n  {} {}",
-            console::style("↻").cyan(),
-            console::style(format!("{} messages restored", self.messages.len())).dim()
+            "\n{} {} messages loaded into context.",
+            console::style("Session restored:").green().bold(),
+            console::style(self.messages.len()).green()
         );
 
         // Render each message
@@ -1283,15 +1294,15 @@ impl CliSession {
             output::render_message(message, self.debug);
         }
 
-        println!();
+        // Add a visual separator after restored messages
+        println!(
+            "\n{}\n",
+            console::style("──────── New Messages ────────").dim()
+        );
     }
 
     pub async fn get_session(&self) -> Result<goose::session::Session> {
-        self.agent
-            .config
-            .session_manager
-            .get_session(&self.session_id, false)
-            .await
+        self.goosed.get_session(&self.session_id).await
     }
 
     // Get the session's total token usage
@@ -1302,9 +1313,22 @@ impl CliSession {
 
     /// Display enhanced context usage with session totals
     pub async fn display_context_usage(&self) -> Result<()> {
-        let provider = self.agent.provider().await?;
-        let model_config = provider.get_model_config();
-        let context_limit = model_config.context_limit();
+        let session = self.get_session().await;
+
+        // Extract context_limit and model_name from session's model_config
+        let context_limit = session
+            .as_ref()
+            .ok()
+            .and_then(|s| s.model_config.as_ref())
+            .map(|mc| mc.context_limit())
+            .unwrap_or(128_000);
+
+        let model_name = session
+            .as_ref()
+            .ok()
+            .and_then(|s| s.model_config.as_ref())
+            .map(|mc| mc.model_name.clone())
+            .unwrap_or_else(|| "unknown".to_string());
 
         let config = Config::global();
         let show_cost = config
@@ -1315,7 +1339,7 @@ impl CliSession {
             .get_goose_provider()
             .unwrap_or_else(|_| "unknown".to_string());
 
-        match self.get_session().await {
+        match session {
             Ok(metadata) => {
                 let total_tokens = metadata.total_tokens.unwrap_or(0) as usize;
 
@@ -1326,7 +1350,7 @@ impl CliSession {
                     let output_tokens = metadata.output_tokens.unwrap_or(0) as usize;
                     output::display_cost_usage(
                         &provider_name,
-                        &model_config.model_name,
+                        &model_name,
                         input_tokens,
                         output_tokens,
                     );
@@ -1359,11 +1383,24 @@ impl CliSession {
                 .map_err(|e| anyhow::anyhow!("Failed to serialize arguments: {}", e))?;
 
             match self.get_prompt(&opts.name, arguments).await {
-                Ok(messages) => {
+                Ok(result) => {
                     let start_len = self.messages.len();
                     let mut valid = true;
-                    let num_messages = messages.len();
-                    for (i, prompt_message) in messages.into_iter().enumerate() {
+                    let num_messages = result.messages.len();
+                    for (i, prompt_value) in result.messages.into_iter().enumerate() {
+                        let prompt_message: PromptMessage =
+                            match serde_json::from_value(prompt_value) {
+                                Ok(pm) => pm,
+                                Err(e) => {
+                                    output::render_error(&format!(
+                                        "Failed to parse prompt message: {}",
+                                        e
+                                    ));
+                                    valid = false;
+                                    self.messages.truncate(start_len);
+                                    break;
+                                }
+                            };
                         let msg = Message::from(prompt_message);
                         // ensure we get a User - Assistant - User type pattern
                         let expected_role = if i % 2 == 0 {
@@ -1393,11 +1430,7 @@ impl CliSession {
                         if num_messages > 1 {
                             for i in 0..(num_messages - 1) {
                                 let msg = &self.messages.messages()[start_len + i];
-                                self.agent
-                                    .config
-                                    .session_manager
-                                    .add_message(&self.session_id, msg)
-                                    .await?;
+                                self.goosed.add_message(&self.session_id, msg).await?;
                             }
                         }
 
@@ -1459,37 +1492,6 @@ impl CliSession {
 
     fn push_message(&mut self, message: Message) {
         self.messages.push(message);
-    }
-}
-
-fn maybe_open_credits_top_up_url(
-    message: &Message,
-    interactive: bool,
-    prompted_credits_urls: &mut HashSet<String>,
-) {
-    if !interactive || !std::io::stdout().is_terminal() {
-        return;
-    }
-
-    let Some(url) = output::get_credits_top_up_url(message) else {
-        return;
-    };
-
-    if !prompted_credits_urls.insert(url.clone()) {
-        return;
-    }
-
-    let should_open = cliclack::confirm("Open the top-up URL in your browser?")
-        .initial_value(false)
-        .interact()
-        .unwrap_or(false);
-
-    if should_open && webbrowser::open(&url).is_err() {
-        output::render_text(
-            "Could not open browser automatically. Visit the URL above.",
-            Some(Color::Yellow),
-            true,
-        );
     }
 }
 
@@ -1592,8 +1594,8 @@ fn handle_mcp_notification(
         ServerNotification::LoggingMessageNotification(log_notif) => {
             if let Some(obj) = log_notif.params.data.as_object() {
                 if obj.get("type").and_then(|v| v.as_str()) == Some(SUBAGENT_TOOL_REQUEST_TYPE) {
-                    if let (Some(subagent_id), Some(tool_call)) = (
-                        obj.get("subagent_id").and_then(|v| v.as_str()),
+                    if let (Some(specialist_id), Some(tool_call)) = (
+                        obj.get("specialist_id").and_then(|v| v.as_str()),
                         obj.get("tool_call").and_then(|v| v.as_object()),
                     ) {
                         let tool_name = tool_call
@@ -1612,8 +1614,8 @@ fn handle_mcp_notification(
                             emit_stream_event(&StreamEvent::Notification {
                                 extension_id: extension_id.to_string(),
                                 data: NotificationData::Log {
-                                    message: output::format_subagent_tool_call_message(
-                                        subagent_id,
+                                    message: output::format_specialist_tool_call_message(
+                                        specialist_id,
                                         tool_name,
                                     ),
                                 },
@@ -1621,8 +1623,8 @@ fn handle_mcp_notification(
                             return;
                         }
                         if !is_json_mode {
-                            output::render_subagent_tool_call(
-                                subagent_id,
+                            output::render_specialist_tool_call(
+                                specialist_id,
                                 tool_name,
                                 arguments.as_ref(),
                                 debug,
@@ -1633,7 +1635,7 @@ fn handle_mcp_notification(
                 }
             }
 
-            let (formatted, subagent_id, notif_type) =
+            let (formatted, specialist_id, notif_type) =
                 format_logging_notification(&log_notif.params.data, debug);
 
             if is_stream_json_mode {
@@ -1646,7 +1648,7 @@ fn handle_mcp_notification(
             } else {
                 display_log_notification(
                     &formatted,
-                    subagent_id.as_deref(),
+                    specialist_id.as_deref(),
                     notif_type.as_deref(),
                     progress_bars,
                     interactive,
@@ -1677,7 +1679,7 @@ fn handle_mcp_notification(
     }
 }
 
-/// Format a logging notification from MCP, returns (formatted_message, subagent_id, notification_type)
+/// Format a logging notification from MCP, returns (formatted_message, specialist_id, notification_type)
 fn format_logging_notification(
     data: &Value,
     debug: bool,
@@ -1686,11 +1688,11 @@ fn format_logging_notification(
         Value::String(s) => (s.clone(), None, None),
         Value::Object(o) => {
             if let Some(Value::String(msg)) = o.get("message") {
-                let subagent_id = o.get("subagent_id").and_then(|v| v.as_str());
+                let specialist_id = o.get("specialist_id").and_then(|v| v.as_str());
                 let notification_type = o.get("type").and_then(|v| v.as_str());
 
                 let formatted = match notification_type {
-                    Some("subagent_created") | Some("completed") | Some("terminated") => {
+                    Some("specialist_created") | Some("completed") | Some("terminated") => {
                         format!("🤖 {}", msg)
                     }
                     Some("tool_usage") | Some("tool_completed") | Some("tool_error") => {
@@ -1720,7 +1722,7 @@ fn format_logging_notification(
                 };
                 (
                     formatted,
-                    subagent_id.map(str::to_string),
+                    specialist_id.map(str::to_string),
                     notification_type.map(str::to_string),
                 )
             } else if let Some(Value::String(output)) = o.get("output") {
@@ -1739,13 +1741,13 @@ fn format_logging_notification(
 /// Display a logging notification based on its type and context
 fn display_log_notification(
     formatted_message: &str,
-    subagent_id: Option<&str>,
+    specialist_id: Option<&str>,
     notification_type: Option<&str>,
     progress_bars: &mut output::McpSpinners,
     interactive: bool,
     is_json_mode: bool,
 ) {
-    if subagent_id.is_some() {
+    if specialist_id.is_some() {
         if interactive {
             let _ = progress_bars.hide();
             if !is_json_mode {
@@ -1792,7 +1794,7 @@ fn log_tool_metrics(message: &Message, messages: &Conversation) {
         if let MessageContent::ToolRequest(tool_request) = content {
             if let Ok(tool_call) = &tool_request.tool_call {
                 tracing::info!(
-                    monotonic_counter.goose.tool_calls = 1,
+                    counter.goose.tool_calls = 1,
                     tool_name = %tool_call.name,
                     "Tool call started"
                 );
@@ -1823,7 +1825,7 @@ fn log_tool_metrics(message: &Message, messages: &Conversation) {
                 "error"
             };
             tracing::info!(
-                monotonic_counter.goose.tool_completions = 1,
+                counter.goose.tool_completions = 1,
                 tool_name = %tool_name,
                 result = %result_status,
                 "Tool call completed"
@@ -1864,40 +1866,6 @@ fn handle_agent_error(e: &anyhow::Error, is_stream_json_mode: bool) {
     if !is_stream_json_mode {
         eprintln!("Error: {}", error_msg);
     }
-}
-
-async fn get_reasoner() -> Result<Arc<dyn Provider>, anyhow::Error> {
-    use goose::model::ModelConfig;
-    use goose::providers::create;
-
-    let config = Config::global();
-
-    // Try planner-specific provider first, fall back to default provider
-    let provider = if let Ok(provider) = config.get_param::<String>("GOOSE_PLANNER_PROVIDER") {
-        provider
-    } else {
-        println!("WARNING: GOOSE_PLANNER_PROVIDER not found. Using default provider...");
-        config
-            .get_goose_provider()
-            .expect("No provider configured. Run 'goose configure' first")
-    };
-
-    // Try planner-specific model first, fall back to default model
-    let model = if let Ok(model) = config.get_param::<String>("GOOSE_PLANNER_MODEL") {
-        model
-    } else {
-        println!("WARNING: GOOSE_PLANNER_MODEL not found. Using default model...");
-        config
-            .get_goose_model()
-            .expect("No model configured. Run 'goose configure' first")
-    };
-
-    let model_config =
-        ModelConfig::new_with_context_env(model, &provider, Some("GOOSE_PLANNER_CONTEXT_LIMIT"))?;
-    let extensions = goose::config::extensions::get_enabled_extensions_with_config(config);
-    let reasoner = create(&provider, model_config, extensions).await?;
-
-    Ok(reasoner)
 }
 
 /// Format elapsed time duration

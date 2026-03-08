@@ -410,7 +410,10 @@ impl Hinter for GooseCompleter {
             }
             HintStatus::Default => {
                 let newline_key = super::input::get_newline_key().to_ascii_uppercase();
-                Some(format!("Enter to send · Ctrl+{} newline", newline_key))
+                Some(format!(
+                    "Press Enter to send, Ctrl-{} for new line",
+                    newline_key
+                ))
             }
         }
     }
@@ -473,12 +476,18 @@ mod tests {
 
         // Add prompt info with arguments
         let test_prompt1_args = vec![
-            PromptArgument::new("required_arg")
-                .with_description("A required argument")
-                .with_required(true),
-            PromptArgument::new("optional_arg")
-                .with_description("An optional argument")
-                .with_required(false),
+            PromptArgument {
+                name: "required_arg".to_string(),
+                description: Some("A required argument".to_string()),
+                required: Some(true),
+                title: None,
+            },
+            PromptArgument {
+                name: "optional_arg".to_string(),
+                description: Some("An optional argument".to_string()),
+                required: Some(false),
+                title: None,
+            },
         ];
 
         let test_prompt1_info = output::PromptInfo {

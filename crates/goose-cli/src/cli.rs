@@ -6,7 +6,9 @@ use goose::config::Config;
 use goose::posthog::get_telemetry_choice;
 use goose::recipe::Recipe;
 use goose_mcp::mcp_server_runner::{serve, McpCommand};
-use goose_mcp::{AutoVisualiserRouter, ComputerControllerServer, MemoryServer, TutorialServer};
+use goose_mcp::{
+    AutoVisualiserRouter, ComputerControllerServer, DeveloperServer, MemoryServer, TutorialServer,
+};
 
 use crate::commands::configure::{configure_telemetry_consent_dialog, handle_configure};
 use crate::commands::info::handle_info;
@@ -59,15 +61,6 @@ pub struct Identifier {
         long_help = "Specify a session ID directly. When used with --resume, will resume this specific session if it exists."
     )]
     pub session_id: Option<String>,
-
-    #[arg(
-        long,
-        value_name = "PATH",
-        help = "Legacy: Path for the chat session",
-        long_help = "Legacy parameter for backward compatibility. Extracts session ID from the file path (e.g., '/path/to/20250325_200615.
-jsonl' -> '20250325_200615')."
-    )]
-    pub path: Option<PathBuf>,
 }
 
 /// Session behavior options shared between Session and Run commands
@@ -97,6 +90,15 @@ pub struct SessionOptions {
     pub max_turns: Option<u32>,
 
     #[arg(
+        long = "orchestrator-max-concurrency",
+        value_name = "NUMBER",
+        help = "Maximum number of concurrent orchestrator subtasks (overrides config for this invocation)",
+        long_help = "Override GOOSE_ORCHESTRATOR_MAX_CONCURRENCY for this invocation. When set, Goose will spawn an isolated goosed instance with this environment override.",
+        value_parser = parse_positive_usize
+    )]
+    pub orchestrator_max_concurrency: Option<usize>,
+
+    #[arg(
         long = "container",
         value_name = "CONTAINER_ID",
         help = "Docker container ID to run extensions inside",
@@ -109,6 +111,18 @@ pub struct SessionOptions {
 pub struct StreamableHttpOptions {
     pub url: String,
     pub timeout: u64,
+}
+
+fn parse_positive_usize(input: &str) -> Result<usize, String> {
+    let value: usize = input
+        .parse()
+        .map_err(|_| format!("invalid integer: {input}"))?;
+
+    if value < 1 {
+        return Err("value must be >= 1".to_string());
+    }
+
+    Ok(value)
 }
 
 fn parse_streamable_http_extension(input: &str) -> Result<StreamableHttpOptions, String> {
@@ -327,7 +341,7 @@ pub struct RunBehavior {
         long = "no-session",
         help = "Run without storing a session file",
         long_help = "Execute commands without creating or using a session file. Useful for automated runs.",
-        conflicts_with_all = ["resume", "name", "path"]
+        conflicts_with_all = ["resume", "name"]
     )]
     pub no_session: bool,
 
@@ -382,13 +396,6 @@ async fn get_or_create_session_id(
                 .find(|s| s.name == name || s.id == name)
                 .map(|s| s.id)
                 .ok_or_else(|| anyhow::anyhow!("No session found with name '{}'", name))?
-        } else if let Some(path) = id.path {
-            path.file_stem()
-                .and_then(|s| s.to_str())
-                .map(|s| s.to_string())
-                .ok_or_else(|| {
-                    anyhow::anyhow!("Could not extract session ID from path: {:?}", path)
-                })?
         } else {
             return Err(anyhow::anyhow!("Invalid identifier"));
         }
@@ -440,11 +447,6 @@ async fn lookup_session_id(identifier: Identifier) -> Result<String> {
             .find(|s| s.name == name || s.id == name)
             .map(|s| s.id)
             .ok_or_else(|| anyhow::anyhow!("No session found with name '{}'", name))
-    } else if let Some(path) = identifier.path {
-        path.file_stem()
-            .and_then(|s| s.to_str())
-            .map(|s| s.to_string())
-            .ok_or_else(|| anyhow::anyhow!("Could not extract session ID from path: {:?}", path))
     } else {
         Err(anyhow::anyhow!("No identifier provided"))
     }
@@ -591,37 +593,6 @@ enum SchedulerCommand {
 }
 
 #[derive(Subcommand)]
-enum GatewayCommand {
-    #[command(about = "Show gateway status")]
-    Status {},
-
-    #[command(about = "Start a gateway")]
-    Start {
-        #[arg(help = "Gateway type (e.g., 'telegram')")]
-        gateway_type: String,
-
-        #[arg(
-            long = "bot-token",
-            help = "Bot token for the gateway platform",
-            long_help = "Authentication token for the gateway platform (e.g., Telegram bot token)"
-        )]
-        bot_token: String,
-    },
-
-    #[command(about = "Stop a running gateway")]
-    Stop {
-        #[arg(help = "Gateway type to stop (e.g., 'telegram')")]
-        gateway_type: String,
-    },
-
-    #[command(about = "Generate a pairing code for a gateway")]
-    Pair {
-        #[arg(help = "Gateway type to generate pairing code for")]
-        gateway_type: String,
-    },
-}
-
-#[derive(Subcommand)]
 enum RecipeCommand {
     /// Validate a recipe file
     #[command(about = "Validate a recipe")]
@@ -688,6 +659,257 @@ enum RecipeCommand {
 }
 
 #[derive(Subcommand)]
+enum RegistryCommand {
+    /// Search the registry for entries
+    #[command(about = "Search the registry for tools, skills, agents, and recipes")]
+    Search {
+        /// Search query
+        #[arg(help = "Search query to filter entries")]
+        query: String,
+
+        /// Filter by kind (tool, skill, agent, recipe)
+        #[arg(
+            short,
+            long,
+            help = "Filter by entry kind (tool, skill, agent, recipe)"
+        )]
+        kind: Option<String>,
+
+        /// Output format (text, json)
+        #[arg(long, default_value = "text", help = "Output format (text, json)")]
+        format: String,
+
+        /// Show verbose information
+        #[arg(short, long, help = "Show verbose entry details")]
+        verbose: bool,
+    },
+
+    /// List all registry entries
+    #[command(about = "List all entries in the registry")]
+    List {
+        /// Filter by kind (tool, skill, agent, recipe)
+        #[arg(
+            short,
+            long,
+            help = "Filter by entry kind (tool, skill, agent, recipe)"
+        )]
+        kind: Option<String>,
+
+        /// Output format (text, json)
+        #[arg(long, default_value = "text", help = "Output format (text, json)")]
+        format: String,
+
+        /// Show verbose information
+        #[arg(short, long, help = "Show verbose entry details")]
+        verbose: bool,
+    },
+
+    /// Show detailed info about a specific entry
+    #[command(about = "Show detailed information about a registry entry")]
+    Info {
+        /// Entry name
+        #[arg(help = "Name of the registry entry")]
+        name: String,
+
+        /// Filter by kind (tool, skill, agent, recipe)
+        #[arg(
+            short,
+            long,
+            help = "Filter by entry kind (tool, skill, agent, recipe)"
+        )]
+        kind: Option<String>,
+    },
+
+    /// List configured registry sources
+    #[command(about = "List configured registry sources")]
+    Sources,
+
+    /// Install an entry from the registry
+    #[command(about = "Install a tool, skill, agent, or recipe from the registry")]
+    Add {
+        /// Entry name
+        #[arg(help = "Name of the entry to install")]
+        name: String,
+
+        /// Entry kind (tool, skill, agent, recipe)
+        #[arg(short, long, help = "Entry kind (tool, skill, agent, recipe)")]
+        kind: Option<String>,
+    },
+
+    /// Remove an installed entry
+    #[command(about = "Remove an installed tool, skill, agent, or recipe")]
+    Remove {
+        /// Entry name
+        #[arg(help = "Name of the entry to remove")]
+        name: String,
+
+        /// Entry kind (tool, skill, agent, recipe)
+        #[arg(short, long, help = "Entry kind (tool, skill, agent, recipe)")]
+        kind: String,
+    },
+
+    /// Validate a manifest for publishing
+    #[command(about = "Validate a registry manifest for publishing")]
+    Validate {
+        /// Path to manifest file (agent.yaml or agent.json)
+        #[arg(help = "Path to manifest file")]
+        path: String,
+    },
+
+    /// Initialize a new agent manifest
+    #[command(about = "Initialize a new agent.yaml manifest in the current directory")]
+    Init {
+        /// Agent name
+        #[arg(help = "Agent name")]
+        name: Option<String>,
+
+        /// Agent description
+        #[arg(short, long, help = "Agent description")]
+        description: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum AgentCommand {
+    /// List available agents
+    #[command(about = "List available agents")]
+    List {
+        /// Output format (text, json)
+        #[arg(long, default_value = "text")]
+        format: String,
+    },
+
+    /// Install an agent
+    #[command(about = "Install an agent from the registry")]
+    Add {
+        /// Agent name
+        #[arg(help = "Agent name to install")]
+        name: String,
+    },
+
+    /// Remove an installed agent
+    #[command(about = "Remove an installed agent")]
+    Remove {
+        /// Agent name
+        #[arg(help = "Agent name to remove")]
+        name: String,
+    },
+
+    /// Show agent details
+    #[command(about = "Show detailed information about an agent")]
+    Show {
+        /// Agent name
+        #[arg(help = "Agent name")]
+        name: String,
+        /// Show specific mode details
+        #[arg(long, help = "Show details for a specific mode")]
+        mode: Option<String>,
+    },
+
+    /// Search for agents
+    #[command(about = "Search for agents in the registry")]
+    Search {
+        /// Search query
+        #[arg(help = "Search query")]
+        query: String,
+    },
+
+    /// List available modes for an agent
+    #[command(about = "List available modes for an agent")]
+    Modes {
+        /// Agent name
+        #[arg(help = "Agent name")]
+        name: String,
+    },
+
+    /// Run an agent with a prompt
+    #[command(about = "Spawn an external agent and send it a prompt")]
+    Run {
+        /// Agent name from registry
+        #[arg(help = "Agent name to run")]
+        name: String,
+        /// Prompt text to send
+        #[arg(help = "Prompt text")]
+        prompt: String,
+        /// Mode to use
+        #[arg(long, help = "Agent mode to activate")]
+        mode: Option<String>,
+    },
+
+    /// Delegate a task to an agent
+    #[command(about = "Delegate a task to a registered agent")]
+    Delegate {
+        /// Agent name from registry
+        #[arg(help = "Agent name to delegate to")]
+        name: String,
+        /// Task instructions
+        #[arg(help = "Task instructions")]
+        instructions: String,
+        /// Mode to use
+        #[arg(long, help = "Agent mode to activate")]
+        mode: Option<String>,
+    },
+
+    /// Route a request through the orchestrator
+    #[command(about = "Use the OrchestratorAgent to route a request to the best agent/mode")]
+    Orchestrate {
+        /// The request to route
+        #[arg(help = "User request to route through orchestrator")]
+        request: String,
+        /// Enable LLM-based routing (otherwise uses keyword fallback)
+        #[arg(long, help = "Enable LLM-based routing instead of keyword matching")]
+        llm: bool,
+    },
+
+    /// Show orchestrator status and agent catalog
+    #[command(about = "Display orchestrator status, agent catalog, and routing info")]
+    Status,
+}
+
+#[derive(Subcommand)]
+enum SkillCommand {
+    /// List available skills
+    #[command(about = "List available skills")]
+    List {
+        /// Output format (text, json)
+        #[arg(long, default_value = "text")]
+        format: String,
+    },
+
+    /// Install a skill
+    #[command(about = "Install a skill from the registry")]
+    Add {
+        /// Skill name
+        #[arg(help = "Skill name to install")]
+        name: String,
+    },
+
+    /// Remove an installed skill
+    #[command(about = "Remove an installed skill")]
+    Remove {
+        /// Skill name
+        #[arg(help = "Skill name to remove")]
+        name: String,
+    },
+
+    /// Show skill details
+    #[command(about = "Show detailed information about a skill")]
+    Show {
+        /// Skill name
+        #[arg(help = "Skill name")]
+        name: String,
+    },
+
+    /// Search for skills
+    #[command(about = "Search for skills in the registry")]
+    Search {
+        /// Search query
+        #[arg(help = "Search query")]
+        query: String,
+    },
+}
+
+#[derive(Subcommand)]
 enum Command {
     /// Configure goose settings
     #[command(about = "Configure goose settings")]
@@ -706,20 +928,6 @@ enum Command {
     Mcp {
         #[arg(value_parser = clap::value_parser!(McpCommand))]
         server: McpCommand,
-    },
-
-    /// Run goose as an ACP (Agent Client Protocol) agent
-    #[command(about = "Run goose as an ACP agent server on stdio")]
-    Acp {
-        /// Add builtin extensions by name
-        #[arg(
-            long = "with-builtin",
-            value_name = "NAME",
-            help = "Add builtin extensions by name (e.g., 'developer' or multiple: 'developer,github')",
-            long_help = "Add one or more builtin extensions that are bundled with goose by specifying their names, comma-separated",
-            value_delimiter = ','
-        )]
-        builtins: Vec<String>,
     },
 
     /// Start or resume interactive chat sessions
@@ -807,21 +1015,39 @@ enum Command {
         command: RecipeCommand,
     },
 
+    /// Browse and search the agent registry
+    #[command(about = "Browse and search tools, skills, agents, and recipes")]
+    Registry {
+        #[command(subcommand)]
+        command: RegistryCommand,
+    },
+
+    /// Authenticate with an identity provider
+    #[command(about = "Manage authentication and identity")]
+    Auth {
+        #[command(subcommand)]
+        command: AuthCommand,
+    },
+
+    /// Manage agents (list, add, remove, show, search)
+    #[command(about = "Manage agents")]
+    Agent {
+        #[command(subcommand)]
+        command: AgentCommand,
+    },
+
+    /// Manage skills (list, add, remove, show, search)
+    #[command(about = "Manage skills")]
+    Skill {
+        #[command(subcommand)]
+        command: SkillCommand,
+    },
+
     /// Manage scheduled jobs
     #[command(about = "Manage scheduled jobs", visible_alias = "sched")]
     Schedule {
         #[command(subcommand)]
         command: SchedulerCommand,
-    },
-
-    /// Manage gateways for external platform integrations (e.g., Telegram)
-    #[command(
-        about = "Manage gateways for external platform integrations",
-        visible_alias = "gw"
-    )]
-    Gateway {
-        #[command(subcommand)]
-        command: GatewayCommand,
     },
 
     /// Update the goose CLI version
@@ -841,6 +1067,42 @@ enum Command {
         reconfigure: bool,
     },
 
+    /// Start a web server with a chat interface
+    #[command(about = "Experimental: Start a web server with a chat interface")]
+    Web {
+        /// Port to run the web server on
+        #[arg(
+            short,
+            long,
+            default_value = "3000",
+            help = "Port to run the web server on"
+        )]
+        port: u16,
+
+        /// Host to bind the web server to
+        #[arg(
+            long,
+            default_value = "127.0.0.1",
+            help = "Host to bind the web server to"
+        )]
+        host: String,
+
+        /// Open browser automatically
+        #[arg(long, help = "Open browser automatically when server starts")]
+        open: bool,
+
+        /// Authentication token for both Basic Auth (password) and Bearer token
+        #[arg(long, help = "Authentication token to secure the web interface")]
+        auth_token: Option<String>,
+
+        /// Allow running without authentication when exposed on the network (unsafe)
+        #[arg(
+            long,
+            help = "Skip auth requirement when exposed on the network (unsafe)"
+        )]
+        no_auth: bool,
+    },
+
     /// Terminal-integrated session (one session per terminal)
     #[command(
         about = "Terminal-integrated goose session",
@@ -857,11 +1119,15 @@ enum Command {
         #[command(subcommand)]
         command: TermCommand,
     },
-    /// Manage local inference models
-    #[command(about = "Manage local inference models", visible_alias = "lm")]
-    LocalModels {
+    /// Manage goosed as a system service (systemd/launchd)
+    #[command(
+        about = "Manage goosed as a system service",
+        long_about = "Install, uninstall, check status, or view logs for the goosed background service.\n\
+                      Uses systemd on Linux and launchd on macOS."
+    )]
+    Service {
         #[command(subcommand)]
-        command: LocalModelsCommand,
+        command: ServiceCommand,
     },
 
     /// Generate completions for various shells
@@ -872,48 +1138,6 @@ enum Command {
 
         #[arg(long, default_value = "goose", help = "Provide a custom binary name")]
         bin_name: String,
-    },
-
-    #[command(
-        name = "validate-extensions",
-        about = "Validate a bundled-extensions.json file",
-        hide = true
-    )]
-    ValidateExtensions {
-        #[arg(help = "Path to the bundled-extensions.json file")]
-        file: PathBuf,
-    },
-}
-
-#[derive(Subcommand)]
-enum LocalModelsCommand {
-    /// Search HuggingFace for GGUF models
-    #[command(about = "Search HuggingFace for GGUF models")]
-    Search {
-        /// Search query
-        query: String,
-
-        /// Maximum number of results
-        #[arg(short, long, default_value = "10")]
-        limit: usize,
-    },
-
-    /// Download a model from HuggingFace
-    #[command(about = "Download a GGUF model (e.g. bartowski/Llama-3.2-1B-Instruct-GGUF:Q4_K_M)")]
-    Download {
-        /// Model spec in user/repo:quantization format
-        spec: String,
-    },
-
-    /// List downloaded local models
-    #[command(about = "List downloaded local models")]
-    List,
-
-    /// Delete a downloaded model
-    #[command(about = "Delete a downloaded local model")]
-    Delete {
-        /// Model ID to delete
-        id: String,
     },
 }
 
@@ -978,6 +1202,68 @@ enum TermCommand {
     Info,
 }
 
+#[derive(Subcommand)]
+enum ServiceCommand {
+    /// Install goosed as a system service
+    #[command(
+        about = "Install goosed as a system service",
+        long_about = "Install the goosed agent server as a background service.\n\
+                      Uses systemd user service on Linux and launchd on macOS."
+    )]
+    Install,
+
+    /// Uninstall the goosed system service
+    #[command(about = "Uninstall the goosed system service")]
+    Uninstall,
+
+    /// Check status of the goosed service
+    #[command(about = "Check status of the goosed service")]
+    Status,
+
+    /// View goosed service logs
+    #[command(about = "View goosed service logs")]
+    Logs,
+}
+
+#[derive(Subcommand)]
+enum AuthCommand {
+    /// Log in with an OIDC identity provider
+    #[command(about = "Log in with an OIDC identity provider (opens browser)")]
+    Login {
+        /// Provider name: google, azure, github, gitlab, aws, auth0, okta
+        #[arg(
+            short,
+            long,
+            help = "Provider name (google, azure, github, gitlab, aws, auth0, okta) or raw issuer URL"
+        )]
+        provider: String,
+
+        /// Tenant ID for multi-tenant providers (Azure tenant, Auth0 domain, GitLab host, AWS Cognito pool)
+        #[arg(short, long, help = "Tenant ID for multi-tenant providers")]
+        tenant: Option<String>,
+
+        /// Client ID / audience (required for OIDC providers)
+        #[arg(short, long, help = "OAuth2/OIDC client ID")]
+        client_id: Option<String>,
+    },
+
+    /// Log out and clear stored credentials
+    #[command(about = "Log out and clear stored session token")]
+    Logout,
+
+    /// Show current authentication status
+    #[command(about = "Show current authentication status")]
+    Status,
+
+    /// Show current user identity
+    #[command(about = "Show current user identity (short form)")]
+    Whoami,
+
+    /// List available OIDC provider presets
+    #[command(about = "List supported identity providers")]
+    Providers,
+}
+
 #[derive(clap::ValueEnum, Clone, Debug)]
 enum CliProviderVariant {
     OpenAi,
@@ -996,19 +1282,22 @@ fn get_command_name(command: &Option<Command>) -> &'static str {
         Some(Command::Configure {}) => "configure",
         Some(Command::Info { .. }) => "info",
         Some(Command::Mcp { .. }) => "mcp",
-        Some(Command::Acp { .. }) => "acp",
         Some(Command::Session { .. }) => "session",
         Some(Command::Project {}) => "project",
         Some(Command::Projects) => "projects",
         Some(Command::Run { .. }) => "run",
-        Some(Command::Gateway { .. }) => "gateway",
         Some(Command::Schedule { .. }) => "schedule",
         Some(Command::Update { .. }) => "update",
         Some(Command::Recipe { .. }) => "recipe",
+        Some(Command::Registry { .. }) => "registry",
+        Some(Command::Agent { .. }) => "agent",
+        // Orchestrate is a sub-command of agent
+        Some(Command::Auth { .. }) => "auth",
+        Some(Command::Skill { .. }) => "skill",
+        Some(Command::Web { .. }) => "web",
         Some(Command::Term { .. }) => "term",
-        Some(Command::LocalModels { .. }) => "local-models",
+        Some(Command::Service { .. }) => "service",
         Some(Command::Completion { .. }) => "completion",
-        Some(Command::ValidateExtensions { .. }) => "validate-extensions",
         None => "default_session",
     }
 }
@@ -1021,6 +1310,7 @@ async fn handle_mcp_command(server: McpCommand) -> Result<()> {
         McpCommand::ComputerController => serve(ComputerControllerServer::new()).await?,
         McpCommand::Memory => serve(MemoryServer::new()).await?,
         McpCommand::Tutorial => serve(TutorialServer::new()).await?,
+        McpCommand::Developer => serve(DeveloperServer::new()).await?,
     }
     Ok(())
 }
@@ -1112,7 +1402,7 @@ async fn handle_interactive_session(
     };
 
     tracing::info!(
-        monotonic_counter.goose.session_starts = 1,
+        counter.goose.session_starts = 1,
         session_type,
         interactive = true,
         "Session started"
@@ -1156,6 +1446,7 @@ async fn handle_interactive_session(
         debug: session_opts.debug,
         max_tool_repetitions: session_opts.max_tool_repetitions,
         max_turns: session_opts.max_turns,
+        orchestrator_max_concurrency: session_opts.orchestrator_max_concurrency,
         scheduled_job_id: None,
         interactive: true,
         quiet: false,
@@ -1189,7 +1480,7 @@ async fn log_session_completion(
         .unwrap_or((0, 0));
 
     tracing::info!(
-        monotonic_counter.goose.session_completions = 1,
+        counter.goose.session_completions = 1,
         session_type,
         exit_type,
         duration_ms = session_duration.as_millis() as u64,
@@ -1199,14 +1490,14 @@ async fn log_session_completion(
     );
 
     tracing::info!(
-        monotonic_counter.goose.session_duration_ms = session_duration.as_millis() as u64,
+        counter.goose.session_duration_ms = session_duration.as_millis() as u64,
         session_type,
         "Session duration"
     );
 
     if total_tokens > 0 {
         tracing::info!(
-            monotonic_counter.goose.session_tokens = total_tokens,
+            counter.goose.session_tokens = total_tokens,
             session_type,
             "Session tokens"
         );
@@ -1289,7 +1580,7 @@ fn parse_run_input(
             }
 
             tracing::info!(
-                monotonic_counter.goose.recipe_runs = 1,
+                counter.goose.recipe_runs = 1,
                 recipe_name = %recipe_display_name,
                 recipe_version = %recipe_version,
                 session_type = "recipe",
@@ -1361,6 +1652,7 @@ async fn handle_run_command(
         debug: session_opts.debug,
         max_tool_repetitions: session_opts.max_tool_repetitions,
         max_turns: session_opts.max_turns,
+        orchestrator_max_concurrency: session_opts.orchestrator_max_concurrency,
         scheduled_job_id: run_behavior.scheduled_job_id,
         interactive: run_behavior.interactive,
         quiet: output_opts.quiet,
@@ -1376,7 +1668,7 @@ async fn handle_run_command(
         let session_type = if recipe.is_some() { "recipe" } else { "run" };
 
         tracing::info!(
-            monotonic_counter.goose.session_starts = 1,
+            counter.goose.session_starts = 1,
             session_type,
             interactive = false,
             "Headless session started"
@@ -1389,23 +1681,6 @@ async fn handle_run_command(
         Err(anyhow::anyhow!(
             "no text provided for prompt in headless mode"
         ))
-    }
-}
-
-async fn handle_gateway_command(command: GatewayCommand) -> Result<()> {
-    use crate::commands::gateway;
-
-    match command {
-        GatewayCommand::Status {} => gateway::handle_gateway_status().await,
-        GatewayCommand::Start {
-            gateway_type,
-            bot_token,
-        } => {
-            let platform_config = serde_json::json!({ "bot_token": bot_token });
-            gateway::handle_gateway_start(gateway_type, platform_config).await
-        }
-        GatewayCommand::Stop { gateway_type } => gateway::handle_gateway_stop(gateway_type).await,
-        GatewayCommand::Pair { gateway_type } => gateway::handle_gateway_pair(gateway_type).await,
     }
 }
 
@@ -1446,6 +1721,75 @@ fn handle_recipe_subcommand(command: RecipeCommand) -> Result<()> {
     }
 }
 
+async fn handle_registry_subcommand(command: RegistryCommand) -> Result<()> {
+    use crate::commands::registry::{
+        handle_add, handle_info, handle_init, handle_list as handle_registry_list, handle_remove,
+        handle_search, handle_sources, handle_validate,
+    };
+
+    match command {
+        RegistryCommand::Search {
+            query,
+            kind,
+            format,
+            verbose,
+        } => handle_search(&query, kind.as_deref(), &format, verbose).await,
+        RegistryCommand::List {
+            kind,
+            format,
+            verbose,
+        } => handle_registry_list(kind.as_deref(), &format, verbose).await,
+        RegistryCommand::Info { name, kind } => handle_info(&name, kind.as_deref()).await,
+        RegistryCommand::Sources => handle_sources().await,
+        RegistryCommand::Add { name, kind } => handle_add(&name, kind.as_deref()).await,
+        RegistryCommand::Remove { name, kind } => handle_remove(&name, &kind).await,
+        RegistryCommand::Validate { path } => handle_validate(&path).await,
+        RegistryCommand::Init { name, description } => handle_init(name, description).await,
+    }
+}
+
+async fn handle_agent_subcommand(command: AgentCommand) -> Result<()> {
+    use crate::commands::registry::{
+        handle_add, handle_agent_info, handle_agent_modes, handle_agent_run,
+        handle_list as handle_registry_list, handle_remove, handle_search,
+    };
+
+    match command {
+        AgentCommand::List { format } => handle_registry_list(Some("agent"), &format, false).await,
+        AgentCommand::Add { name } => handle_add(&name, Some("agent")).await,
+        AgentCommand::Remove { name } => handle_remove(&name, "agent").await,
+        AgentCommand::Show { name, mode } => handle_agent_info(&name, mode.as_deref()).await,
+        AgentCommand::Search { query } => handle_search(&query, Some("agent"), "text", false).await,
+        AgentCommand::Modes { name } => handle_agent_modes(&name).await,
+        AgentCommand::Run { name, prompt, mode } => {
+            handle_agent_run(&name, &prompt, mode.as_deref()).await
+        }
+        AgentCommand::Delegate {
+            name,
+            instructions,
+            mode,
+        } => handle_agent_run(&name, &instructions, mode.as_deref()).await,
+        AgentCommand::Orchestrate { request, llm } => {
+            crate::commands::registry::handle_orchestrate(&request, llm).await
+        }
+        AgentCommand::Status => crate::commands::registry::handle_orchestrator_status().await,
+    }
+}
+
+async fn handle_skill_subcommand(command: SkillCommand) -> Result<()> {
+    use crate::commands::registry::{
+        handle_add, handle_info, handle_list as handle_registry_list, handle_remove, handle_search,
+    };
+
+    match command {
+        SkillCommand::List { format } => handle_registry_list(Some("skill"), &format, false).await,
+        SkillCommand::Add { name } => handle_add(&name, Some("skill")).await,
+        SkillCommand::Remove { name } => handle_remove(&name, "skill").await,
+        SkillCommand::Show { name } => handle_info(&name, Some("skill")).await,
+        SkillCommand::Search { query } => handle_search(&query, Some("skill"), "text", false).await,
+    }
+}
+
 async fn handle_term_subcommand(command: TermCommand) -> Result<()> {
     match command {
         TermCommand::Init {
@@ -1459,165 +1803,49 @@ async fn handle_term_subcommand(command: TermCommand) -> Result<()> {
     }
 }
 
-async fn handle_local_models_command(command: LocalModelsCommand) -> Result<()> {
-    use goose::providers::local_inference::hf_models;
-    use goose::providers::local_inference::local_model_registry::{
-        get_registry, model_id_from_repo, LocalModelEntry,
+fn handle_service_subcommand(command: ServiceCommand) -> Result<()> {
+    use crate::commands::service::{
+        handle_service_install, handle_service_logs, handle_service_status,
+        handle_service_uninstall,
     };
 
     match command {
-        LocalModelsCommand::Search { query, limit } => {
-            println!("Searching HuggingFace for '{}'...", query);
-            let results = hf_models::search_gguf_models(&query, limit).await?;
-
-            if results.is_empty() {
-                println!("No GGUF models found.");
-                return Ok(());
-            }
-
-            for model in &results {
-                println!(
-                    "\n{} (by {}) — {} downloads",
-                    model.model_name, model.author, model.downloads
-                );
-                for file in &model.gguf_files {
-                    let size = if file.size_bytes > 0 {
-                        format!(
-                            "{:.1}GB",
-                            file.size_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
-                        )
-                    } else {
-                        "unknown".to_string()
-                    };
-                    println!("  {} — {}", file.quantization, size);
-                }
-                println!(
-                    "  Download: goose local-models download {}:<quantization>",
-                    model.repo_id
-                );
-            }
-        }
-        LocalModelsCommand::Download { spec } => {
-            println!("Resolving {}...", spec);
-            let (repo_id, file) = hf_models::resolve_model_spec(&spec).await?;
-            let model_id = model_id_from_repo(&repo_id, &file.quantization);
-            let local_path =
-                goose::config::paths::Paths::in_data_dir("models").join(&file.filename);
-
-            println!(
-                "Downloading {} ({})...",
-                model_id,
-                if file.size_bytes > 0 {
-                    format!(
-                        "{:.1}GB",
-                        file.size_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
-                    )
-                } else {
-                    "unknown size".to_string()
-                }
-            );
-
-            // Register
-            let entry = LocalModelEntry {
-                id: model_id.clone(),
-                repo_id: repo_id.clone(),
-                filename: file.filename.clone(),
-                quantization: file.quantization.clone(),
-                local_path: local_path.clone(),
-                source_url: file.download_url.clone(),
-                settings: Default::default(),
-                size_bytes: file.size_bytes,
-            };
-
-            {
-                let mut registry = get_registry()
-                    .lock()
-                    .map_err(|_| anyhow::anyhow!("Failed to acquire registry lock"))?;
-                registry.add_model(entry)?;
-            }
-
-            // Download
-            let manager = goose::download_manager::get_download_manager();
-            manager
-                .download_model(
-                    format!("{}-model", model_id),
-                    file.download_url,
-                    local_path,
-                    None,
-                )
-                .await?;
-
-            // Poll progress
-            loop {
-                if let Some(progress) = manager.get_progress(&format!("{}-model", model_id)) {
-                    match progress.status {
-                        goose::download_manager::DownloadStatus::Downloading => {
-                            print!(
-                                "\r  {:.1}% ({:.0}MB / {:.0}MB)",
-                                progress.progress_percent,
-                                progress.bytes_downloaded as f64 / (1024.0 * 1024.0),
-                                progress.total_bytes as f64 / (1024.0 * 1024.0),
-                            );
-                            use std::io::Write;
-                            std::io::stdout().flush().ok();
-                        }
-                        goose::download_manager::DownloadStatus::Completed => {
-                            println!("\nDownloaded: {}", model_id);
-                            break;
-                        }
-                        goose::download_manager::DownloadStatus::Failed => {
-                            let err = progress.error.unwrap_or_default();
-                            anyhow::bail!("Download failed: {}", err);
-                        }
-                        goose::download_manager::DownloadStatus::Cancelled => {
-                            println!("\nDownload cancelled.");
-                            break;
-                        }
-                    }
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            }
-        }
-        LocalModelsCommand::List => {
-            let registry = get_registry()
-                .lock()
-                .map_err(|_| anyhow::anyhow!("Failed to acquire registry lock"))?;
-            let models = registry.list_models();
-
-            if models.is_empty() {
-                println!("No local models downloaded.");
-                return Ok(());
-            }
-
-            println!("{:<50} {:<10} Downloaded", "ID", "Quant");
-            println!("{}", "-".repeat(70));
-            for m in models {
-                println!(
-                    "{:<50} {:<10} {}",
-                    m.id,
-                    m.quantization,
-                    if m.is_downloaded() { "✓" } else { "✗" }
-                );
-            }
-        }
-        LocalModelsCommand::Delete { id } => {
-            let mut registry = get_registry()
-                .lock()
-                .map_err(|_| anyhow::anyhow!("Failed to acquire registry lock"))?;
-
-            if let Some(entry) = registry.get_model(&id) {
-                if entry.local_path.exists() {
-                    std::fs::remove_file(&entry.local_path)?;
-                }
-                registry.remove_model(&id)?;
-                println!("Deleted model: {}", id);
-            } else {
-                println!("Model not found: {}", id);
-            }
-        }
+        ServiceCommand::Install => handle_service_install(),
+        ServiceCommand::Uninstall => handle_service_uninstall(),
+        ServiceCommand::Status => handle_service_status(),
+        ServiceCommand::Logs => handle_service_logs(),
     }
+}
 
-    Ok(())
+async fn handle_auth_subcommand(command: AuthCommand) -> Result<()> {
+    let working_dir = std::env::current_dir()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+    let client = crate::goosed_client::GoosedClient::spawn_or_discover(&working_dir).await?;
+    let server_url = client.base_url();
+    let secret_key = client.secret_key();
+
+    match command {
+        AuthCommand::Login {
+            provider,
+            tenant,
+            client_id,
+        } => {
+            crate::commands::auth::handle_login(
+                server_url,
+                secret_key,
+                &provider,
+                tenant.as_deref(),
+                client_id.as_deref(),
+            )
+            .await
+        }
+        AuthCommand::Logout => crate::commands::auth::handle_logout(server_url, secret_key).await,
+        AuthCommand::Status => crate::commands::auth::handle_status(server_url, secret_key).await,
+        AuthCommand::Whoami => crate::commands::auth::handle_whoami(server_url, secret_key).await,
+        AuthCommand::Providers => crate::commands::auth::handle_providers().await,
+    }
 }
 
 async fn handle_default_session() -> Result<()> {
@@ -1647,6 +1875,7 @@ async fn handle_default_session() -> Result<()> {
         debug: false,
         max_tool_repetitions: None,
         max_turns: None,
+        orchestrator_max_concurrency: None,
         scheduled_job_id: None,
         interactive: true,
         quiet: false,
@@ -1668,7 +1897,7 @@ pub async fn cli() -> anyhow::Result<()> {
 
     let command_name = get_command_name(&cli.command);
     tracing::info!(
-        monotonic_counter.goose.cli_commands = 1,
+        counter.goose.cli_commands = 1,
         command = command_name,
         "CLI command executed"
     );
@@ -1682,7 +1911,6 @@ pub async fn cli() -> anyhow::Result<()> {
         Some(Command::Configure {}) => handle_configure().await,
         Some(Command::Info { verbose }) => handle_info(verbose),
         Some(Command::Mcp { server }) => handle_mcp_command(server).await,
-        Some(Command::Acp { builtins }) => goose_acp::server::run(builtins).await,
         Some(Command::Session {
             command: Some(cmd), ..
         }) => handle_session_subcommand(cmd).await,
@@ -1733,31 +1961,66 @@ pub async fn cli() -> anyhow::Result<()> {
             )
             .await
         }
-        Some(Command::Gateway { command }) => handle_gateway_command(command).await,
         Some(Command::Schedule { command }) => handle_schedule_command(command).await,
         Some(Command::Update {
             canary,
             reconfigure,
         }) => {
-            crate::commands::update::update(canary, reconfigure).await?;
+            crate::commands::update::update(canary, reconfigure)?;
             Ok(())
         }
         Some(Command::Recipe { command }) => handle_recipe_subcommand(command),
+        Some(Command::Registry { command }) => handle_registry_subcommand(command).await,
+        Some(Command::Agent { command }) => handle_agent_subcommand(command).await,
+        Some(Command::Auth { command }) => handle_auth_subcommand(command).await,
+        Some(Command::Skill { command }) => handle_skill_subcommand(command).await,
+        Some(Command::Web {
+            port,
+            host,
+            open,
+            auth_token,
+            no_auth,
+        }) => crate::commands::web::handle_web(port, host, open, auth_token, no_auth).await,
         Some(Command::Term { command }) => handle_term_subcommand(command).await,
-        Some(Command::LocalModels { command }) => handle_local_models_command(command).await,
-        Some(Command::ValidateExtensions { file }) => {
-            use goose::agents::validate_extensions::validate_bundled_extensions;
-            match validate_bundled_extensions(&file) {
-                Ok(msg) => {
-                    println!("{msg}");
-                    Ok(())
-                }
-                Err(e) => {
-                    eprintln!("{e}");
-                    std::process::exit(1);
-                }
-            }
-        }
+        Some(Command::Service { command }) => handle_service_subcommand(command),
         None => handle_default_session().await,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_orchestrator_max_concurrency_run() {
+        let cli = Cli::try_parse_from([
+            "goose",
+            "run",
+            "--text",
+            "hello",
+            "--orchestrator-max-concurrency",
+            "7",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Some(Command::Run { session_opts, .. }) => {
+                assert_eq!(session_opts.orchestrator_max_concurrency, Some(7));
+            }
+            _ => panic!("expected Run command"),
+        }
+    }
+
+    #[test]
+    fn parse_orchestrator_max_concurrency_interactive() {
+        let cli = Cli::try_parse_from(["goose", "session", "--orchestrator-max-concurrency", "2"])
+            .unwrap();
+
+        match cli.command {
+            Some(Command::Session { session_opts, .. }) => {
+                assert_eq!(session_opts.orchestrator_max_concurrency, Some(2));
+            }
+            _ => panic!("expected Session command"),
+        }
     }
 }

@@ -5,8 +5,9 @@ use crate::scenario_tests::message_generator::MessageGenerator;
 use crate::scenario_tests::mock_client::weather_client;
 use crate::scenario_tests::provider_configs::{get_provider_configs, ProviderConfig};
 use crate::session::CliSession;
+use crate::GoosedClient;
 use anyhow::Result;
-use goose::agents::{Agent, AgentConfig, GoosePlatform};
+use goose::agents::{Agent, AgentConfig};
 use goose::config::permission::PermissionManager;
 use goose::config::GooseMode;
 use goose::model::ModelConfig;
@@ -142,6 +143,7 @@ where
     F: Fn(&ScenarioResult) -> Result<()>,
 {
     use goose::config::ExtensionConfig;
+    use tokio::sync::Mutex;
 
     goose::agents::moim::SKIP.with(|f| f.set(true));
 
@@ -188,7 +190,7 @@ where
 
         let inner_provider = create(
             &factory_name,
-            ModelConfig::new(config.model_name)?.with_canonical_limits(&factory_name),
+            ModelConfig::new(config.model_name)?,
             Vec::new(),
         )
         .await?;
@@ -214,7 +216,6 @@ where
         None,
         GooseMode::Auto,
         true,
-        GoosePlatform::GooseCli,
     );
     let agent = Agent::with_config(agent_config);
     agent
@@ -229,7 +230,7 @@ where
                 bundled: None,
                 available_tools: vec![],
             },
-            Arc::new(mock_client),
+            Arc::new(Mutex::new(Box::new(mock_client))),
             None,
             None,
         )
@@ -253,12 +254,9 @@ where
         .await?;
 
     let mut cli_session = CliSession::new(
-        agent,
+        GoosedClient::dummy(),
         session.id,
         false,
-        None,
-        None,
-        None,
         None,
         "text".to_string(),
     )

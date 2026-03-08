@@ -43,6 +43,8 @@ import PermissionSettingsView from './components/settings/permission/PermissionS
 
 import ExtensionsView, { ExtensionsViewOptions } from './components/extensions/ExtensionsView';
 import RecipesView from './components/recipes/RecipesView';
+import { PipelinesView } from './components/pipelines/PipelinesView';
+import { PipelineEditorPage } from './components/pipelines/PipelineEditorPage';
 import AppsView from './components/apps/AppsView';
 import StandaloneAppView from './components/apps/StandaloneAppView';
 import { View, ViewOptions } from './utils/navigationUtils';
@@ -188,6 +190,10 @@ const SchedulesRoute = () => {
 
 const RecipesRoute = () => {
   return <RecipesView />;
+};
+
+const PipelinesRoute = () => {
+  return <PipelinesView />;
 };
 
 const PermissionRoute = () => {
@@ -680,6 +686,8 @@ export function AppInner() {
               <Route path="sessions" element={<SessionsRoute />} />
               <Route path="schedules" element={<SchedulesRoute />} />
               <Route path="recipes" element={<RecipesRoute />} />
+              <Route path="pipelines" element={<PipelinesRoute />} />
+              <Route path="pipelines/:id" element={<PipelineEditorPage />} />
               <Route
                 path="shared-session"
                 element={

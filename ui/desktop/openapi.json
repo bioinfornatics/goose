@@ -2448,6 +2448,50 @@
         }
       }
     },
+    "/pipelines/{id}/run": {
+      "post": {
+        "tags": [
+          "pipeline"
+        ],
+        "operationId": "execute_pipeline_handler",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Pipeline ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecutePipelineRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Streaming pipeline execution events"
+          },
+          "404": {
+            "description": "Pipeline not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/recipes/create": {
       "post": {
         "tags": [
@@ -4694,6 +4738,18 @@
         ],
         "properties": {
           "message": {
+            "type": "string"
+          }
+        }
+      },
+      "ExecutePipelineRequest": {
+        "type": "object",
+        "properties": {
+          "max_concurrency": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "session_id": {
             "type": "string"
           }
         }

@@ -17,6 +17,7 @@ pub mod oauth;
 pub mod otel;
 pub mod permission;
 pub mod pipeline;
+pub mod pipeline_executor;
 pub mod posthog;
 pub mod prompt_template;
 pub mod providers;

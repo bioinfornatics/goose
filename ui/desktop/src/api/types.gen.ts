@@ -306,6 +306,11 @@ export type ErrorResponse = {
     message: string;
 };
 
+export type ExecutePipelineRequest = {
+    max_concurrency?: number;
+    session_id?: string;
+};
+
 /**
  * Represents the different types of MCP extensions that can be added to the manager
  */
@@ -3507,6 +3512,34 @@ export type UpdatePipelineResponses = {
 };
 
 export type UpdatePipelineResponse = UpdatePipelineResponses[keyof UpdatePipelineResponses];
+
+export type ExecutePipelineHandlerData = {
+    body: ExecutePipelineRequest;
+    path: {
+        /**
+         * Pipeline ID
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/pipelines/{id}/run';
+};
+
+export type ExecutePipelineHandlerErrors = {
+    /**
+     * Pipeline not found
+     */
+    404: PipelineErrorResponse;
+};
+
+export type ExecutePipelineHandlerError = ExecutePipelineHandlerErrors[keyof ExecutePipelineHandlerErrors];
+
+export type ExecutePipelineHandlerResponses = {
+    /**
+     * Streaming pipeline execution events
+     */
+    200: unknown;
+};
 
 export type CreateRecipeData = {
     body: CreateRecipeRequest;

@@ -441,6 +441,7 @@ derive_utoipa!(Icon as IconSchema);
         super::routes::pipeline::update_pipeline,
         super::routes::pipeline::delete_pipeline,
         super::routes::pipeline::validate_pipeline,
+        super::routes::pipeline::execute_pipeline_handler,
     ),
     components(schemas(
         super::routes::config_management::UpsertConfigQuery,
@@ -630,6 +631,7 @@ derive_utoipa!(Icon as IconSchema);
         super::routes::pipeline::PipelineResponse,
         super::routes::pipeline::ValidateResponse,
         super::routes::pipeline::PipelineErrorResponse,
+        super::routes::pipeline::ExecutePipelineRequest,
         goose::pipeline::Pipeline,
         goose::pipeline::PipelineNode,
         goose::pipeline::PipelineEdge,

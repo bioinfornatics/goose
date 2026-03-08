@@ -5,8 +5,7 @@ use tracing_subscriber::{
     Registry,
 };
 
-use goose::otel::otlp;
-use goose::tracing::langfuse_layer;
+use goose::tracing::{langfuse_layer, otlp_layer};
 
 /// Sets up the logging infrastructure for the application.
 /// This includes:
@@ -55,7 +54,23 @@ pub fn setup_logging(name: Option<&str>) -> Result<()> {
         console_layer.with_filter(base_env_filter).boxed(),
     ];
 
-    layers.extend(otlp::init_otlp_layers(goose::config::Config::global()));
+    if let Ok((otlp_tracing_layer, otlp_metrics_layer, otlp_logs_layer)) = otlp_layer::init_otlp() {
+        layers.push(
+            otlp_tracing_layer
+                .with_filter(otlp_layer::create_otlp_tracing_filter())
+                .boxed(),
+        );
+        layers.push(
+            otlp_metrics_layer
+                .with_filter(otlp_layer::create_otlp_metrics_filter())
+                .boxed(),
+        );
+        layers.push(
+            otlp_logs_layer
+                .with_filter(otlp_layer::create_otlp_logs_filter())
+                .boxed(),
+        );
+    }
 
     if let Some(langfuse) = langfuse_layer::create_langfuse_observer() {
         layers.push(langfuse.with_filter(LevelFilter::DEBUG).boxed());

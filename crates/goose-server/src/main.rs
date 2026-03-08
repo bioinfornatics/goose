@@ -1,3 +1,5 @@
+mod agent_slot_registry;
+mod auth;
 mod commands;
 mod configuration;
 mod error;
@@ -7,13 +9,11 @@ mod routes;
 mod state;
 mod tunnel;
 
-use std::path::PathBuf;
-
 use clap::{Parser, Subcommand};
-use goose::agents::validate_extensions;
+use goose::config::paths::Paths;
 use goose_mcp::{
     mcp_server_runner::{serve, McpCommand},
-    AutoVisualiserRouter, ComputerControllerServer, MemoryServer, TutorialServer,
+    AutoVisualiserRouter, ComputerControllerServer, DeveloperServer, MemoryServer, TutorialServer,
 };
 
 #[derive(Parser)]
@@ -33,12 +33,6 @@ enum Commands {
         #[arg(value_parser = clap::value_parser!(McpCommand))]
         server: McpCommand,
     },
-    /// Validate a bundled-extensions JSON file
-    #[command(name = "validate-extensions")]
-    ValidateExtensions {
-        /// Path to the bundled-extensions JSON file
-        path: PathBuf,
-    },
 }
 
 #[tokio::main]
@@ -56,14 +50,14 @@ async fn main() -> anyhow::Result<()> {
                 McpCommand::ComputerController => serve(ComputerControllerServer::new()).await?,
                 McpCommand::Memory => serve(MemoryServer::new()).await?,
                 McpCommand::Tutorial => serve(TutorialServer::new()).await?,
-            }
-        }
-        Commands::ValidateExtensions { path } => {
-            match validate_extensions::validate_bundled_extensions(&path) {
-                Ok(msg) => println!("{msg}"),
-                Err(e) => {
-                    eprintln!("{e}");
-                    std::process::exit(1);
+                McpCommand::Developer => {
+                    let bash_env = Paths::config_dir().join(".bash_env");
+                    serve(
+                        DeveloperServer::new()
+                            .extend_path_with_shell(true)
+                            .bash_env_file(Some(bash_env)),
+                    )
+                    .await?
                 }
             }
         }

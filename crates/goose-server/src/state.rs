@@ -1,6 +1,7 @@
 use axum::http::StatusCode;
 use goose::builtin_extension::register_builtin_extensions;
 use goose::execution::manager::AgentManager;
+use goose::execution::pool::AgentPool;
 use goose::scheduler_trait::SchedulerTrait;
 use goose::session::SessionManager;
 use std::collections::{HashMap, HashSet};
@@ -9,10 +10,17 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
+use crate::agent_slot_registry::AgentSlotRegistry;
+use crate::routes::runs::RunStore;
 use crate::tunnel::TunnelManager;
+use goose::agents::extension_registry::ExtensionRegistry;
 use goose::agents::ExtensionLoadResult;
-use goose::gateway::manager::GatewayManager;
-use goose::providers::local_inference::InferenceRuntime;
+use goose::audit::AuditLogger;
+use goose::config::load_auth_config;
+use goose::oidc::OidcValidator;
+use goose::policy::{PolicyStore, SecurityMode};
+use goose::quotas::QuotaManager;
+use goose::session_token::SessionTokenStore;
 
 type ExtensionLoadingTasks =
     Arc<Mutex<HashMap<String, Arc<Mutex<Option<JoinHandle<Vec<ExtensionLoadResult>>>>>>>>;
@@ -21,29 +29,67 @@ type ExtensionLoadingTasks =
 pub struct AppState {
     pub(crate) agent_manager: Arc<AgentManager>,
     pub recipe_file_hash_map: Arc<Mutex<HashMap<String, PathBuf>>>,
+    /// Global reasoning effort override — checked by providers before each LLM call
+    pub reasoning_effort: Arc<tokio::sync::RwLock<Option<goose::model::ReasoningEffort>>>,
+    /// Per-agent/mode reasoning effort overrides — key is "agent_slug/mode_slug"
+    pub reasoning_effort_overrides:
+        Arc<tokio::sync::RwLock<HashMap<String, goose::model::ReasoningEffort>>>,
+    /// Tracks sessions that have already emitted recipe telemetry to prevent double counting.
     recipe_session_tracker: Arc<Mutex<HashSet<String>>>,
     pub tunnel_manager: Arc<TunnelManager>,
-    pub gateway_manager: Arc<GatewayManager>,
     pub extension_loading_tasks: ExtensionLoadingTasks,
-    pub inference_runtime: Arc<InferenceRuntime>,
+    pub agent_slot_registry: AgentSlotRegistry,
+    /// Shared extension registry — live MCP connections shared across agents
+    pub extension_registry: Arc<ExtensionRegistry>,
+    run_store: RunStore,
+    pub agent_pool: Arc<AgentPool>,
+    pub oidc_validator: Arc<OidcValidator>,
+    pub session_token_store: Arc<SessionTokenStore>,
+    pub policy_store: Arc<PolicyStore>,
+    pub audit_logger: Arc<AuditLogger>,
+    pub quota_manager: Arc<QuotaManager>,
 }
 
 impl AppState {
-    pub async fn new(tls: bool) -> anyhow::Result<Arc<AppState>> {
+    pub async fn new() -> anyhow::Result<Arc<AppState>> {
         register_builtin_extensions(goose_mcp::BUILTIN_EXTENSIONS.clone());
 
         let agent_manager = AgentManager::instance().await?;
-        let tunnel_manager = Arc::new(TunnelManager::new(tls));
-        let gateway_manager = Arc::new(GatewayManager::new(agent_manager.clone())?);
+        let extension_registry = agent_manager.extension_registry();
+        let tunnel_manager = Arc::new(TunnelManager::new());
 
         Ok(Arc::new(Self {
             agent_manager,
             recipe_file_hash_map: Arc::new(Mutex::new(HashMap::new())),
+            reasoning_effort: Arc::new(tokio::sync::RwLock::new(None)),
+            reasoning_effort_overrides: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
             recipe_session_tracker: Arc::new(Mutex::new(HashSet::new())),
             tunnel_manager,
-            gateway_manager,
             extension_loading_tasks: Arc::new(Mutex::new(HashMap::new())),
-            inference_runtime: InferenceRuntime::get_or_init(),
+            agent_slot_registry: AgentSlotRegistry::new(),
+            extension_registry,
+            run_store: RunStore::new(),
+            agent_pool: Arc::new(AgentPool::new(10)),
+            oidc_validator: Arc::new({
+                let mut providers = vec![];
+                if let Some(auth_config) = load_auth_config() {
+                    if let Some(oidc_config) = auth_config.to_oidc_provider_config() {
+                        tracing::info!(
+                            issuer = %oidc_config.issuer,
+                            "Loaded OIDC provider from config.yaml"
+                        );
+                        providers.push(oidc_config);
+                    }
+                }
+                OidcValidator::new(providers)
+            }),
+            session_token_store: Arc::new(SessionTokenStore::new(
+                uuid::Uuid::new_v4().to_string(),
+                &goose::config::paths::Paths::data_dir(),
+            )),
+            policy_store: Arc::new(PolicyStore::for_mode(SecurityMode::detect())),
+            audit_logger: Arc::new(AuditLogger::new()),
+            quota_manager: Arc::new(QuotaManager::new()),
         }))
     }
 
@@ -105,6 +151,10 @@ impl AppState {
             sessions.insert(session_id.to_string());
             true
         }
+    }
+
+    pub fn run_store(&self) -> &RunStore {
+        &self.run_store
     }
 
     pub async fn get_agent(&self, session_id: String) -> anyhow::Result<Arc<goose::agents::Agent>> {

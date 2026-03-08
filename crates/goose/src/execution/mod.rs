@@ -4,6 +4,9 @@
 //! enabling multiple concurrent sessions with independent agents, extensions, and providers.
 
 pub mod manager;
+pub mod pool;
+pub mod session_orchestrator;
+pub mod workspace;
 
 use serde::{Deserialize, Serialize};
 use std::fmt;

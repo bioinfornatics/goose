@@ -38,7 +38,7 @@ struct SystemPromptContext {
     extension_tool_limits: Option<(usize, usize)>,
     goose_mode: GooseMode,
     is_autonomous: bool,
-    enable_subagents: bool,
+    enable_specialists: bool,
     max_extensions: usize,
     max_tools: usize,
     code_execution_mode: bool,
@@ -50,7 +50,7 @@ pub struct SystemPromptBuilder<'a, M> {
     extensions_info: Vec<ExtensionInfo>,
     frontend_instructions: Option<String>,
     extension_tool_count: Option<(usize, usize)>,
-    subagents_enabled: bool,
+    specialists_enabled: bool,
     hints: Option<String>,
     code_execution_mode: bool,
 }
@@ -114,8 +114,8 @@ impl<'a> SystemPromptBuilder<'a, PromptManager> {
         self
     }
 
-    pub fn with_enable_subagents(mut self, subagents_enabled: bool) -> Self {
-        self.subagents_enabled = subagents_enabled;
+    pub fn with_enable_specialists(mut self, specialists_enabled: bool) -> Self {
+        self.specialists_enabled = specialists_enabled;
         self
     }
 
@@ -154,7 +154,7 @@ impl<'a> SystemPromptBuilder<'a, PromptManager> {
             extension_tool_limits,
             goose_mode,
             is_autonomous: goose_mode == GooseMode::Auto,
-            enable_subagents: self.subagents_enabled,
+            enable_specialists: self.specialists_enabled,
             max_extensions: MAX_EXTENSIONS,
             max_tools: MAX_TOOLS,
             code_execution_mode: self.code_execution_mode,
@@ -240,7 +240,7 @@ impl PromptManager {
             extensions_info: vec![],
             frontend_instructions: None,
             extension_tool_count: None,
-            subagents_enabled: false,
+            specialists_enabled: false,
             hints: None,
             code_execution_mode: false,
         }
@@ -391,53 +391,5 @@ mod tests {
             .build();
 
         assert_snapshot!(system_prompt)
-    }
-
-    #[tokio::test]
-    async fn test_all_platform_extensions() {
-        use crate::agents::platform_extensions::{PlatformExtensionContext, PLATFORM_EXTENSIONS};
-        use crate::session::SessionManager;
-        use std::sync::Arc;
-
-        let tmp_dir = tempfile::tempdir().unwrap();
-        let session_manager = Arc::new(SessionManager::new(tmp_dir.path().to_path_buf()));
-        let session = session_manager
-            .create_session(
-                tmp_dir.path().to_path_buf(),
-                "test session".to_owned(),
-                crate::session::SessionType::Hidden,
-            )
-            .await
-            .unwrap();
-        let context = PlatformExtensionContext {
-            extension_manager: None,
-            session_manager,
-            session: Some(Arc::new(session)),
-        };
-
-        let mut extensions: Vec<ExtensionInfo> = PLATFORM_EXTENSIONS
-            .values()
-            .map(|def| {
-                let client = (def.client_factory)(context.clone());
-                let info = client.get_info();
-                let instructions = info
-                    .and_then(|i| i.instructions.clone())
-                    .unwrap_or_default();
-                let has_resources = info
-                    .and_then(|i| i.capabilities.resources.as_ref())
-                    .is_some();
-                ExtensionInfo::new(def.name, &instructions, has_resources)
-            })
-            .collect();
-
-        extensions.sort_by(|a, b| a.name.cmp(&b.name));
-
-        let manager = PromptManager::with_timestamp(DateTime::<Utc>::from_timestamp(0, 0).unwrap());
-        let system_prompt = manager
-            .builder()
-            .with_extensions(extensions.into_iter())
-            .build();
-
-        assert_snapshot!(system_prompt);
     }
 }

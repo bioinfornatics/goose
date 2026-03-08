@@ -8,7 +8,7 @@ use tokio::sync::OnceCell;
 
 use crate::conversation::message::Message;
 
-static TOKENIZER: OnceCell<Result<Arc<CoreBPE>, String>> = OnceCell::const_new();
+static TOKENIZER: OnceCell<Arc<CoreBPE>> = OnceCell::const_new();
 
 const MAX_TOKEN_CACHE_SIZE: usize = 10_000;
 
@@ -182,15 +182,15 @@ impl TokenCounter {
 }
 
 async fn get_tokenizer() -> Result<Arc<CoreBPE>, String> {
-    TOKENIZER
+    let tokenizer = TOKENIZER
         .get_or_init(|| async {
             match tiktoken_rs::o200k_base() {
-                Ok(bpe) => Ok(Arc::new(bpe)),
-                Err(e) => Err(format!("Failed to initialize o200k_base tokenizer: {}", e)),
+                Ok(bpe) => Arc::new(bpe),
+                Err(e) => panic!("Failed to initialize o200k_base tokenizer: {}", e),
             }
         })
-        .await
-        .clone()
+        .await;
+    Ok(tokenizer.clone())
 }
 
 pub async fn create_token_counter() -> Result<TokenCounter, String> {

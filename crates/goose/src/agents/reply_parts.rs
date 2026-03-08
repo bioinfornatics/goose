@@ -8,13 +8,10 @@ use serde_json::{json, Value};
 use tracing::debug;
 
 use super::super::agents::Agent;
-#[cfg(feature = "code-mode")]
-use crate::agents::platform_extensions::code_execution;
+use crate::agents::code_execution_extension::EXTENSION_NAME as CODE_EXECUTION_EXTENSION;
 use crate::conversation::message::{Message, MessageContent, ToolRequest};
 use crate::conversation::Conversation;
-#[cfg(test)]
-use crate::providers::base::stream_from_single_message;
-use crate::providers::base::{MessageStream, Provider, ProviderUsage};
+use crate::providers::base::{stream_from_single_message, MessageStream, Provider, ProviderUsage};
 use crate::providers::errors::ProviderError;
 use crate::providers::toolshim::{
     augment_message_with_tool_calls, convert_tool_messages_to_text,
@@ -147,13 +144,10 @@ impl Agent {
             tools.push(frontend_tool.tool.clone());
         }
 
-        #[cfg(feature = "code-mode")]
         let code_execution_active = self
             .extension_manager
-            .is_extension_enabled(code_execution::EXTENSION_NAME)
+            .is_extension_enabled(CODE_EXECUTION_EXTENSION)
             .await;
-        #[cfg(not(feature = "code-mode"))]
-        let code_execution_active = false;
         if code_execution_active {
             tools.retain(|tool| {
                 if let Some(owner) = crate::agents::extension_manager::get_tool_owner(tool) {
@@ -164,14 +158,70 @@ impl Agent {
             });
         }
 
+        // When code_execution is active, its own tools (execute, list_functions,
+        // get_function_details) must survive mode-based and extension-scoped filtering.
+        // Without this, modes whose tool_groups don't explicitly list "code_execution"
+        // would strip all tools, leaving the LLM with nothing to call.
+        let code_exec_tools: Vec<Tool> = if code_execution_active {
+            tools
+                .iter()
+                .filter(|tool| {
+                    crate::agents::extension_manager::get_tool_owner(tool)
+                        .map(|o| o == CODE_EXECUTION_EXTENSION)
+                        .unwrap_or(false)
+                })
+                .cloned()
+                .collect()
+        } else {
+            vec![]
+        };
+
+        // Apply mode-based tool filtering
+        let active_groups = self.active_tool_groups.read().await;
+        if !active_groups.is_empty() {
+            tools = super::tool_filter::filter_tools(tools, &active_groups);
+        }
+        drop(active_groups);
+
+        // Apply scope-based filtering: hide orchestrator-only tools when not in orchestrator context
+        let is_orchestrator = *self.is_orchestrator_context.read().await;
+        if !is_orchestrator {
+            tools.retain(|tool| {
+                let owner = crate::agents::extension_manager::get_tool_owner(tool)
+                    .unwrap_or_default()
+                    .to_lowercase();
+                !crate::agents::extension::is_orchestrator_extension(&owner)
+            });
+        }
+
+        // Apply extension-scoped filtering (when agent has bound extensions)
+        let allowed = self.allowed_extensions.read().await;
+        if !allowed.is_empty() {
+            tools.retain(|tool| {
+                let owner = crate::agents::extension_manager::get_tool_owner(tool)
+                    .unwrap_or_default()
+                    .to_lowercase();
+                allowed.iter().any(|ext| ext.to_lowercase() == owner)
+            });
+        }
+        drop(allowed);
+
+        // Re-add code_execution tools that may have been removed by mode/extension filters
+        if code_execution_active {
+            let existing_names: std::collections::HashSet<String> =
+                tools.iter().map(|t| t.name.to_string()).collect();
+            for tool in code_exec_tools {
+                if !existing_names.contains(&*tool.name) {
+                    tools.push(tool);
+                }
+            }
+        }
+
         // Stable tool ordering is important for multi session prompt caching.
         tools.sort_by(|a, b| a.name.cmp(&b.name));
 
         // Prepare system prompt
-        let extensions_info = self
-            .extension_manager
-            .get_extensions_info(working_dir)
-            .await;
+        let extensions_info = self.extension_manager.get_extensions_info().await;
         let (extension_count, tool_count) = self
             .extension_manager
             .get_extension_and_tool_counts(session_id)
@@ -238,18 +288,35 @@ impl Agent {
 
         // Capture errors during stream creation and return them as part of the stream
         // so they can be handled by the existing error handling logic in the agent
-        let model_config = provider.get_model_config();
-        debug!("WAITING_LLM_STREAM_START");
-        let stream_result = provider
-            .stream(
-                &model_config,
-                session_id,
-                system_prompt.as_str(),
-                messages_for_provider.messages(),
-                &tools,
-            )
-            .await;
-        debug!("WAITING_LLM_STREAM_END");
+        let stream_result = if provider.supports_streaming() {
+            debug!("WAITING_LLM_STREAM_START");
+            let result = provider
+                .stream(
+                    session_id,
+                    system_prompt.as_str(),
+                    messages_for_provider.messages(),
+                    &tools,
+                )
+                .await;
+            debug!("WAITING_LLM_STREAM_END");
+            result
+        } else {
+            debug!("WAITING_LLM_START");
+            let complete_result = provider
+                .complete(
+                    session_id,
+                    system_prompt.as_str(),
+                    messages_for_provider.messages(),
+                    &tools,
+                )
+                .await;
+            debug!("WAITING_LLM_END");
+
+            match complete_result {
+                Ok((message, usage)) => Ok(stream_from_single_message(message, usage)),
+                Err(e) => Err(e),
+            }
+        };
 
         // If there was an error creating the stream, return a stream that yields that error
         let mut stream = match stream_result {
@@ -454,17 +521,18 @@ mod tests {
             self.model_config.clone()
         }
 
-        async fn stream(
+        async fn complete_with_model(
             &self,
+            _session_id: Option<&str>,
             _model_config: &ModelConfig,
-            _session_id: &str,
             _system: &str,
             _messages: &[Message],
             _tools: &[Tool],
-        ) -> Result<MessageStream, ProviderError> {
-            let message = Message::assistant().with_text("ok");
-            let usage = ProviderUsage::new("mock".to_string(), Usage::default());
-            Ok(stream_from_single_message(message, usage))
+        ) -> anyhow::Result<(Message, ProviderUsage), ProviderError> {
+            Ok((
+                Message::assistant().with_text("ok"),
+                ProviderUsage::new("mock".to_string(), Usage::default()),
+            ))
         }
     }
 

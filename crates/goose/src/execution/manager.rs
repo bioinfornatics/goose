@@ -1,4 +1,4 @@
-use crate::agents::{Agent, AgentConfig, GoosePlatform};
+use crate::agents::{Agent, AgentConfig, ExtensionManager};
 use crate::config::paths::Paths;
 use crate::config::permission::PermissionManager;
 use crate::config::{Config, GooseMode};
@@ -21,6 +21,8 @@ pub struct AgentManager {
     scheduler: Arc<dyn SchedulerTrait>,
     session_manager: Arc<SessionManager>,
     default_provider: Arc<RwLock<Option<Arc<dyn crate::providers::base::Provider>>>>,
+    shared_extension_manager: Arc<ExtensionManager>,
+    extension_registry: Arc<crate::agents::extension_registry::ExtensionRegistry>,
 }
 
 impl AgentManager {
@@ -34,11 +36,21 @@ impl AgentManager {
         let capacity = NonZeroUsize::new(max_sessions.unwrap_or(DEFAULT_MAX_SESSION))
             .unwrap_or_else(|| NonZeroUsize::new(100).unwrap());
 
+        let provider = Arc::new(tokio::sync::Mutex::new(None));
+        let extension_registry =
+            Arc::new(crate::agents::extension_registry::ExtensionRegistry::new());
+        let shared_extension_manager = Arc::new(ExtensionManager::with_registry(
+            extension_registry.clone(),
+            provider,
+            session_manager.clone(),
+        ));
         let manager = Self {
             sessions: Arc::new(RwLock::new(LruCache::new(capacity))),
             scheduler,
             session_manager,
             default_provider: Arc::new(RwLock::new(None)),
+            shared_extension_manager,
+            extension_registry,
         };
 
         Ok(manager)
@@ -64,14 +76,32 @@ impl AgentManager {
         Arc::clone(&self.scheduler)
     }
 
+    pub fn extension_manager(&self) -> Arc<ExtensionManager> {
+        Arc::clone(&self.shared_extension_manager)
+    }
+
+    /// Get the shared extension registry for server-level extension management
+    pub fn extension_registry(&self) -> Arc<crate::agents::extension_registry::ExtensionRegistry> {
+        Arc::clone(&self.extension_registry)
+    }
+
     /// Get the shared SessionManager for session-only operations
     pub fn session_manager(&self) -> &SessionManager {
         &self.session_manager
     }
 
+    /// Get the shared SessionManager as an Arc for ownership transfer
+    pub fn session_manager_arc(&self) -> Arc<SessionManager> {
+        Arc::clone(&self.session_manager)
+    }
+
     pub async fn set_default_provider(&self, provider: Arc<dyn crate::providers::base::Provider>) {
         debug!("Setting default provider on AgentManager");
         *self.default_provider.write().await = Some(provider);
+    }
+
+    pub async fn get_default_provider(&self) -> Option<Arc<dyn crate::providers::base::Provider>> {
+        self.default_provider.read().await.clone()
     }
 
     pub async fn get_or_create_agent(&self, session_id: String) -> Result<Arc<Agent>> {
@@ -92,33 +122,15 @@ impl AgentManager {
             Config::global()
                 .get_goose_disable_session_naming()
                 .unwrap_or(false),
-            GoosePlatform::GooseDesktop,
         );
-        let agent = Arc::new(Agent::with_config(config));
-
-        if let Ok(session) = self.session_manager.get_session(&session_id, false).await {
-            if session.provider_name.is_some() {
-                info!(
-                    "Restoring evicted session {} (provider: {:?})",
-                    session_id, session.provider_name
-                );
-                if let Err(e) = agent.restore_provider_from_session(&session).await {
-                    tracing::warn!(
-                        "Failed to restore provider for session {}: {}",
-                        session_id,
-                        e
-                    );
-                }
-            }
-            agent.load_extensions_from_session(&session).await;
-        }
-
-        if agent.provider().await.is_err() {
-            if let Some(provider) = &*self.default_provider.read().await {
-                agent
-                    .update_provider(Arc::clone(provider), &session_id)
-                    .await?;
-            }
+        let agent = Arc::new(Agent::with_config_and_extensions(
+            config,
+            Some(Arc::clone(&self.shared_extension_manager)),
+        ));
+        if let Some(provider) = &*self.default_provider.read().await {
+            agent
+                .update_provider(Arc::clone(provider), &session_id)
+                .await?;
         }
 
         let mut sessions = self.sessions.write().await;

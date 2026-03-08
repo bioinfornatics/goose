@@ -42,10 +42,6 @@ pub struct DeclarativeProviderConfig {
     pub supports_streaming: Option<bool>,
     #[serde(default = "default_requires_auth")]
     pub requires_auth: bool,
-    #[serde(default)]
-    pub catalog_provider_id: Option<String>,
-    #[serde(default)]
-    pub base_path: Option<String>,
 }
 
 fn default_requires_auth() -> bool {
@@ -106,8 +102,6 @@ pub struct CreateCustomProviderParams {
     pub supports_streaming: Option<bool>,
     pub headers: Option<HashMap<String, String>>,
     pub requires_auth: bool,
-    pub catalog_provider_id: Option<String>,
-    pub base_path: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -121,8 +115,6 @@ pub struct UpdateCustomProviderParams {
     pub supports_streaming: Option<bool>,
     pub headers: Option<HashMap<String, String>>,
     pub requires_auth: bool,
-    pub catalog_provider_id: Option<String>,
-    pub base_path: Option<String>,
 }
 
 pub fn create_custom_provider(
@@ -162,8 +154,6 @@ pub fn create_custom_provider(
         timeout_seconds: None,
         supports_streaming: params.supports_streaming,
         requires_auth: params.requires_auth,
-        catalog_provider_id: params.catalog_provider_id,
-        base_path: params.base_path,
     };
 
     let custom_providers_dir = custom_providers_dir();
@@ -217,16 +207,10 @@ pub fn update_custom_provider(params: UpdateCustomProviderParams) -> Result<()> 
             api_key_env,
             base_url: params.api_url,
             models: model_infos,
-            headers: match params.headers {
-                Some(h) if h.is_empty() => None,
-                Some(h) => Some(h),
-                None => existing_config.headers,
-            },
+            headers: params.headers.or(existing_config.headers),
             timeout_seconds: existing_config.timeout_seconds,
             supports_streaming: params.supports_streaming,
             requires_auth: params.requires_auth,
-            catalog_provider_id: params.catalog_provider_id,
-            base_path: params.base_path,
         };
 
         let file_path = custom_providers_dir().join(format!("{}.json", updated_config.name));
@@ -272,10 +256,7 @@ pub fn load_provider(id: &str) -> Result<LoadedProvider> {
             .contents_utf8()
             .ok_or_else(|| anyhow::anyhow!("Failed to read file as UTF-8: {:?}", file.path()))?;
 
-        let config: DeclarativeProviderConfig = match serde_json::from_str(content) {
-            Ok(config) => config,
-            Err(_) => continue,
-        };
+        let config: DeclarativeProviderConfig = serde_json::from_str(content)?;
         if config.name == id {
             return Ok(LoadedProvider {
                 config,
@@ -315,16 +296,8 @@ fn load_fixed_providers() -> Result<Vec<DeclarativeProviderConfig>> {
             .contents_utf8()
             .ok_or_else(|| anyhow::anyhow!("Failed to read file as UTF-8: {:?}", file.path()))?;
 
-        match serde_json::from_str(content) {
-            Ok(config) => res.push(config),
-            Err(e) => {
-                tracing::warn!(
-                    "Skipping invalid declarative provider {:?}: {}",
-                    file.path(),
-                    e
-                );
-            }
-        }
+        let config: DeclarativeProviderConfig = serde_json::from_str(content)?;
+        res.push(config)
     }
 
     Ok(res)

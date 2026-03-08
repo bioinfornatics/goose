@@ -34,16 +34,15 @@ fn test_code_challenge_generation() {
 #[test]
 fn test_auth_url_generation() {
     let flow = PkceAuthFlow::new().unwrap();
-    let auth_url = flow.get_auth_url(12345);
+    let auth_url = flow.get_auth_url();
 
     // Verify URL contains required parameters
     assert!(auth_url.contains("callback="));
     assert!(auth_url.contains("code_challenge="));
     assert!(auth_url.starts_with(TETRATE_AUTH_URL));
 
-    // Verify callback URL contains the dynamic port
-    let expected_callback = format!("{}:{}", CALLBACK_BASE, 12345);
-    assert!(auth_url.contains(&*urlencoding::encode(&expected_callback)));
+    // Verify callback URL is properly encoded
+    assert!(auth_url.contains(&*urlencoding::encode(CALLBACK_URL)));
 }
 
 #[test]

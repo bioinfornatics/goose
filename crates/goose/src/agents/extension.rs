@@ -1,9 +1,19 @@
+use crate::agents::apps_extension;
+use crate::agents::chatrecall_extension;
+use crate::agents::code_execution_extension;
+use crate::agents::extension_manager_extension;
+use crate::agents::genui_extension;
+use crate::agents::summon_extension;
+use crate::agents::todo_extension;
+use crate::agents::tom_extension;
 use std::collections::HashMap;
 
+use crate::agents::mcp_client::McpClientTrait;
 use crate::config;
 use crate::config::extensions::name_to_key;
 use crate::config::permission::PermissionLevel;
 use crate::config::Config;
+use once_cell::sync::Lazy;
 use rmcp::model::Tool;
 use rmcp::service::ClientInitializeError;
 use rmcp::ServiceError as ClientError;
@@ -12,10 +22,6 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::warn;
 use utoipa::ToSchema;
-
-pub use crate::agents::platform_extensions::{
-    PlatformExtensionContext, PlatformExtensionDef, PLATFORM_EXTENSIONS,
-};
 
 #[derive(Error, Debug)]
 #[error("process quit before initialization: stderr = {stderr}")]
@@ -35,6 +41,236 @@ impl ProcessExit {
             source,
         }
     }
+}
+
+pub static PLATFORM_EXTENSIONS: Lazy<HashMap<&'static str, PlatformExtensionDef>> = Lazy::new(
+    || {
+        let mut map = HashMap::new();
+
+        map.insert(
+            todo_extension::EXTENSION_NAME,
+            PlatformExtensionDef {
+                name: todo_extension::EXTENSION_NAME,
+                display_name: "Todo",
+                description:
+                    "Enable a todo list for goose so it can keep track of what it is doing",
+                default_enabled: true,
+                unprefixed_tools: false,
+                scope: ExtensionScope::AgentSpecific,
+                client_factory: |ctx| Box::new(todo_extension::TodoClient::new(ctx).unwrap()),
+            },
+        );
+
+        map.insert(
+            apps_extension::EXTENSION_NAME,
+            PlatformExtensionDef {
+                name: apps_extension::EXTENSION_NAME,
+                display_name: "Apps",
+                description:
+                    "Create and manage custom Goose apps through chat. Apps are HTML/CSS/JavaScript and run in sandboxed windows.",
+                default_enabled: true,
+                unprefixed_tools: false,
+                scope: ExtensionScope::AgentSpecific,
+                client_factory: |ctx| Box::new(apps_extension::AppsManagerClient::new(ctx).unwrap()),
+            },
+        );
+
+        map.insert(
+            chatrecall_extension::EXTENSION_NAME,
+            PlatformExtensionDef {
+                name: chatrecall_extension::EXTENSION_NAME,
+                display_name: "Chat Recall",
+                description:
+                    "Search past conversations and load session summaries for contextual memory",
+                default_enabled: false,
+                unprefixed_tools: false,
+                scope: ExtensionScope::Orchestrator,
+                client_factory: |ctx| {
+                    Box::new(chatrecall_extension::ChatRecallClient::new(ctx).unwrap())
+                },
+            },
+        );
+
+        map.insert(
+            "extensionmanager",
+            PlatformExtensionDef {
+                name: extension_manager_extension::EXTENSION_NAME,
+                display_name: "Extension Manager",
+                description:
+                    "Enable extension management tools for discovering, enabling, and disabling extensions",
+                default_enabled: true,
+                unprefixed_tools: false,
+                scope: ExtensionScope::Orchestrator,
+                client_factory: |ctx| Box::new(extension_manager_extension::ExtensionManagerClient::new(ctx).unwrap()),
+            },
+        );
+
+        map.insert(
+            summon_extension::EXTENSION_NAME,
+            PlatformExtensionDef {
+                name: summon_extension::EXTENSION_NAME,
+                display_name: "Summon",
+                description: "Load knowledge and delegate tasks to specialists",
+                default_enabled: true,
+                unprefixed_tools: true,
+                scope: ExtensionScope::Orchestrator,
+                client_factory: |ctx| Box::new(summon_extension::SummonClient::new(ctx).unwrap()),
+            },
+        );
+
+        map.insert(
+            code_execution_extension::EXTENSION_NAME,
+            PlatformExtensionDef {
+                name: code_execution_extension::EXTENSION_NAME,
+                display_name: "Code Mode",
+                description:
+                    "Goose will make extension calls through code execution, saving tokens",
+                default_enabled: false,
+                unprefixed_tools: true,
+                scope: ExtensionScope::AgentSpecific,
+                client_factory: |ctx| {
+                    Box::new(code_execution_extension::CodeExecutionClient::new(ctx).unwrap())
+                },
+            },
+        );
+
+        map.insert(
+            tom_extension::EXTENSION_NAME,
+            PlatformExtensionDef {
+                name: tom_extension::EXTENSION_NAME,
+                display_name: "Top Of Mind",
+                description:
+                    "Inject custom context into every turn via GOOSE_MOIM_MESSAGE_TEXT and GOOSE_MOIM_MESSAGE_FILE environment variables",
+                default_enabled: true,
+                unprefixed_tools: false,
+                scope: ExtensionScope::Orchestrator,
+                client_factory: |ctx| Box::new(tom_extension::TomClient::new(ctx).unwrap()),
+            },
+        );
+
+        map.insert(
+            genui_extension::EXTENSION_NAME,
+            PlatformExtensionDef {
+                name: genui_extension::EXTENSION_NAME,
+                display_name: "Generative UI",
+                description:
+                    "Render visual components (tables, cards, dashboards) inline in chat using Radix UI",
+                default_enabled: true,
+                unprefixed_tools: false,
+                scope: ExtensionScope::Any,
+                client_factory: |ctx| {
+                    Box::new(genui_extension::GenUiClient::new(ctx).unwrap())
+                },
+            },
+        );
+
+        // "skills" is an alias for "summon" — skills are discovered and loaded
+        // by the summon extension via scan_skills_dir(). Users may have "skills"
+        // in their config.yaml from older versions.
+        map.insert(
+            "skills",
+            PlatformExtensionDef {
+                name: "skills",
+                display_name: "Skills",
+                description: "Load and use skills from relevant directories (provided by Summon)",
+                default_enabled: true,
+                unprefixed_tools: true,
+                scope: ExtensionScope::Orchestrator,
+                client_factory: |ctx| Box::new(summon_extension::SummonClient::new(ctx).unwrap()),
+            },
+        );
+
+        map
+    },
+);
+
+/// Returns names of all platform extensions that match the given scope.
+pub fn extensions_for_scope(scope: ExtensionScope) -> Vec<&'static str> {
+    PLATFORM_EXTENSIONS
+        .iter()
+        .filter(|(_, def)| def.scope == scope)
+        .map(|(name, _)| *name)
+        .collect()
+}
+
+/// Returns names of orchestrator-owned extensions.
+pub fn orchestrator_extensions() -> Vec<&'static str> {
+    extensions_for_scope(ExtensionScope::Orchestrator)
+}
+
+/// Returns names of general-purpose MCP service extensions.
+pub fn service_extensions() -> Vec<&'static str> {
+    extensions_for_scope(ExtensionScope::AgentSpecific)
+}
+
+/// Checks if a platform extension is orchestrator-scoped.
+pub fn is_orchestrator_extension(name: &str) -> bool {
+    PLATFORM_EXTENSIONS
+        .get(name)
+        .map(|def| def.scope == ExtensionScope::Orchestrator)
+        .unwrap_or(false)
+}
+
+#[derive(Clone)]
+pub struct PlatformExtensionContext {
+    pub extension_manager:
+        Option<std::sync::Weak<crate::agents::extension_manager::ExtensionManager>>,
+    pub session_manager: std::sync::Arc<crate::session::SessionManager>,
+}
+
+impl PlatformExtensionContext {
+    pub fn result_with_platform_notification(
+        &self,
+        mut result: rmcp::model::CallToolResult,
+        extension_name: impl Into<String>,
+        event_type: impl Into<String>,
+        mut additional_params: serde_json::Map<String, serde_json::Value>,
+    ) -> rmcp::model::CallToolResult {
+        additional_params.insert("extension".to_string(), extension_name.into().into());
+        additional_params.insert("event_type".to_string(), event_type.into().into());
+
+        let meta_value = serde_json::json!({
+            "platform_notification": {
+                "method": "platform_event",
+                "params": additional_params
+            }
+        });
+
+        if let Some(ref mut meta) = result.meta {
+            if let Some(obj) = meta_value.as_object() {
+                for (k, v) in obj {
+                    meta.0.insert(k.clone(), v.clone());
+                }
+            }
+        } else {
+            result.meta = Some(rmcp::model::Meta(meta_value.as_object().unwrap().clone()));
+        }
+
+        result
+    }
+}
+
+/// Defines which layer of the architecture owns this extension.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExtensionScope {
+    /// Available to any agent that requests it via manifest dependencies.
+    Any,
+    /// Only loaded for the OrchestratorAgent (meta-management, delegation, context).
+    Orchestrator,
+    /// Only loaded for specific agent modes (e.g., apps for app_maker).
+    AgentSpecific,
+}
+
+pub struct PlatformExtensionDef {
+    pub name: &'static str,
+    pub display_name: &'static str,
+    pub description: &'static str,
+    pub default_enabled: bool,
+    /// If true, tools are exposed without extension prefix for intuitive first-class use.
+    pub unprefixed_tools: bool,
+    /// Which architectural layer owns this extension.
+    pub scope: ExtensionScope,
+    pub client_factory: fn(PlatformExtensionContext) -> Box<dyn McpClientTrait>,
 }
 
 /// Errors from Extension operation
@@ -206,7 +442,6 @@ pub enum ExtensionConfig {
     Platform {
         /// The name used to identify this extension
         name: String,
-        #[serde(default)]
         #[serde(deserialize_with = "deserialize_null_with_default")]
         #[schema(required)]
         description: String,
@@ -221,7 +456,6 @@ pub enum ExtensionConfig {
     StreamableHttp {
         /// The name used to identify this extension
         name: String,
-        #[serde(default)]
         #[serde(deserialize_with = "deserialize_null_with_default")]
         #[schema(required)]
         description: String,
@@ -245,7 +479,6 @@ pub enum ExtensionConfig {
     Frontend {
         /// The name used to identify this extension
         name: String,
-        #[serde(default)]
         #[serde(deserialize_with = "deserialize_null_with_default")]
         #[schema(required)]
         description: String,
@@ -263,7 +496,6 @@ pub enum ExtensionConfig {
     InlinePython {
         /// The name used to identify this extension
         name: String,
-        #[serde(default)]
         #[serde(deserialize_with = "deserialize_null_with_default")]
         #[schema(required)]
         description: String,
@@ -828,5 +1060,43 @@ available_tools: []
         .unwrap();
         cfg.set("MY_SECRET", &"secret_value", true).unwrap();
         assert_eq!(config.resolve(&cfg).await.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_orchestrator_extensions() {
+        let orch_exts = super::orchestrator_extensions();
+        assert!(orch_exts.contains(&"summon"));
+        assert!(orch_exts.contains(&"extensionmanager"));
+        assert!(orch_exts.contains(&"chatrecall"));
+        assert!(orch_exts.contains(&"tom"));
+        assert!(!orch_exts.contains(&"todo"));
+        assert!(!orch_exts.contains(&"apps"));
+    }
+
+    #[test]
+    fn test_service_extensions() {
+        let svc_exts = super::service_extensions();
+        assert!(svc_exts.contains(&"todo"));
+        assert!(svc_exts.contains(&"apps"));
+        assert!(!svc_exts.contains(&"summon"));
+        assert!(!svc_exts.contains(&"chatrecall"));
+    }
+
+    #[test]
+    fn test_is_orchestrator_extension() {
+        assert!(super::is_orchestrator_extension("summon"));
+        assert!(super::is_orchestrator_extension("extensionmanager"));
+        assert!(super::is_orchestrator_extension("chatrecall"));
+        assert!(super::is_orchestrator_extension("tom"));
+        assert!(!super::is_orchestrator_extension("todo"));
+        assert!(!super::is_orchestrator_extension("developer"));
+        assert!(!super::is_orchestrator_extension("unknown"));
+    }
+
+    #[test]
+    fn test_code_execution_is_agent_specific() {
+        let ext = super::PLATFORM_EXTENSIONS.get("code_execution");
+        assert!(ext.is_some());
+        assert_eq!(ext.unwrap().scope, super::ExtensionScope::AgentSpecific);
     }
 }

@@ -3,19 +3,21 @@ use crate::agents::types::SharedProvider;
 use crate::session_context::{SESSION_ID_HEADER, WORKING_DIR_HEADER};
 use rmcp::model::{
     CreateElicitationRequestParams, CreateElicitationResult, ElicitationAction, ErrorCode,
-    ExtensionCapabilities, Extensions, JsonObject, LoggingMessageNotification, Meta,
-    SamplingMessageContent,
+    ExtensionCapabilities, Extensions, JsonObject, Meta, SamplingMessageContent,
 };
 /// MCP client implementation for Goose
 use rmcp::{
     model::{
-        CallToolRequestParams, CallToolResult, CancelledNotificationParam, ClientCapabilities,
-        ClientInfo, ClientRequest, CreateMessageRequestParams, CreateMessageResult,
-        GetPromptRequestParams, GetPromptResult, Implementation, InitializeRequestParams,
-        InitializeResult, ListPromptsResult, ListResourcesResult, ListToolsResult, Notification,
-        PaginatedRequestParams, ProtocolVersion, ReadResourceRequestParams, ReadResourceResult,
-        Request, RequestId, RequestOptionalParam, Role, SamplingMessage, ServerNotification,
-        ServerResult,
+        CallToolRequest, CallToolRequestParams, CallToolResult, CancelledNotification,
+        CancelledNotificationMethod, CancelledNotificationParam, ClientCapabilities, ClientInfo,
+        ClientRequest, CreateMessageRequestParams, CreateMessageResult, GetPromptRequest,
+        GetPromptRequestParams, GetPromptResult, Implementation, InitializeResult,
+        ListPromptsRequest, ListPromptsResult, ListResourcesRequest, ListResourcesResult,
+        ListToolsRequest, ListToolsResult, LoggingMessageNotification,
+        LoggingMessageNotificationMethod, PaginatedRequestParams, ProgressNotification,
+        ProgressNotificationMethod, ProtocolVersion, ReadResourceRequest,
+        ReadResourceRequestParams, ReadResourceResult, RequestId, Role, SamplingMessage,
+        ServerNotification, ServerResult,
     },
     service::{
         ClientInitializeError, PeerRequestOptions, RequestContext, RequestHandle, RunningService,
@@ -31,7 +33,6 @@ use tokio::sync::{
     Mutex,
 };
 use tokio_util::sync::CancellationToken;
-
 pub type BoxError = Box<dyn std::error::Error + Sync + Send>;
 
 pub type Error = rmcp::ServiceError;
@@ -105,41 +106,35 @@ pub trait McpClientTrait: Send + Sync {
 pub struct GooseClient {
     notification_handlers: Arc<Mutex<Vec<Sender<ServerNotification>>>>,
     provider: SharedProvider,
-    /// Fallback session_id for server-initiated callbacks (e.g. sampling/createMessage)
-    /// that don't include the session_id in their MCP extensions metadata.
-    /// Set once on first request; never cleared (the id is invariant per McpClient).
-    session_id: Mutex<Option<String>>,
-    client_name: String,
-    capabilities: GooseMcpClientCapabilities,
+    // Single-slot because calls are serialized per MCP client.
+    current_session_id: Arc<Mutex<Option<String>>>,
 }
 
 impl GooseClient {
     pub fn new(
         handlers: Arc<Mutex<Vec<Sender<ServerNotification>>>>,
         provider: SharedProvider,
-        client_name: String,
-        capabilities: GooseMcpClientCapabilities,
     ) -> Self {
         GooseClient {
             notification_handlers: handlers,
             provider,
-            session_id: Mutex::new(None),
-            client_name,
-            capabilities,
+            current_session_id: Arc::new(Mutex::new(None)),
         }
     }
 
-    async fn set_session_id(&self, session_id: &str) {
-        let mut slot = self.session_id.lock().await;
-        assert!(
-            slot.as_deref().is_none_or(|s| s == session_id),
-            "McpClient received requests from different sessions"
-        );
+    async fn set_current_session_id(&self, session_id: &str) {
+        let mut slot = self.current_session_id.lock().await;
         *slot = Some(session_id.to_string());
     }
 
+    async fn clear_current_session_id(&self) {
+        let mut slot = self.current_session_id.lock().await;
+        *slot = None;
+    }
+
     async fn current_session_id(&self) -> Option<String> {
-        self.session_id.lock().await.clone()
+        let slot = self.current_session_id.lock().await;
+        slot.clone()
     }
 
     async fn resolve_session_id(&self, extensions: &Extensions) -> Option<String> {
@@ -169,9 +164,13 @@ impl ClientHandler for GooseClient {
             .await
             .iter()
             .for_each(|handler| {
-                let mut not = Notification::new(params.clone());
-                not.extensions = context.extensions.clone();
-                let _ = handler.try_send(ServerNotification::ProgressNotification(not));
+                let _ = handler.try_send(ServerNotification::ProgressNotification(
+                    ProgressNotification {
+                        params: params.clone(),
+                        method: ProgressNotificationMethod,
+                        extensions: context.extensions.clone(),
+                    },
+                ));
             });
     }
 
@@ -185,10 +184,13 @@ impl ClientHandler for GooseClient {
             .await
             .iter()
             .for_each(|handler| {
-                let mut notification = LoggingMessageNotification::new(params.clone());
-                notification.extensions = context.extensions.clone();
-                let _ =
-                    handler.try_send(ServerNotification::LoggingMessageNotification(notification));
+                let _ = handler.try_send(ServerNotification::LoggingMessageNotification(
+                    LoggingMessageNotification {
+                        params: params.clone(),
+                        method: LoggingMessageNotificationMethod,
+                        extensions: context.extensions.clone(),
+                    },
+                ));
             });
     }
 
@@ -233,11 +235,10 @@ impl ClientHandler for GooseClient {
             .as_deref()
             .unwrap_or("You are a general-purpose AI agent called goose");
 
-        let model_config = provider.get_model_config();
         let (response, usage) = provider
-            .complete(
-                &model_config,
-                session_id.as_deref().unwrap_or(""),
+            .complete_with_model(
+                session_id.as_deref(),
+                &provider.get_model_config(),
                 system_prompt,
                 &provider_ready_messages,
                 &[],
@@ -251,8 +252,10 @@ impl ClientHandler for GooseClient {
                 )
             })?;
 
-        Ok(CreateMessageResult::new(
-            SamplingMessage::new(
+        Ok(CreateMessageResult {
+            model: usage.model,
+            stop_reason: Some(CreateMessageResult::STOP_REASON_END_TURN.to_string()),
+            message: SamplingMessage::new(
                 Role::Assistant,
                 if let Some(content) = response.content.first() {
                     match content {
@@ -272,9 +275,7 @@ impl ClientHandler for GooseClient {
                     SamplingMessageContent::text("")
                 },
             ),
-            usage.model,
-        )
-        .with_stop_reason(CreateMessageResult::STOP_REASON_END_TURN))
+        })
     }
 
     async fn create_elicitation(
@@ -319,41 +320,39 @@ impl ClientHandler for GooseClient {
     }
 
     fn get_info(&self) -> ClientInfo {
+        // Build MCP Apps UI extension capability
+        // See: https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/2026-01-26/apps.mdx
+        let mut ui_extension_settings = JsonObject::new();
+        ui_extension_settings.insert(
+            "mimeTypes".to_string(),
+            serde_json::json!(["text/html;profile=mcp-app"]),
+        );
+
         let mut extensions = ExtensionCapabilities::new();
+        extensions.insert(
+            "io.modelcontextprotocol/ui".to_string(),
+            ui_extension_settings,
+        );
 
-        if self.capabilities.mcpui {
-            // Build MCP Apps UI extension capability
-            // See: https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/2026-01-26/apps.mdx
-            let mut ui_extension_settings = JsonObject::new();
-            ui_extension_settings.insert(
-                "mimeTypes".to_string(),
-                serde_json::json!(["text/html;profile=mcp-app"]),
-            );
-            extensions.insert(
-                "io.modelcontextprotocol/ui".to_string(),
-                ui_extension_settings,
-            );
-        }
-
-        InitializeRequestParams::new(
-            ClientCapabilities::builder()
+        ClientInfo {
+            meta: None,
+            protocol_version: ProtocolVersion::V_2025_03_26,
+            capabilities: ClientCapabilities::builder()
                 .enable_extensions_with(extensions)
                 .enable_sampling()
                 .enable_elicitation()
                 .build(),
-            Implementation::new(
-                self.client_name.clone(),
-                std::env::var("GOOSE_MCP_CLIENT_VERSION")
+            client_info: Implementation {
+                name: "goose".to_string(),
+                version: std::env::var("GOOSE_MCP_CLIENT_VERSION")
                     .unwrap_or(env!("CARGO_PKG_VERSION").to_owned()),
-            ),
-        )
-        .with_protocol_version(ProtocolVersion::V_2025_03_26)
+                icons: None,
+                title: None,
+                description: None,
+                website_url: None,
+            },
+        }
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct GooseMcpClientCapabilities {
-    pub mcpui: bool,
 }
 
 /// The MCP client is the interface for MCP operations.
@@ -370,22 +369,12 @@ impl McpClient {
         transport: T,
         timeout: std::time::Duration,
         provider: SharedProvider,
-        client_name: String,
-        capabilities: GooseMcpClientCapabilities,
     ) -> Result<Self, ClientInitializeError>
     where
         T: IntoTransport<RoleClient, E, A>,
         E: std::error::Error + From<std::io::Error> + Send + Sync + 'static,
     {
-        Self::connect_with_container(
-            transport,
-            timeout,
-            provider,
-            None,
-            client_name,
-            capabilities,
-        )
-        .await
+        Self::connect_with_container(transport, timeout, provider, None).await
     }
 
     pub async fn connect_with_container<T, E, A>(
@@ -393,8 +382,6 @@ impl McpClient {
         timeout: std::time::Duration,
         provider: SharedProvider,
         docker_container: Option<String>,
-        client_name: String,
-        capabilities: GooseMcpClientCapabilities,
     ) -> Result<Self, ClientInitializeError>
     where
         T: IntoTransport<RoleClient, E, A>,
@@ -403,12 +390,7 @@ impl McpClient {
         let notification_subscribers =
             Arc::new(Mutex::new(Vec::<mpsc::Sender<ServerNotification>>::new()));
 
-        let client = GooseClient::new(
-            notification_subscribers.clone(),
-            provider,
-            client_name.clone(),
-            capabilities.clone(),
-        );
+        let client = GooseClient::new(notification_subscribers.clone(), provider);
         let client: rmcp::service::RunningService<rmcp::RoleClient, GooseClient> =
             client.serve(transport).await?;
         let server_info = client.peer_info().cloned();
@@ -434,17 +416,31 @@ impl McpClient {
         cancel_token: CancellationToken,
     ) -> Result<ServerResult, Error> {
         let request = inject_session_context_into_request(request, Some(session_id), working_dir);
-        // The inner mutex is held only for the send; the actual response wait
-        // happens outside the lock so concurrent calls can overlap.
+        // ExtensionManager serializes calls per MCP connection, so one current_session_id slot
+        // is sufficient for mapping callbacks to the active request session.
         let handle = {
             let client = self.client.lock().await;
-            client.service().set_session_id(session_id).await;
+            client.service().set_current_session_id(session_id).await;
             client
                 .send_cancellable_request(request, PeerRequestOptions::no_options())
                 .await
-        }?;
+        };
 
-        await_response(handle, self.timeout, &cancel_token).await
+        let handle = match handle {
+            Ok(handle) => handle,
+            Err(err) => {
+                let client = self.client.lock().await;
+                client.service().clear_current_session_id().await;
+                return Err(err);
+            }
+        };
+
+        let result = await_response(handle, self.timeout, &cancel_token).await;
+
+        let client = self.client.lock().await;
+        client.service().clear_current_session_id().await;
+
+        result
     }
 }
 
@@ -477,7 +473,12 @@ async fn send_cancel_message(
     reason: Option<String>,
 ) -> Result<(), ServiceError> {
     peer.send_notification(
-        Notification::new(CancelledNotificationParam { request_id, reason }).into(),
+        CancelledNotification {
+            params: CancelledNotificationParam { request_id, reason },
+            method: CancelledNotificationMethod,
+            extensions: Default::default(),
+        }
+        .into(),
     )
     .await
 }
@@ -498,9 +499,11 @@ impl McpClientTrait for McpClient {
             .send_request_with_context(
                 session_id,
                 None,
-                ClientRequest::ListResourcesRequest(RequestOptionalParam::with_param(
-                    PaginatedRequestParams::default().with_cursor(cursor),
-                )),
+                ClientRequest::ListResourcesRequest(ListResourcesRequest {
+                    params: Some(PaginatedRequestParams { meta: None, cursor }),
+                    method: Default::default(),
+                    extensions: Default::default(),
+                }),
                 cancel_token,
             )
             .await?;
@@ -521,9 +524,14 @@ impl McpClientTrait for McpClient {
             .send_request_with_context(
                 session_id,
                 None,
-                ClientRequest::ReadResourceRequest(Request::new(ReadResourceRequestParams::new(
-                    uri.to_string(),
-                ))),
+                ClientRequest::ReadResourceRequest(ReadResourceRequest {
+                    params: ReadResourceRequestParams {
+                        meta: None,
+                        uri: uri.to_string(),
+                    },
+                    method: Default::default(),
+                    extensions: Default::default(),
+                }),
                 cancel_token,
             )
             .await?;
@@ -544,9 +552,11 @@ impl McpClientTrait for McpClient {
             .send_request_with_context(
                 session_id,
                 None,
-                ClientRequest::ListToolsRequest(RequestOptionalParam::with_param(
-                    PaginatedRequestParams::default().with_cursor(cursor),
-                )),
+                ClientRequest::ListToolsRequest(ListToolsRequest {
+                    params: Some(PaginatedRequestParams { meta: None, cursor }),
+                    method: Default::default(),
+                    extensions: Default::default(),
+                }),
                 cancel_token,
             )
             .await?;
@@ -565,11 +575,16 @@ impl McpClientTrait for McpClient {
         working_dir: Option<&str>,
         cancel_token: CancellationToken,
     ) -> Result<CallToolResult, Error> {
-        let mut params = CallToolRequestParams::new(name.to_string());
-        if let Some(args) = arguments {
-            params = params.with_arguments(args);
-        }
-        let request = ClientRequest::CallToolRequest(Request::new(params));
+        let request = ClientRequest::CallToolRequest(CallToolRequest {
+            params: CallToolRequestParams {
+                meta: None,
+                task: None,
+                name: name.to_string().into(),
+                arguments,
+            },
+            method: Default::default(),
+            extensions: Default::default(),
+        });
 
         let result = self
             .send_request_with_context(session_id, working_dir, request, cancel_token)
@@ -591,9 +606,11 @@ impl McpClientTrait for McpClient {
             .send_request_with_context(
                 session_id,
                 None,
-                ClientRequest::ListPromptsRequest(RequestOptionalParam::with_param(
-                    PaginatedRequestParams::default().with_cursor(cursor),
-                )),
+                ClientRequest::ListPromptsRequest(ListPromptsRequest {
+                    params: Some(PaginatedRequestParams { meta: None, cursor }),
+                    method: Default::default(),
+                    extensions: Default::default(),
+                }),
                 cancel_token,
             )
             .await?;
@@ -615,15 +632,19 @@ impl McpClientTrait for McpClient {
             Value::Object(map) => Some(map),
             _ => None,
         };
-        let mut params = GetPromptRequestParams::new(name.to_string());
-        if let Some(args) = arguments {
-            params = params.with_arguments(args);
-        }
         let res = self
             .send_request_with_context(
                 session_id,
                 None,
-                ClientRequest::GetPromptRequest(Request::new(params)),
+                ClientRequest::GetPromptRequest(GetPromptRequest {
+                    params: GetPromptRequestParams {
+                        meta: None,
+                        name: name.to_string(),
+                        arguments,
+                    },
+                    method: Default::default(),
+                    extensions: Default::default(),
+                }),
                 cancel_token,
             )
             .await?;
@@ -721,22 +742,11 @@ fn inject_session_context_into_request(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agents::GoosePlatform;
     use serde_json::json;
     use test_case::test_case;
 
-    fn new_client(platform: GoosePlatform) -> GooseClient {
-        let capabilities = match platform {
-            GoosePlatform::GooseDesktop => GooseMcpClientCapabilities { mcpui: true },
-            GoosePlatform::GooseCli => GooseMcpClientCapabilities { mcpui: false },
-        };
-
-        GooseClient::new(
-            Arc::new(Mutex::new(Vec::new())),
-            Arc::new(Mutex::new(None)),
-            platform.to_string(),
-            capabilities,
-        )
+    fn new_client() -> GooseClient {
+        GooseClient::new(Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(None)))
     }
 
     fn request_extensions(request: &ClientRequest) -> Option<&Extensions> {
@@ -752,41 +762,72 @@ mod tests {
     }
 
     fn list_resources_request(extensions: Extensions) -> ClientRequest {
-        let mut req = RequestOptionalParam::with_param(PaginatedRequestParams::default());
-        req.extensions = extensions;
-        ClientRequest::ListResourcesRequest(req)
+        ClientRequest::ListResourcesRequest(ListResourcesRequest {
+            params: Some(PaginatedRequestParams {
+                meta: None,
+                cursor: None,
+            }),
+            method: Default::default(),
+            extensions,
+        })
     }
 
     fn read_resource_request(extensions: Extensions) -> ClientRequest {
-        let mut req = Request::new(ReadResourceRequestParams::new(
-            "test://resource".to_string(),
-        ));
-        req.extensions = extensions;
-        ClientRequest::ReadResourceRequest(req)
+        ClientRequest::ReadResourceRequest(ReadResourceRequest {
+            params: ReadResourceRequestParams {
+                meta: None,
+                uri: "test://resource".to_string(),
+            },
+            method: Default::default(),
+            extensions,
+        })
     }
 
     fn list_tools_request(extensions: Extensions) -> ClientRequest {
-        let mut req = RequestOptionalParam::with_param(PaginatedRequestParams::default());
-        req.extensions = extensions;
-        ClientRequest::ListToolsRequest(req)
+        ClientRequest::ListToolsRequest(ListToolsRequest {
+            params: Some(PaginatedRequestParams {
+                meta: None,
+                cursor: None,
+            }),
+            method: Default::default(),
+            extensions,
+        })
     }
 
     fn call_tool_request(extensions: Extensions) -> ClientRequest {
-        let mut req = Request::new(CallToolRequestParams::new("tool".to_string()));
-        req.extensions = extensions;
-        ClientRequest::CallToolRequest(req)
+        ClientRequest::CallToolRequest(CallToolRequest {
+            params: CallToolRequestParams {
+                meta: None,
+                task: None,
+                name: "tool".to_string().into(),
+                arguments: None,
+            },
+            method: Default::default(),
+            extensions,
+        })
     }
 
     fn list_prompts_request(extensions: Extensions) -> ClientRequest {
-        let mut req = RequestOptionalParam::with_param(PaginatedRequestParams::default());
-        req.extensions = extensions;
-        ClientRequest::ListPromptsRequest(req)
+        ClientRequest::ListPromptsRequest(ListPromptsRequest {
+            params: Some(PaginatedRequestParams {
+                meta: None,
+                cursor: None,
+            }),
+            method: Default::default(),
+            extensions,
+        })
     }
 
     fn get_prompt_request(extensions: Extensions) -> ClientRequest {
-        let mut req = Request::new(GetPromptRequestParams::new("prompt".to_string()));
-        req.extensions = extensions;
-        ClientRequest::GetPromptRequest(req)
+        ClientRequest::GetPromptRequest(GetPromptRequest {
+            params: GetPromptRequestParams {
+                meta: None,
+                name: "prompt".to_string(),
+                arguments: None,
+            },
+            method: Default::default(),
+            extensions,
+        })
     }
 
     #[test_case(
@@ -814,9 +855,10 @@ mod tests {
     ) {
         let runtime = tokio::runtime::Runtime::new().unwrap();
         runtime.block_on(async {
-            let client = new_client(GoosePlatform::GooseCli);
+            let client = new_client();
             if let Some(session_id) = current_session {
-                client.set_session_id(session_id).await;
+                let mut slot = client.current_session_id.lock().await;
+                *slot = Some(session_id.to_string());
             }
 
             let extensions =
@@ -927,7 +969,7 @@ mod tests {
 
     #[test]
     fn test_client_info_advertises_mcp_apps_ui_extension() {
-        let client = new_client(GoosePlatform::GooseDesktop);
+        let client = new_client();
         let info = ClientHandler::get_info(&client);
 
         // Verify the client advertises the MCP Apps UI extension capability

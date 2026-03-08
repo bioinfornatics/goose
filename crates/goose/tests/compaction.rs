@@ -5,10 +5,7 @@ use goose::agents::{Agent, AgentEvent, SessionConfig};
 use goose::conversation::message::{Message, MessageContent};
 use goose::conversation::Conversation;
 use goose::model::ModelConfig;
-use goose::providers::base::{
-    stream_from_single_message, MessageStream, Provider, ProviderDef, ProviderMetadata,
-    ProviderUsage, Usage,
-};
+use goose::providers::base::{Provider, ProviderDef, ProviderMetadata, ProviderUsage, Usage};
 use goose::providers::errors::ProviderError;
 use goose::session::session_manager::SessionType;
 use goose::session::Session;
@@ -97,14 +94,14 @@ impl MockCompactionProvider {
 
 #[async_trait]
 impl Provider for MockCompactionProvider {
-    async fn stream(
+    async fn complete_with_model(
         &self,
+        _session_id: Option<&str>,
         _model_config: &ModelConfig,
-        _session_id: &str,
         system_prompt: &str,
         messages: &[Message],
         _tools: &[Tool],
-    ) -> Result<MessageStream, ProviderError> {
+    ) -> Result<(Message, ProviderUsage), ProviderError> {
         // Check if this is a compaction call (message contains "summarize")
         let is_compaction = messages.iter().any(|msg| {
             msg.content.iter().any(|content| {
@@ -166,7 +163,7 @@ impl Provider for MockCompactionProvider {
             ),
         );
 
-        Ok(stream_from_single_message(message, usage))
+        Ok((message, usage))
     }
 
     fn get_model_config(&self) -> ModelConfig {
@@ -190,6 +187,7 @@ impl ProviderDef for MockCompactionProvider {
             known_models: vec![],
             model_doc_link: "".to_string(),
             config_keys: vec![],
+            allows_unlisted_models: false,
         }
     }
 

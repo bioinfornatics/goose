@@ -32,15 +32,21 @@ async fn main() -> Result<()> {
             Message::user().with_text("Read the image at ./test_image.png please"),
             Message::assistant().with_tool_request(
                 "000",
-                Ok(CallToolRequestParams::new("view_image")
-                    .with_arguments(object!({"path": "./test_image.png"}))),
+                Ok(CallToolRequestParams {
+                    meta: None,
+                    task: None,
+                    name: "view_image".into(),
+                    arguments: Some(object!({"path": "./test_image.png"})),
+                }),
             ),
             Message::user().with_tool_response(
                 "000",
-                Ok(rmcp::model::CallToolResult::success(vec![Content::image(
-                    base64_image,
-                    "image/png",
-                )])),
+                Ok(rmcp::model::CallToolResult {
+                    content: vec![Content::image(base64_image, "image/png")],
+                    structured_content: None,
+                    is_error: Some(false),
+                    meta: None,
+                }),
             ),
         ];
 
@@ -56,11 +62,10 @@ async fn main() -> Result<()> {
                 },
             }
         });
-        let model_config = provider.get_model_config();
         let (response, usage) = provider
-            .complete(
-                &model_config,
-                "",
+            .complete_with_model(
+                None,
+                &provider.get_model_config(),
                 "You are a helpful assistant. Please describe any text you see in the image.",
                 &messages,
                 &[Tool::new("view_image", "View an image", input_schema)],

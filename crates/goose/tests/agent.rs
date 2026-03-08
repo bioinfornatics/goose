@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use futures::StreamExt;
-use goose::agents::{Agent, AgentEvent, GoosePlatform};
+use goose::agents::{Agent, AgentEvent};
 use goose::config::extensions::{set_extension, ExtensionEntry};
 
 #[cfg(test)]
@@ -129,7 +129,6 @@ mod tests {
                 Some(mock_scheduler),
                 GooseMode::Auto,
                 false,
-                GoosePlatform::GooseCli,
             );
             let agent = Agent::with_config(config);
 
@@ -171,7 +170,6 @@ mod tests {
                 Some(mock_scheduler),
                 GooseMode::Auto,
                 false,
-                GoosePlatform::GooseCli,
             );
             let agent = Agent::with_config(config);
 
@@ -226,7 +224,6 @@ mod tests {
                 Some(mock_scheduler),
                 GooseMode::Auto,
                 false,
-                GoosePlatform::GooseCli,
             );
             let agent = Agent::with_config(config);
 
@@ -343,8 +340,7 @@ mod tests {
         use goose::conversation::message::{Message, MessageContent};
         use goose::model::ModelConfig;
         use goose::providers::base::{
-            stream_from_single_message, MessageStream, Provider, ProviderDef, ProviderMetadata,
-            ProviderUsage, Usage,
+            Provider, ProviderDef, ProviderMetadata, ProviderUsage, Usage,
         };
         use goose::providers::errors::ProviderError;
         use goose::session::session_manager::SessionType;
@@ -372,6 +368,7 @@ mod tests {
                     known_models: vec![],
                     model_doc_link: "".to_string(),
                     config_keys: vec![],
+                    allows_unlisted_models: false,
                 }
             }
 
@@ -385,16 +382,19 @@ mod tests {
 
         #[async_trait]
         impl Provider for MockToolProvider {
-            async fn stream(
+            async fn complete(
                 &self,
-                _model_config: &ModelConfig,
                 _session_id: &str,
                 _system_prompt: &str,
                 _messages: &[Message],
                 _tools: &[Tool],
-            ) -> Result<MessageStream, ProviderError> {
-                let tool_call = CallToolRequestParams::new("test_tool")
-                    .with_arguments(object!({"param": "value"}));
+            ) -> Result<(Message, ProviderUsage), ProviderError> {
+                let tool_call = CallToolRequestParams {
+                    meta: None,
+                    task: None,
+                    name: "test_tool".into(),
+                    arguments: Some(object!({"param": "value"})),
+                };
                 let message = Message::assistant().with_tool_request("call_123", Ok(tool_call));
 
                 let usage = ProviderUsage::new(
@@ -402,7 +402,21 @@ mod tests {
                     Usage::new(Some(10), Some(5), Some(15)),
                 );
 
-                Ok(stream_from_single_message(message, usage))
+                Ok((message, usage))
+            }
+
+            async fn complete_with_model(
+                &self,
+                session_id: Option<&str>,
+                _model_config: &ModelConfig,
+                system_prompt: &str,
+                messages: &[Message],
+                tools: &[Tool],
+            ) -> anyhow::Result<(Message, ProviderUsage), ProviderError> {
+                // Test-only: coerce missing session_id to empty so complete() can be reused.
+                let session_id = session_id.unwrap_or("");
+                self.complete(session_id, system_prompt, messages, tools)
+                    .await
             }
 
             fn get_model_config(&self) -> ModelConfig {
@@ -463,6 +477,9 @@ mod tests {
                     }
                     Ok(AgentEvent::McpNotification(_)) => {}
                     Ok(AgentEvent::ModelChange { .. }) => {}
+                    Ok(AgentEvent::RoutingDecision { .. }) => {}
+                    Ok(AgentEvent::ToolAvailabilityChange { .. }) => {}
+                    Ok(AgentEvent::PlanCreated { .. }) => {}
                     Ok(AgentEvent::HistoryReplaced(_updated_conversation)) => {
                         // We should update the conversation here, but we're not reading it
                     }
@@ -496,7 +513,7 @@ mod tests {
     mod extension_manager_tests {
         use super::*;
         use goose::agents::extension::ExtensionConfig;
-        use goose::agents::platform_extensions::{
+        use goose::agents::extension_manager_extension::{
             MANAGE_EXTENSIONS_TOOL_NAME, SEARCH_AVAILABLE_EXTENSIONS_TOOL_NAME,
         };
         use goose::agents::AgentConfig;
@@ -532,7 +549,6 @@ mod tests {
                 None,
                 GooseMode::Auto,
                 false,
-                GoosePlatform::GooseCli,
             );
 
             let agent = Agent::with_config(config);

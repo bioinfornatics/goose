@@ -1,11 +1,10 @@
-import { Recipe, saveRecipe as saveRecipeApi, listRecipes, RecipeManifest } from '../api';
-import { stripEmptyExtensions } from '.';
+import { listRecipes, type Recipe, type RecipeManifest, saveRecipe as saveRecipeApi } from '@/api';
 
 export const saveRecipe = async (recipe: Recipe, recipeId?: string | null): Promise<string> => {
   try {
-    let response = await saveRecipeApi({
+    const response = await saveRecipeApi({
       body: {
-        recipe: stripEmptyExtensions(recipe),
+        recipe,
         id: recipeId,
       },
       throwOnError: true,
@@ -21,13 +20,8 @@ export const saveRecipe = async (recipe: Recipe, recipeId?: string | null): Prom
 };
 
 export const listSavedRecipes = async (): Promise<RecipeManifest[]> => {
-  try {
-    const listRecipeResponse = await listRecipes();
-    return listRecipeResponse?.data?.manifests ?? [];
-  } catch (error) {
-    console.warn('Failed to list saved recipes:', error);
-    return [];
-  }
+  const listRecipeResponse = await listRecipes();
+  return listRecipeResponse?.data?.manifests ?? [];
 };
 
 const parseLastModified = (val: string | Date): Date => {

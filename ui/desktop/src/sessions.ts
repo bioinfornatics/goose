@@ -1,13 +1,13 @@
-import { Session, startAgent, ExtensionConfig } from './api';
-import type { setViewType } from './hooks/useNavigation';
+import { type ExtensionConfig, type Session, startAgent } from '@/api';
+import { AppEvents } from '@/constants/events';
+import type { FixedExtensionEntry } from '@/contexts/ConfigContext';
+import type { setViewType } from '@/hooks/useNavigation';
+import { decodeRecipe, type Recipe } from '@/recipe';
 import {
-  getExtensionConfigsWithOverrides,
   clearExtensionOverrides,
+  getExtensionConfigsWithOverrides,
   hasExtensionOverrides,
-} from './store/extensionOverrides';
-import type { FixedExtensionEntry } from './components/ConfigContext';
-import { AppEvents } from './constants/events';
-import { decodeRecipe, Recipe } from './recipe';
+} from '@/store/extensionOverrides';
 
 export function shouldShowNewChatTitle(session: Session): boolean {
   if (session.recipe) {
@@ -16,29 +16,54 @@ export function shouldShowNewChatTitle(session: Session): boolean {
   return !session.user_set_name && session.message_count === 0;
 }
 
-export function resumeSession(session: Session, setView: setViewType) {
-  const eventDetail = {
-    sessionId: session.id,
-    initialMessage: undefined,
-  };
+function createNavNonce(): string {
+  const maybeCrypto = globalThis.crypto as Crypto | undefined;
+  if (maybeCrypto?.randomUUID) {
+    return maybeCrypto.randomUUID();
+  }
 
+  if (maybeCrypto?.getRandomValues) {
+    const bytes = new Uint8Array(16);
+    maybeCrypto.getRandomValues(bytes);
+    return Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+
+  return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
+}
+
+export function resumeSession(session: Session, setView: setViewType) {
   window.dispatchEvent(
     new CustomEvent(AppEvents.ADD_ACTIVE_SESSION, {
-      detail: eventDetail,
+      detail: {
+        sessionId: session.id,
+        initialMessage: undefined,
+      },
     })
   );
 
-  setView('pair', {
+  // If the user clicks the currently-active session again, React Router may treat the navigation
+  // as a no-op (same path + same search params). Including a unique state value forces the
+  // navigation to re-run and ensures the session is reliably reloaded.
+  setView('session', {
     disableAnimation: true,
     resumeSessionId: session.id,
-  });
+    __navNonce: createNavNonce(),
+  } as unknown as Parameters<setViewType>[1]);
+
+  // Fallback: under HashRouter, force the hash if something prevents React Router
+  // from applying navigation (observed in some desktop builds).
+  const targetHash = `#/sessions/${encodeURIComponent(session.id)}`;
+  if (typeof window !== 'undefined' && window.location?.hash !== targetHash) {
+    window.location.hash = targetHash;
+  }
 }
 
 export async function createSession(
   workingDir: string,
   options?: {
     recipeDeeplink?: string;
-    recipeId?: string;
     extensionConfigs?: ExtensionConfig[];
     allExtensions?: FixedExtensionEntry[];
   }
@@ -46,15 +71,12 @@ export async function createSession(
   const body: {
     working_dir: string;
     recipe?: Recipe;
-    recipe_id?: string;
     extension_overrides?: ExtensionConfig[];
   } = {
     working_dir: workingDir,
   };
 
-  if (options?.recipeId) {
-    body.recipe_id = options.recipeId;
-  } else if (options?.recipeDeeplink) {
+  if (options?.recipeDeeplink) {
     body.recipe = await decodeRecipe(options.recipeDeeplink);
   }
 
@@ -83,7 +105,6 @@ export async function startNewSession(
   workingDir: string,
   options?: {
     recipeDeeplink?: string;
-    recipeId?: string;
     allExtensions?: FixedExtensionEntry[];
   }
 ): Promise<Session> {
@@ -103,7 +124,7 @@ export async function startNewSession(
     })
   );
 
-  setView('pair', {
+  setView('session', {
     disableAnimation: true,
     initialMessage,
     resumeSessionId: session.id,

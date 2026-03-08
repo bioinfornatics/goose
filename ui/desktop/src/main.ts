@@ -1,14 +1,20 @@
-import type { OpenDialogOptions, OpenDialogReturnValue } from 'electron';
+import { spawn } from 'node:child_process';
+import * as crypto from 'node:crypto';
+import fsSync from 'node:fs';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { format as formatUrl, pathToFileURL, URLSearchParams } from 'node:url';
+import dotenv from 'dotenv';
+import type { App, OpenDialogOptions, OpenDialogReturnValue } from 'electron';
 import {
   app,
-  App,
   BrowserWindow,
   dialog,
   globalShortcut,
   ipcMain,
   Menu,
   MenuItem,
-  net,
   Notification,
   powerSaveBlocker,
   screen,
@@ -16,41 +22,70 @@ import {
   shell,
   Tray,
 } from 'electron';
-import { pathToFileURL, format as formatUrl, URLSearchParams } from 'node:url';
-import { Buffer } from 'node:buffer';
-import fs from 'node:fs/promises';
-import fsSync from 'node:fs';
 import started from 'electron-squirrel-startup';
-import path from 'node:path';
-import os from 'node:os';
-import { spawn } from 'child_process';
-import 'dotenv/config';
-import { checkServerStatus } from './goosed';
-import { startGoosed } from './goosed';
-import { createClient, createConfig } from './api/client';
-import { expandTilde } from './utils/pathUtils';
-import log from './utils/logger';
-import { ensureWinShims } from './utils/winShims';
-import { addRecentDir, loadRecentDirs } from './utils/recentDirs';
-import { formatAppName, errorMessage, formatErrorForLogging } from './utils/conversionUtils';
-import type { Settings, SettingKey } from './utils/settings';
-import { defaultSettings, getKeyboardShortcuts } from './utils/settings';
-import * as crypto from 'crypto';
-import * as yaml from 'yaml';
 import windowStateKeeper from 'electron-window-state';
+import * as yaml from 'yaml';
+import { UPDATES_ENABLED } from '@/updates';
 import {
   getUpdateAvailable,
   registerUpdateIpcHandlers,
   setTrayRef,
   setupAutoUpdater,
   updateTrayMenu,
-} from './utils/autoUpdater';
-import { UPDATES_ENABLED } from './updates';
+} from '@/utils/autoUpdater';
+import log from '@/utils/logger';
+import { checkServerStatus, startGoosed } from './goosed';
+
+function loadDesktopDotenv(): void {
+  const projectRoot = process.cwd();
+  const candidates = [path.join(projectRoot, '.env.e2e'), path.join(projectRoot, '.env')];
+
+  for (const candidate of candidates) {
+    if (fsSync.existsSync(candidate)) {
+      dotenv.config({ path: candidate, override: false });
+      console.info(`[Main] Loaded dotenv from ${candidate}`);
+      return;
+    }
+  }
+}
+
+function assertE2EProviderEnvOrThrow(): void {
+  if (process.env.ENABLE_PLAYWRIGHT !== 'true') return;
+
+  const provider = process.env.GOOSE_PROVIDER ?? process.env.GOOSE_DEFAULT_PROVIDER;
+  const model = process.env.GOOSE_MODEL ?? process.env.GOOSE_DEFAULT_MODEL;
+
+  if (!provider || !model) {
+    throw new Error(
+      [
+        '[e2e] Missing provider/model env vars.',
+        'Provide env via one of:',
+        '  - DOTENV_CONFIG_PATH=/abs/path/to/.env.e2e',
+        '  - ui/desktop/.env.e2e',
+        '  - ui/desktop/.env',
+        '',
+        'Required:',
+        '  - GOOSE_PROVIDER (or GOOSE_DEFAULT_PROVIDER)',
+        '  - GOOSE_MODEL (or GOOSE_DEFAULT_MODEL)',
+      ].join('\n')
+    );
+  }
+
+  if (!process.env.GOOSE_TELEMETRY_ENABLED) {
+    process.env.GOOSE_TELEMETRY_ENABLED = 'false';
+  }
+}
+
+import { errorMessage, formatAppName } from '@/utils/conversionUtils';
+import { expandTilde } from '@/utils/pathUtils';
+import { addRecentDir, loadRecentDirs } from '@/utils/recentDirs';
+import { defaultKeyboardShortcuts, getKeyboardShortcuts, type Settings } from '@/utils/settings';
+import { ensureWinShims } from '@/utils/winShims';
 import './utils/recipeHash';
-import { Client } from './api/client';
-import { GooseApp } from './api';
 import installExtension, { REACT_DEVELOPER_TOOLS } from 'electron-devtools-installer';
-import { BLOCKED_PROTOCOLS, WEB_PROTOCOLS } from './utils/urlSecurity';
+import type { GooseApp } from '@/api';
+import { type Client, createClient, createConfig } from '@/api/client';
+import { BLOCKED_PROTOCOLS, WEB_PROTOCOLS } from '@/utils/urlSecurity';
 
 function shouldSetupUpdater(): boolean {
   // Setup updater if either the flag is enabled OR dev updates are enabled
@@ -60,27 +95,18 @@ function shouldSetupUpdater(): boolean {
 // Settings management
 const SETTINGS_FILE = path.join(app.getPath('userData'), 'settings.json');
 
+const defaultSettings: Settings = {
+  showMenuBarIcon: true,
+  showDockIcon: true,
+  enableWakelock: false,
+  spellcheckEnabled: true,
+  keyboardShortcuts: defaultKeyboardShortcuts,
+};
+
 function getSettings(): Settings {
   if (fsSync.existsSync(SETTINGS_FILE)) {
     const data = fsSync.readFileSync(SETTINGS_FILE, 'utf8');
-    const stored = JSON.parse(data) as Partial<Settings>;
-    // Deep merge to ensure nested objects get their defaults too
-    return {
-      ...defaultSettings,
-      ...stored,
-      externalGoosed: {
-        ...defaultSettings.externalGoosed,
-        ...(stored.externalGoosed ?? {}),
-      },
-      keyboardShortcuts: {
-        ...defaultSettings.keyboardShortcuts,
-        ...(stored.keyboardShortcuts ?? {}),
-      },
-      sessionSharing: {
-        ...defaultSettings.sessionSharing,
-        ...(stored.sessionSharing ?? {}),
-      },
-    };
+    return JSON.parse(data);
   }
   return defaultSettings;
 }
@@ -99,88 +125,36 @@ async function configureProxy() {
   const proxyUrl = httpsProxy || httpProxy;
 
   if (proxyUrl) {
-    console.log('[Main] Configuring proxy');
+    // proxy configured
     await session.defaultSession.setProxy({
       proxyRules: proxyUrl,
       proxyBypassRules: noProxy,
     });
-    console.log('[Main] Proxy configured successfully');
+    // proxy configured successfully
   }
 }
 
 if (started) app.quit();
 
-// Accept self-signed certificates from the local goosed server.
-// Both certificate-error (renderer) and setCertificateVerifyProc (main-process
-// net.fetch) pin to the exact cert fingerprint emitted by goosed at startup.
-// Before the fingerprint is available (during the health-check bootstrap
-// window) any localhost cert is accepted so the server can come up.
-let pinnedCertFingerprint: string | null = null;
-
-function isLocalhost(hostname: string): boolean {
-  return hostname === '127.0.0.1' || hostname === 'localhost';
-}
-
-function normalizeFingerprint(fp: string): string {
-  if (fp.startsWith('sha256/')) {
-    const b64 = fp.slice('sha256/'.length);
-    const buf = Buffer.from(b64, 'base64');
-    return Array.from(buf)
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join(':')
-      .toUpperCase();
-  }
-  return fp.toUpperCase();
-}
-
-// Renderer requests: pin to the exact cert goosed generated once known.
-// Before the fingerprint is available (during the health-check bootstrap
-// window) any localhost cert is accepted so the server can come up.
-app.on('certificate-error', (event, _webContents, url, _error, certificate, callback) => {
-  const parsed = new URL(url);
-  if (!isLocalhost(parsed.hostname)) {
-    callback(false);
-    return;
-  }
-  if (pinnedCertFingerprint) {
-    const match =
-      normalizeFingerprint(certificate.fingerprint) === pinnedCertFingerprint.toUpperCase();
-    event.preventDefault();
-    callback(match);
-  } else {
-    event.preventDefault();
-    callback(true);
-  }
-});
-
-// Main-process net.fetch: pin to the exact cert goosed generated.
-app.whenReady().then(() => {
-  session.defaultSession.setCertificateVerifyProc((request, callback) => {
-    if (!isLocalhost(request.hostname)) {
-      callback(-3);
-      return;
-    }
-    if (!pinnedCertFingerprint) {
-      callback(0);
-      return;
-    }
-    const match =
-      normalizeFingerprint(request.certificate.fingerprint) === pinnedCertFingerprint.toUpperCase();
-    callback(match ? 0 : -3);
-  });
-});
-
-if (process.env.ENABLE_PLAYWRIGHT) {
+if (process.env.ENABLE_PLAYWRIGHT === 'true') {
   const debugPort = process.env.PLAYWRIGHT_DEBUG_PORT || '9222';
-  console.log(`[Main] Enabling Playwright remote debugging on port ${debugPort}`);
   app.commandLine.appendSwitch('remote-debugging-port', debugPort);
 }
 
 // In development mode, force registration as the default protocol client
 // In production, register normally
-if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+const MAIN_WINDOW_DEV_SERVER_URL =
+  process.env.MAIN_WINDOW_VITE_DEV_SERVER_URL ??
+  (typeof MAIN_WINDOW_VITE_DEV_SERVER_URL !== 'undefined'
+    ? MAIN_WINDOW_VITE_DEV_SERVER_URL
+    : undefined);
+
+const MAIN_WINDOW_NAME =
+  process.env.MAIN_WINDOW_VITE_NAME ??
+  (typeof MAIN_WINDOW_VITE_NAME !== 'undefined' ? MAIN_WINDOW_VITE_NAME : 'main_window');
+
+if (MAIN_WINDOW_DEV_SERVER_URL) {
   // Development mode - force registration
-  console.log('[Main] Development mode: Forcing protocol registration for goose://');
   app.setAsDefaultProtocolClient('goose');
 
   if (process.platform === 'darwin') {
@@ -201,8 +175,14 @@ if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
 
 // Apply single instance lock on Windows and Linux where it's needed for deep links
 // macOS uses the 'open-url' event instead
+//
+// NOTE: In Playwright E2E, we allow multiple instances. The single-instance lock can cause
+// Electron to quit before the renderer boots if a previous test run (or crashed process)
+// still holds the lock.
+const isPlaywright = process.env.ENABLE_PLAYWRIGHT === 'true';
+
 let gotTheLock = true;
-if (process.platform !== 'darwin') {
+if (!isPlaywright && process.platform !== 'darwin') {
   gotTheLock = app.requestSingleInstanceLock();
 
   if (!gotTheLock) {
@@ -221,12 +201,17 @@ if (process.platform !== 'darwin') {
             const deeplinkData = parseRecipeDeeplink(protocolUrl);
             const scheduledJobId = parsedUrl.searchParams.get('scheduledJob');
 
-            await createChat(app, {
-              dir: openDir || undefined,
-              recipeDeeplink: deeplinkData?.config,
-              scheduledJobId: scheduledJobId || undefined,
-              recipeParameters: deeplinkData?.parameters,
-            });
+            createChat(
+              app,
+              undefined,
+              openDir || undefined,
+              undefined,
+              undefined,
+              undefined,
+              deeplinkData?.config,
+              scheduledJobId || undefined,
+              deeplinkData?.parameters
+            );
           });
           return; // Skip the rest of the handler
         }
@@ -275,7 +260,7 @@ async function handleProtocolUrl(url: string) {
     const targetWindow =
       existingWindows.length > 0
         ? existingWindows[0]
-        : await createChat(app, { dir: openDir || undefined });
+        : await createChat(app, undefined, openDir || undefined);
     await processProtocolUrl(parsedUrl, targetWindow);
   } else {
     // For other URL types, reuse existing window if available
@@ -287,7 +272,7 @@ async function handleProtocolUrl(url: string) {
       }
       firstOpenWindow.focus();
     } else {
-      firstOpenWindow = await createChat(app, { dir: openDir || undefined });
+      firstOpenWindow = await createChat(app, undefined, openDir || undefined);
     }
 
     if (firstOpenWindow) {
@@ -316,12 +301,17 @@ async function processProtocolUrl(parsedUrl: URL, window: BrowserWindow) {
     const scheduledJobId = parsedUrl.searchParams.get('scheduledJob');
 
     // Create a new window and ignore the passed-in window
-    await createChat(app, {
-      dir: openDir || undefined,
-      recipeDeeplink: deeplinkData?.config,
-      scheduledJobId: scheduledJobId || undefined,
-      recipeParameters: deeplinkData?.parameters,
-    });
+    createChat(
+      app,
+      undefined,
+      openDir || undefined,
+      undefined,
+      undefined,
+      undefined,
+      deeplinkData?.config,
+      scheduledJobId || undefined,
+      deeplinkData?.parameters
+    );
     pendingDeepLink = null;
   }
 }
@@ -349,12 +339,17 @@ app.on('open-url', async (_event, url) => {
       }
       const scheduledJobId = parsedUrl.searchParams.get('scheduledJob');
 
-      await createChat(app, {
-        dir: openDir || undefined,
-        recipeDeeplink: deeplinkData?.config,
-        scheduledJobId: scheduledJobId || undefined,
-        recipeParameters: deeplinkData?.parameters,
-      });
+      await createChat(
+        app,
+        undefined,
+        openDir || undefined,
+        undefined,
+        undefined,
+        undefined,
+        deeplinkData?.config,
+        scheduledJobId || undefined,
+        deeplinkData?.parameters
+      );
       windowDeeplinkURL = null;
       return;
     }
@@ -377,7 +372,7 @@ app.on('open-url', async (_event, url) => {
       }
     } else {
       openUrlHandledLaunch = true;
-      firstOpenWindow = await createChat(app, { dir: openDir || undefined });
+      firstOpenWindow = await createChat(app, undefined, openDir || undefined);
     }
   }
 });
@@ -401,9 +396,8 @@ app.on('open-file', async (event, filePath) => {
 // Handle multiple files/folders (macOS only)
 if (process.platform === 'darwin') {
   // Use type assertion for non-standard Electron event
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  app.on('open-files' as any, async (event: any, filePaths: string[]) => {
-    event.preventDefault();
+  app.on('open-files' as unknown as never, async (event: unknown, filePaths: string[]) => {
+    (event as { preventDefault: () => void }).preventDefault();
     for (const filePath of filePaths) {
       await handleFileOpen(filePath);
     }
@@ -428,7 +422,7 @@ async function handleFileOpen(filePath: string) {
     addRecentDir(targetDir);
 
     // Create new window for the directory
-    const newWindow = await createChat(app, { dir: targetDir });
+    const newWindow = await createChat(app, undefined, targetDir);
 
     // Focus the new window
     if (newWindow) {
@@ -451,9 +445,9 @@ declare var MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
 declare var MAIN_WINDOW_VITE_NAME: string;
 
 function getAppUrl(): URL {
-  return MAIN_WINDOW_VITE_DEV_SERVER_URL
-    ? new URL(MAIN_WINDOW_VITE_DEV_SERVER_URL)
-    : pathToFileURL(path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`));
+  return MAIN_WINDOW_DEV_SERVER_URL
+    ? new URL(MAIN_WINDOW_DEV_SERVER_URL)
+    : pathToFileURL(path.join(__dirname, `../renderer/${MAIN_WINDOW_NAME}/index.html`));
 }
 
 // Parse command line arguments
@@ -508,11 +502,11 @@ const getServerSecret = (settings: Settings): string => {
   return GENERATED_SECRET;
 };
 
-let appConfig = {
+const appConfig = {
   GOOSE_DEFAULT_PROVIDER: defaultProvider,
   GOOSE_DEFAULT_MODEL: defaultModel,
   GOOSE_PREDEFINED_MODELS: predefinedModels,
-  GOOSE_API_HOST: 'https://localhost',
+  GOOSE_API_HOST: 'http://127.0.0.1',
   GOOSE_WORKING_DIR: '',
   // If GOOSE_ALLOWLIST_WARNING env var is not set, defaults to false (strict blocking mode)
   GOOSE_ALLOWLIST_WARNING: process.env.GOOSE_ALLOWLIST_WARNING === 'true',
@@ -526,50 +520,26 @@ const windowPowerSaveBlockers = new Map<number, number>(); // windowId -> blocke
 // Track pending initial messages per window
 const pendingInitialMessages = new Map<number, string>(); // windowId -> initialMessage
 
-interface CreateChatOptions {
-  initialMessage?: string;
-  dir?: string;
-  resumeSessionId?: string;
-  viewType?: string;
-  recipeDeeplink?: string;
-  recipeId?: string;
-  scheduledJobId?: string;
-  recipeParameters?: Record<string, string>;
-}
-
-const createChat = async (app: App, options: CreateChatOptions = {}) => {
-  const {
-    initialMessage,
-    dir,
-    resumeSessionId,
-    viewType,
-    recipeDeeplink,
-    recipeId,
-    scheduledJobId,
-    recipeParameters,
-  } = options;
+const createChat = async (
+  app: App,
+  initialMessage?: string,
+  dir?: string,
+  _version?: string,
+  resumeSessionId?: string,
+  viewType?: string,
+  recipeDeeplink?: string, // Raw deeplink decoded on server
+  scheduledJobId?: string, // Scheduled job ID if applicable
+  recipeParameters?: Record<string, string> // Recipe parameter values from deeplink URL
+) => {
   const settings = getSettings();
   const serverSecret = getServerSecret(settings);
 
   const goosedResult = await startGoosed({
+    app,
     serverSecret,
     dir: dir || os.homedir(),
     env: { GOOSE_PATH_ROOT: process.env.GOOSE_PATH_ROOT },
     externalGoosed: settings.externalGoosed,
-    isPackaged: app.isPackaged,
-    resourcesPath: app.isPackaged ? process.resourcesPath : undefined,
-    logger: log,
-  });
-
-  // Pin the certificate fingerprint so the cert handlers above only accept
-  // the exact cert that *this* goosed instance generated.
-  if (goosedResult.certFingerprint) {
-    pinnedCertFingerprint = goosedResult.certFingerprint;
-  }
-
-  app.on('will-quit', async () => {
-    log.info('App quitting, terminating goosed server');
-    await goosedResult.cleanup();
   });
 
   const { baseUrl, workingDir, process: goosedProcess, errorLog } = goosedResult;
@@ -607,7 +577,6 @@ const createChat = async (app: App, options: CreateChatOptions = {}) => {
           GOOSE_BASE_URL_SHARE: baseUrlShare,
           GOOSE_VERSION: version,
           recipeDeeplink: recipeDeeplink,
-          recipeId: recipeId,
           recipeParameters: recipeParameters,
           scheduledJobId: scheduledJobId,
           SECURITY_ML_MODEL_MAPPING: process.env.SECURITY_ML_MODEL_MAPPING,
@@ -618,20 +587,71 @@ const createChat = async (app: App, options: CreateChatOptions = {}) => {
   });
 
   if (!app.isPackaged) {
-    installExtension(REACT_DEVELOPER_TOOLS, {
-      loadExtensionOptions: { allowFileAccess: true },
-      session: mainWindow.webContents.session,
-    })
-      .then(() => log.info('added react dev tools'))
-      .catch((err) => log.info('failed to install react dev tools:', err));
+    // During Playwright runs we don't need DevTools and some bundlers/providers can
+    // produce a non-callable default export for electron-devtools-installer.
+    if (process.env.ENABLE_PLAYWRIGHT === 'true') {
+      // Skip DevTools setup.
+    } else {
+      // Try electron-devtools-installer first, fall back to loading from local Chromium installation
+      const installExtensionFn: ((...args: unknown[]) => Promise<{ name: string }>) | null =
+        typeof installExtension === 'function'
+          ? (installExtension as unknown as (...args: unknown[]) => Promise<{ name: string }>)
+          : typeof (installExtension as unknown as { default?: unknown }).default === 'function'
+            ? (
+                installExtension as unknown as {
+                  default: (...args: unknown[]) => Promise<{ name: string }>;
+                }
+              ).default
+            : null;
+
+      if (!installExtensionFn) {
+        log.warn('DevTools installer is not callable; skipping React DevTools installation. ');
+      } else {
+        installExtensionFn(REACT_DEVELOPER_TOOLS)
+          .then((ext) => log.info(`Added extension: ${ext.name}`))
+          .catch(async (err: Error) => {
+            log.info(
+              'electron-devtools-installer failed, trying local Chromium extension:',
+              err.message
+            );
+            const reactDevToolsId = 'fmkadmapgofadopljbjfkapdkoienihi';
+            const chromiumExtPaths = [
+              path.join(os.homedir(), '.config/google-chrome/Default/Extensions', reactDevToolsId),
+              path.join(os.homedir(), '.config/chromium/Default/Extensions', reactDevToolsId),
+              path.join(
+                os.homedir(),
+                'Library/Application Support/Google/Chrome/Default/Extensions',
+                reactDevToolsId
+              ),
+            ];
+            for (const extDir of chromiumExtPaths) {
+              try {
+                if (fsSync.existsSync(extDir)) {
+                  const versions = fsSync.readdirSync(extDir).sort().reverse();
+                  if (versions.length > 0) {
+                    const extPath = path.join(extDir, versions[0]);
+                    const loaded = await session.defaultSession.loadExtension(extPath, {
+                      allowFileAccess: true,
+                    });
+                    log.info(
+                      `Loaded React DevTools from Chromium: ${loaded.name} (${versions[0]})`
+                    );
+                    return;
+                  }
+                }
+              } catch (loadErr) {
+                log.info(`Failed to load from ${extDir}:`, loadErr);
+              }
+            }
+            log.info('React DevTools not found in any Chromium installation');
+          });
+      }
+    }
   }
 
-  // Re-create the client with Electron's net.fetch so requests to the local
-  // self-signed HTTPS server go through the session's certificate handling.
   const goosedClient = createClient(
     createConfig({
       baseUrl,
-      fetch: net.fetch as unknown as typeof globalThis.fetch,
       headers: {
         'Content-Type': 'application/json',
         'X-Secret-Key': serverSecret,
@@ -662,7 +682,7 @@ const createChat = async (app: App, options: CreateChatOptions = {}) => {
           }
         });
         mainWindow.destroy();
-        return createChat(app, { initialMessage, dir });
+        return createChat(app, initialMessage, dir);
       }
     } else {
       dialog.showMessageBoxSync({
@@ -758,9 +778,8 @@ const createChat = async (app: App, options: CreateChatOptions = {}) => {
 
   // Handle new-window events (alternative approach for external links)
   // Use type assertion for non-standard Electron event
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  mainWindow.webContents.on('new-window' as any, function (event: any, url: string) {
-    event.preventDefault();
+  mainWindow.webContents.on('new-window' as unknown as never, (event: unknown, url: string) => {
+    (event as { preventDefault: () => void }).preventDefault();
     try {
       const protocol = new URL(url).protocol;
       if (BLOCKED_PROTOCOLS.includes(protocol)) {
@@ -778,9 +797,8 @@ const createChat = async (app: App, options: CreateChatOptions = {}) => {
   let appPath = '/';
   const routeMap: Record<string, string> = {
     chat: '/',
-    pair: '/pair',
     settings: '/settings',
-    sessions: '/sessions',
+    sessions: '/sessions/history',
     schedules: '/schedules',
     recipes: '/recipes',
     permission: '/permission',
@@ -792,24 +810,20 @@ const createChat = async (app: App, options: CreateChatOptions = {}) => {
   if (viewType) {
     appPath = routeMap[viewType] || '/';
   }
-  if (
-    appPath === '/' &&
-    (recipeDeeplink !== undefined || recipeId !== undefined || initialMessage)
-  ) {
-    appPath = '/pair';
-  }
 
-  let searchParams = new URLSearchParams();
+  // We no longer use query params to select sessions.
+  // If a sessionId is provided, navigate directly to /sessions/:id.
   if (resumeSessionId) {
-    searchParams.set('resumeSessionId', resumeSessionId);
-    if (appPath === '/') {
-      appPath = '/pair';
-    }
+    appPath = `/sessions/${encodeURIComponent(resumeSessionId)}`;
+  } else if (appPath === '/' && (recipeDeeplink !== undefined || initialMessage)) {
+    // If a window is created with an initial message or recipe deeplink, take the user
+    // to the sessions history page (the hub no longer lives at /sessions).
+    appPath = '/sessions/history';
   }
 
-  // Goose's react app uses HashRouter, so the path + search params follow a #/
-  url.hash = `${appPath}?${searchParams.toString()}`;
-  let formattedUrl = formatUrl(url);
+  // Goose's react app uses HashRouter, so the path follows a #/
+  url.hash = appPath;
+  const formattedUrl = formatUrl(url);
   log.info('Opening URL: ', formattedUrl);
   mainWindow.loadURL(formattedUrl);
 
@@ -840,13 +854,15 @@ const createChat = async (app: App, options: CreateChatOptions = {}) => {
 
   // Handle mouse back button (button 3)
   // Use type assertion for non-standard Electron event
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  mainWindow.webContents.on('mouse-up' as any, function (_event: any, mouseButton: number) {
-    // MouseButton 3 is the back button.
-    if (mouseButton === 3) {
-      mainWindow.webContents.send('mouse-back-button-clicked');
+  mainWindow.webContents.on(
+    'mouse-up' as unknown as never,
+    (_event: unknown, mouseButton: number) => {
+      // MouseButton 3 is the back button.
+      if (mouseButton === 3) {
+        mainWindow.webContents.send('mouse-back-button-clicked');
+      }
     }
-  });
+  );
 
   windowMap.set(windowId, mainWindow);
 
@@ -857,13 +873,10 @@ const createChat = async (app: App, options: CreateChatOptions = {}) => {
     // Clean up pending initial message
     pendingInitialMessages.delete(windowId);
 
-    if (windowPowerSaveBlockers.has(windowId)) {
-      const blockerId = windowPowerSaveBlockers.get(windowId)!;
+    const blockerId = windowPowerSaveBlockers.get(windowId);
+    if (blockerId !== undefined) {
       try {
         powerSaveBlocker.stop(blockerId);
-        console.log(
-          `[Main] Stopped power save blocker ${blockerId} for closing window ${windowId}`
-        );
       } catch (error) {
         console.error(
           `[Main] Failed to stop power save blocker ${blockerId} for window ${windowId}:`,
@@ -1006,7 +1019,7 @@ const showWindow = async () => {
     log.info('No windows are open, creating a new one...');
     const recentDirs = loadRecentDirs();
     const openDir = recentDirs.length > 0 ? recentDirs[0] : null;
-    await createChat(app, { dir: openDir || undefined });
+    await createChat(app, undefined, openDir || undefined);
     return;
   }
 
@@ -1038,8 +1051,8 @@ const buildRecentFilesMenu = () => {
   const recentDirs = loadRecentDirs();
   return recentDirs.map((dir) => ({
     label: dir,
-    click: async () => {
-      await createChat(app, { dir });
+    click: () => {
+      createChat(app, undefined, dir);
     },
   }));
 };
@@ -1123,15 +1136,22 @@ const openDirectoryDialog = async (): Promise<OpenDialogReturnValue> => {
 
     addRecentDir(dirToAdd);
 
-    let deeplinkData: RecipeDeeplinkData | undefined = undefined;
+    let deeplinkData: RecipeDeeplinkData | undefined;
     if (windowDeeplinkURL) {
       deeplinkData = parseRecipeDeeplink(windowDeeplinkURL);
     }
-    await createChat(app, {
-      dir: dirToAdd,
-      recipeDeeplink: deeplinkData?.config,
-      recipeParameters: deeplinkData?.parameters,
-    });
+    // Create a new window with the selected directory
+    await createChat(
+      app,
+      undefined,
+      dirToAdd,
+      undefined,
+      undefined,
+      undefined,
+      deeplinkData?.config,
+      undefined,
+      deeplinkData?.parameters
+    );
   }
   return result;
 };
@@ -1149,7 +1169,7 @@ function parseRecipeDeeplink(url: string): RecipeDeeplinkData | undefined {
     // Parse raw query to preserve "+" characters in values like config
     const search = parsedUrl.search || '';
     const configMatch = search.match(/(?:[?&])config=([^&]*)/);
-    let recipeDeeplinkTmp = configMatch ? configMatch[1] : null;
+    const recipeDeeplinkTmp = configMatch ? configMatch[1] : null;
     if (recipeDeeplinkTmp) {
       try {
         recipeDeeplink = decodeURIComponent(recipeDeeplinkTmp);
@@ -1198,12 +1218,12 @@ const handleFatalError = (error: Error) => {
 };
 
 process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', formatErrorForLogging(error));
+  console.error('Uncaught Exception:', error);
   handleFatalError(error);
 });
 
 process.on('unhandledRejection', (error) => {
-  console.error('Unhandled Rejection:', formatErrorForLogging(error));
+  console.error('Unhandled Rejection:', error);
   handleFatalError(error instanceof Error ? error : new Error(String(error)));
 });
 
@@ -1215,8 +1235,8 @@ ipcMain.on('react-ready', (event) => {
   const windowId = window?.id;
 
   // Send any pending initial message for this window
-  if (windowId && pendingInitialMessages.has(windowId)) {
-    const initialMessage = pendingInitialMessages.get(windowId)!;
+  const initialMessage = windowId ? pendingInitialMessages.get(windowId) : undefined;
+  if (windowId && initialMessage) {
     log.info('Sending pending initial message to window:', initialMessage);
     window.webContents.send('set-initial-message', initialMessage);
     pendingInitialMessages.delete(windowId);
@@ -1269,44 +1289,25 @@ ipcMain.handle('add-recent-dir', (_event, dir: string) => {
   }
 });
 
-ipcMain.handle('get-setting', (_event, key: SettingKey) => {
-  const settings = getSettings();
-  return settings[key];
+// Handle scheduling engine settings
+ipcMain.handle('get-settings', () => {
+  return getSettings(); // Always returns Settings (uses defaults as fallback)
 });
 
-// Valid setting keys for runtime validation
-const validSettingKeys: Set<string> = new Set([
-  'showMenuBarIcon',
-  'showDockIcon',
-  'enableWakelock',
-  'spellcheckEnabled',
-  'externalGoosed',
-  'globalShortcut',
-  'keyboardShortcuts',
-  'theme',
-  'useSystemTheme',
-  'responseStyle',
-  'showPricing',
-  'sessionSharing',
-  'seenAnnouncementIds',
-]);
+ipcMain.handle('save-settings', (_event, settings) => {
+  const oldSettings = getSettings();
 
-ipcMain.handle('set-setting', (_event, key: SettingKey, value: unknown) => {
-  // Validate key at runtime to prevent prototype pollution
-  if (!validSettingKeys.has(key)) {
-    console.error(`Invalid setting key rejected: ${key}`);
-    return;
-  }
+  const oldShortcuts = getKeyboardShortcuts(oldSettings);
+  const newShortcuts = getKeyboardShortcuts(settings);
+  const shortcutsChanged = JSON.stringify(oldShortcuts) !== JSON.stringify(newShortcuts);
 
-  const settings = getSettings();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (settings as any)[key] = value;
   fsSync.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
 
-  // Re-register shortcuts if keyboard shortcuts changed
-  if (key === 'keyboardShortcuts') {
+  if (shortcutsChanged) {
     registerGlobalShortcuts();
   }
+
+  return true;
 });
 
 ipcMain.handle('get-secret-key', () => {
@@ -1401,7 +1402,7 @@ ipcMain.handle('open-notifications-settings', async () => {
         spawn('gnome-control-center', ['notifications']);
         return true;
       } catch {
-        console.log('GNOME control center not found, trying other options');
+        console.warn('GNOME control center not found, trying other options');
       }
 
       // KDE Plasma
@@ -1409,7 +1410,7 @@ ipcMain.handle('open-notifications-settings', async () => {
         spawn('systemsettings5', ['kcm_notifications']);
         return true;
       } catch {
-        console.log('KDE systemsettings5 not found, trying other options');
+        console.warn('KDE systemsettings5 not found, trying other options');
       }
 
       // XFCE
@@ -1417,7 +1418,7 @@ ipcMain.handle('open-notifications-settings', async () => {
         spawn('xfce4-settings-manager', ['--socket-id=notifications']);
         return true;
       } catch {
-        console.log('XFCE settings manager not found, trying other options');
+        console.warn('XFCE settings manager not found, trying other options');
       }
 
       // Fallback: Try to open general settings
@@ -1451,9 +1452,6 @@ ipcMain.handle('set-wakelock', async (_event, enable: boolean) => {
     for (const [windowId, blockerId] of windowPowerSaveBlockers.entries()) {
       try {
         powerSaveBlocker.stop(blockerId);
-        console.log(
-          `[Main] Stopped power save blocker ${blockerId} for window ${windowId} due to wakelock setting disabled`
-        );
       } catch (error) {
         console.error(
           `[Main] Failed to stop power save blocker ${blockerId} for window ${windowId}:`,
@@ -1514,7 +1512,7 @@ ipcMain.handle('select-file-or-directory', async (_event, defaultPath?: string) 
         dialogOptions.defaultPath = path.dirname(expandedPath);
       }
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    } catch (error) {
+    } catch (_error) {
       // If path doesn't exist, fall back to home directory and log error
       console.error(`Default path does not exist: ${expandedPath}, falling back to home directory`);
       dialogOptions.defaultPath = os.homedir();
@@ -1557,9 +1555,7 @@ ipcMain.handle('check-ollama', async () => {
           return resolve(false);
         }
 
-        console.log('Raw stdout from ps|grep command:', output);
         const trimmedOutput = output.trim();
-        console.log('Trimmed stdout:', trimmedOutput);
 
         const isRunning = trimmedOutput.length > 0;
         resolve(isRunning);
@@ -1683,7 +1679,7 @@ ipcMain.handle('get-allowed-extensions', async () => {
 const createNewWindow = async (app: App, dir?: string | null) => {
   const recentDirs = loadRecentDirs();
   const openDir = dir || (recentDirs.length > 0 ? recentDirs[0] : undefined);
-  return await createChat(app, { dir: openDir });
+  return await createChat(app, undefined, openDir);
 };
 
 const focusWindow = () => {
@@ -1726,6 +1722,13 @@ const registerGlobalShortcuts = () => {
 };
 
 async function appMain() {
+  // Only load .env files for e2e/Playwright testing — in normal operation,
+  // config comes from config.yaml and env vars set by the user.
+  if (process.env.ENABLE_PLAYWRIGHT === 'true') {
+    loadDesktopDotenv();
+  }
+  assertE2EProviderEnvOrThrow();
+
   await configureProxy();
 
   // Ensure Windows shims are available before any MCP processes are spawned
@@ -1735,7 +1738,6 @@ async function appMain() {
 
   // Handle microphone permission requests
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    console.log('Permission requested:', permission);
     // Allow microphone and media access
     if (permission === 'media') {
       callback(true);
@@ -1749,9 +1751,6 @@ async function appMain() {
     const sources = [
       "'self'",
       'http://127.0.0.1:*',
-      'https://127.0.0.1:*',
-      'http://localhost:*',
-      'https://localhost:*',
       'https://api.github.com',
       'https://github.com',
       'https://objects.githubusercontent.com',
@@ -1807,7 +1806,7 @@ async function appMain() {
   registerGlobalShortcuts();
 
   session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
-    details.requestHeaders['Origin'] = 'http://localhost:5173';
+    details.requestHeaders.Origin = 'http://localhost:5173';
     callback({ cancel: false, requestHeaders: details.requestHeaders });
   });
 
@@ -2039,32 +2038,11 @@ async function appMain() {
                 } else {
                   focusedWindow.setAlwaysOnTop(isAlwaysOnTop);
                 }
-
-                console.log(
-                  `[Main] Set always-on-top to ${isAlwaysOnTop} for window ${focusedWindow.id}`
-                );
               }
             },
           })
         );
       }
-    }
-
-    const viewMenu = menu.items.find((item) => item.label === 'View');
-    if (viewMenu?.submenu && shortcuts.toggleNavigation) {
-      viewMenu.submenu.append(new MenuItem({ type: 'separator' }));
-      viewMenu.submenu.append(
-        new MenuItem({
-          label: 'Toggle Navigation',
-          accelerator: shortcuts.toggleNavigation,
-          click() {
-            const focusedWindow = BrowserWindow.getFocusedWindow();
-            if (focusedWindow) {
-              focusedWindow.webContents.send('toggle-navigation');
-            }
-          },
-        })
-      );
     }
   }
 
@@ -2120,43 +2098,48 @@ async function appMain() {
     }
   });
 
-  ipcMain.on('create-chat-window', (event, options = {}) => {
-    const { query, dir, resumeSessionId, viewType, recipeId } = options;
-
-    let resolvedDir = dir;
-    if (!resolvedDir?.trim()) {
-      const recentDirs = loadRecentDirs();
-      resolvedDir = recentDirs.length > 0 ? recentDirs[0] : undefined;
-    }
-
-    const isFromLauncher = query && !resumeSessionId && !viewType && !recipeId;
-
-    if (isFromLauncher) {
-      const senderWindow = BrowserWindow.fromWebContents(event.sender);
-      const launcherWindowId = senderWindow?.id;
-      const allWindows = BrowserWindow.getAllWindows();
-
-      const existingWindows = allWindows.filter(
-        (win) => !win.isDestroyed() && win.id !== launcherWindowId
-      );
-
-      if (existingWindows.length > 0) {
-        const targetWindow = existingWindows[0];
-        targetWindow.show();
-        targetWindow.focus();
-        targetWindow.webContents.send('set-initial-message', query);
-        return;
+  ipcMain.on(
+    'create-chat-window',
+    (event, query, dir, version, resumeSessionId, viewType, recipeDeeplink) => {
+      if (!dir?.trim()) {
+        const recentDirs = loadRecentDirs();
+        dir = recentDirs.length > 0 ? recentDirs[0] : undefined;
       }
-    }
 
-    createChat(app, {
-      initialMessage: query,
-      dir: resolvedDir,
-      resumeSessionId,
-      viewType,
-      recipeId,
-    });
-  });
+      const isFromLauncher = query && !resumeSessionId && !viewType && !recipeDeeplink;
+
+      if (isFromLauncher) {
+        const senderWindow = BrowserWindow.fromWebContents(event.sender);
+        const launcherWindowId = senderWindow?.id;
+        const allWindows = BrowserWindow.getAllWindows();
+
+        const existingWindows = allWindows.filter(
+          (win) => !win.isDestroyed() && win.id !== launcherWindowId
+        );
+
+        if (existingWindows.length > 0) {
+          const targetWindow = existingWindows[0];
+          targetWindow.show();
+          targetWindow.focus();
+          targetWindow.webContents.send('set-initial-message', query);
+          return;
+        }
+      }
+
+      // Otherwise, create a new window
+      createChat(
+        app,
+        query,
+        dir,
+        version,
+        resumeSessionId,
+        viewType,
+        recipeDeeplink,
+        undefined,
+        undefined
+      );
+    }
+  );
 
   ipcMain.on('close-window', (event) => {
     const window = BrowserWindow.fromWebContents(event.sender);
@@ -2189,7 +2172,6 @@ async function appMain() {
       // Remove any HTML tags for security
       const sanitizeText = (text: string) => text.replace(/<[^>]*>/g, '');
 
-      console.log('NOTIFY', data);
       const notification = new Notification({
         title: sanitizeText(data.title),
         body: sanitizeText(data.body),
@@ -2280,7 +2262,7 @@ async function appMain() {
 
       // Set a reasonable size limit (e.g., 10MB)
       const MAX_SIZE = 10 * 1024 * 1024; // 10MB
-      const contentLength = parseInt(response.headers.get('content-length') || '0');
+      const contentLength = parseInt(response.headers.get('content-length') || '0', 10);
       if (contentLength > MAX_SIZE) {
         throw new Error('Response too large');
       }
@@ -2403,7 +2385,7 @@ async function appMain() {
     try {
       const appWindow = appWindows.get(gooseApp.name);
       if (!appWindow || appWindow.isDestroyed()) {
-        console.log(`App window for '${gooseApp.name}' not found or destroyed, skipping refresh`);
+        console.warn(`App window for '${gooseApp.name}' not found or destroyed, skipping refresh`);
         return;
       }
 
@@ -2426,7 +2408,7 @@ async function appMain() {
     try {
       const appWindow = appWindows.get(appName);
       if (!appWindow || appWindow.isDestroyed()) {
-        console.log(`App window for '${appName}' not found or destroyed, skipping close`);
+        console.warn(`App window for '${appName}' not found or destroyed, skipping close`);
         return;
       }
 
@@ -2465,11 +2447,10 @@ async function getAllowList(): Promise<string[]> {
   const parsedYaml = yaml.parse(yamlContent);
 
   // Extract the commands from the extensions array
-  if (parsedYaml && parsedYaml.extensions && Array.isArray(parsedYaml.extensions)) {
+  if (parsedYaml?.extensions && Array.isArray(parsedYaml.extensions)) {
     const commands = parsedYaml.extensions.map(
       (ext: { id: string; command: string }) => ext.command
     );
-    console.log(`Fetched ${commands.length} allowed extension commands`);
     return commands;
   } else {
     console.error('Invalid YAML structure:', parsedYaml);
@@ -2481,9 +2462,6 @@ app.on('will-quit', async () => {
   for (const [windowId, blockerId] of windowPowerSaveBlockers.entries()) {
     try {
       powerSaveBlocker.stop(blockerId);
-      console.log(
-        `[Main] Stopped power save blocker ${blockerId} for window ${windowId} during app quit`
-      );
     } catch (error) {
       console.error(
         `[Main] Failed to stop power save blocker ${blockerId} for window ${windowId}:`,

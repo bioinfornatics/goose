@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { GroupedExtensionLoadingToast } from '../GroupedExtensionLoadingToast';
+import { describe, expect, it } from 'vitest';
+import { GroupedExtensionLoadingToast } from '../organisms/shared/GroupedExtensionLoadingToast';
 
 const renderWithRouter = (component: React.ReactElement) => {
   return render(<MemoryRouter>{component}</MemoryRouter>);

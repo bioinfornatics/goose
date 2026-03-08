@@ -1,15 +1,11 @@
-import React, { Suspense, lazy } from 'react';
+import React, { lazy, Suspense } from 'react';
 import ReactDOM from 'react-dom/client';
-import { ConfigProvider } from './components/ConfigContext';
-import { ErrorBoundary } from './components/ErrorBoundary';
+import { readConfig } from '@/api';
+import { client } from '@/api/client.gen';
+import { ErrorBoundary } from '@/components/organisms/shared/ErrorBoundary';
+import { ConfigProvider } from '@/contexts/ConfigContext';
+import { setTelemetryEnabled } from '@/utils/analytics';
 import SuspenseLoader from './suspense-loader';
-import { client } from './api/client.gen';
-import { setTelemetryEnabled } from './utils/analytics';
-import { readConfig } from './api';
-import { applyThemeTokens } from './theme/theme-tokens';
-
-// Apply theme tokens to :root before first paint.
-applyThemeTokens();
 
 const App = lazy(() => import('./App'));
 
@@ -20,13 +16,19 @@ const TELEMETRY_CONFIG_KEY = 'GOOSE_TELEMETRY_ENABLED';
   const isLauncher = window.location.hash === '#/launcher';
 
   if (!isLauncher) {
-    console.log('window created, getting goosed connection info');
+    // Set a synchronous fallback baseUrl so any early SDK calls don't default to the renderer origin.
+    // This comes from Electron main via preload (`additionalArguments`).
+    const fallbackApiHost = String(window.appConfig.get('GOOSE_API_HOST') || '');
+    if (fallbackApiHost) {
+      client.setConfig({ baseUrl: fallbackApiHost });
+    }
+
     const gooseApiHost = await window.electron.getGoosedHostPort();
     if (gooseApiHost === null) {
       window.alert('failed to start goose backend process');
       return;
     }
-    console.log('connecting at', gooseApiHost);
+
     client.setConfig({
       baseUrl: gooseApiHost,
       headers: {
@@ -46,7 +48,12 @@ const TELEMETRY_CONFIG_KEY = 'GOOSE_TELEMETRY_ENABLED';
     }
   }
 
-  ReactDOM.createRoot(document.getElementById('root')!).render(
+  const rootElement = document.getElementById('root');
+  if (!rootElement) {
+    throw new Error("Missing root element with id 'root'");
+  }
+
+  ReactDOM.createRoot(rootElement).render(
     <React.StrictMode>
       <Suspense fallback={SuspenseLoader()}>
         <ConfigProvider>

@@ -1,14 +1,19 @@
-import { toast, ToastOptions } from 'react-toastify';
-import { Button } from './components/ui/button';
-import { Tooltip, TooltipContent, TooltipTrigger } from './components/ui/Tooltip';
-import Copy from './components/icons/Copy';
-import { startNewSession } from './sessions';
-import { useNavigation } from './hooks/useNavigation';
+import { type ToastOptions, toast } from 'react-toastify';
+import { Button } from '@/components/atoms/button';
+import Copy from '@/components/atoms/icons/Copy';
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/atoms/tooltip';
+import {
+  type ExtensionLoadingStatus,
   GroupedExtensionLoadingToast,
-  ExtensionLoadingStatus,
-} from './components/GroupedExtensionLoadingToast';
-import { getInitialWorkingDir } from './utils/workingDir';
+} from '@/components/organisms/shared/GroupedExtensionLoadingToast';
+import { useNavigation } from '@/hooks/useNavigation';
+import { startNewSession } from '@/sessions';
+import { getInitialWorkingDir } from '@/utils/workingDir';
 
 export interface ToastServiceOptions {
   silent?: boolean;
@@ -201,16 +206,18 @@ function ToastErrorContent({
           </Button>
         )}
         {hasBoth && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button onClick={handleCopyError} shape="round" aria-label="Copy error">
-                <Copy className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="z-[10000]">
-              Copy error
-            </TooltipContent>
-          </Tooltip>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button onClick={handleCopyError} shape="round" aria-label="Copy error">
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="z-[10000]">
+                Copy error
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         )}
         {traceback && !hasBoth && <Button onClick={handleCopyError}>Copy error</Button>}
       </div>

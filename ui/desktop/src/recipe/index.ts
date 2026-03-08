@@ -1,14 +1,14 @@
+import type { RecipeParameter } from '@/api';
 import {
-  encodeRecipe as apiEncodeRecipe,
   decodeRecipe as apiDecodeRecipe,
-  scanRecipe as apiScanRecipe,
+  encodeRecipe as apiEncodeRecipe,
   parseRecipe as apiParseRecipe,
-} from '../api';
-import type { RecipeParameter } from '../api';
+  scanRecipe as apiScanRecipe,
+} from '@/api';
 
 // Re-export OpenAPI types with frontend-specific additions
 export type Parameter = RecipeParameter;
-export type Recipe = import('../api').Recipe & {
+export type Recipe = import('@/api').Recipe & {
   // TODO: Separate these from the raw recipe type
   // Properties added for scheduled execution
   scheduledJobId?: string;
@@ -33,8 +33,6 @@ export async function encodeRecipe(recipe: Recipe): Promise<string> {
 }
 
 export async function decodeRecipe(deeplink: string): Promise<Recipe> {
-  console.log('Decoding recipe from deeplink:', deeplink);
-
   try {
     const response = await apiDecodeRecipe({
       body: { deeplink },

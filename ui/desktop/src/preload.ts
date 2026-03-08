@@ -1,45 +1,12 @@
-import Electron, { contextBridge, ipcRenderer, webUtils } from 'electron';
-import { Recipe } from './recipe';
-import { GooseApp } from './api';
-import type { Settings, SettingKey } from './utils/settings';
-import { defaultSettings } from './utils/settings';
+import type Electron from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
+import type { GooseApp } from '@/api';
+import type { Recipe } from '@/recipe';
+import type { Settings } from '@/utils/settings';
 
-// Mapping from settings keys to their old localStorage keys for lazy migration
-const localStorageKeyMap: Partial<Record<SettingKey, string>> = {
-  theme: 'theme',
-  useSystemTheme: 'use_system_theme',
-  responseStyle: 'response_style',
-  showPricing: 'show_pricing',
-  sessionSharing: 'session_sharing_config',
-  seenAnnouncementIds: 'seenAnnouncementIds',
-};
-
-// Parse localStorage value based on the setting key
-function parseLocalStorageValue<K extends SettingKey>(
-  key: K,
-  rawValue: string
-): Settings[K] | null {
-  try {
-    switch (key) {
-      case 'theme':
-        return (rawValue === 'dark' || rawValue === 'light' ? rawValue : null) as Settings[K];
-      case 'useSystemTheme':
-        return (rawValue === 'true') as unknown as Settings[K];
-      case 'responseStyle':
-        return rawValue as Settings[K];
-      case 'showPricing':
-        return (rawValue === 'true') as unknown as Settings[K];
-      case 'sessionSharing':
-        return JSON.parse(rawValue) as Settings[K];
-      case 'seenAnnouncementIds':
-        return JSON.parse(rawValue) as Settings[K];
-      default:
-        return null;
-    }
-  } catch {
-    return null;
-  }
-}
+// The app registers ~14 IPC listeners across components; raise the limit to avoid
+// "MaxListenersExceededWarning" in the console (Node default is 10).
+ipcRenderer.setMaxListeners(20);
 
 interface NotificationData {
   title: string;
@@ -89,15 +56,6 @@ interface UpdaterEvent {
   data?: unknown;
 }
 
-export interface CreateChatWindowOptions {
-  query?: string;
-  dir?: string;
-  version?: string;
-  resumeSessionId?: string;
-  viewType?: string;
-  recipeId?: string;
-}
-
 // Define the API types in a single place
 type ElectronAPI = {
   platform: string;
@@ -105,7 +63,14 @@ type ElectronAPI = {
   getConfig: () => Record<string, unknown>;
   hideWindow: () => void;
   directoryChooser: () => Promise<Electron.OpenDialogReturnValue>;
-  createChatWindow: (options?: CreateChatWindowOptions) => void;
+  createChatWindow: (
+    query?: string,
+    dir?: string,
+    version?: string,
+    resumeSessionId?: string,
+    viewType?: string,
+    recipeDeeplink?: string
+  ) => void;
   logInfo: (txt: string) => void;
   showNotification: (data: NotificationData) => void;
   showMessageBox: (options: MessageBoxOptions) => Promise<MessageBoxResponse>;
@@ -126,8 +91,8 @@ type ElectronAPI = {
   getMenuBarIconState: () => Promise<boolean>;
   setDockIcon: (show: boolean) => Promise<boolean>;
   getDockIconState: () => Promise<boolean>;
-  getSetting: <K extends SettingKey>(key: K) => Promise<Settings[K]>;
-  setSetting: <K extends SettingKey>(key: K, value: Settings[K]) => Promise<void>;
+  getSettings: () => Promise<Settings>;
+  saveSettings: (settings: Settings) => Promise<boolean>;
   getSecretKey: () => Promise<string>;
   getGoosedHostPort: () => Promise<string | null>;
   setWakelock: (enable: boolean) => Promise<boolean>;
@@ -150,7 +115,6 @@ type ElectronAPI = {
     mode: string;
     useSystemTheme: boolean;
     theme: string;
-    tokensUpdated?: boolean;
   }) => void;
   openExternal: (url: string) => Promise<void>;
   // Update-related functions
@@ -191,8 +155,23 @@ const electronAPI: ElectronAPI = {
   },
   hideWindow: () => ipcRenderer.send('hide-window'),
   directoryChooser: () => ipcRenderer.invoke('directory-chooser'),
-  createChatWindow: (options?: CreateChatWindowOptions) =>
-    ipcRenderer.send('create-chat-window', options || {}),
+  createChatWindow: (
+    query?: string,
+    dir?: string,
+    version?: string,
+    resumeSessionId?: string,
+    viewType?: string,
+    recipeDeeplink?: string
+  ) =>
+    ipcRenderer.send(
+      'create-chat-window',
+      query,
+      dir,
+      version,
+      resumeSessionId,
+      viewType,
+      recipeDeeplink
+    ),
   logInfo: (txt: string) => ipcRenderer.send('logInfo', txt),
   showNotification: (data: NotificationData) => ipcRenderer.send('notify', data),
   showMessageBox: (options: MessageBoxOptions) => ipcRenderer.invoke('show-message-box', options),
@@ -216,33 +195,8 @@ const electronAPI: ElectronAPI = {
   getMenuBarIconState: () => ipcRenderer.invoke('get-menu-bar-icon-state'),
   setDockIcon: (show: boolean) => ipcRenderer.invoke('set-dock-icon', show),
   getDockIconState: () => ipcRenderer.invoke('get-dock-icon-state'),
-  getSetting: async <K extends SettingKey>(key: K): Promise<Settings[K]> => {
-    try {
-      // Check for localStorage value first (lazy migration)
-      const localStorageKey = localStorageKeyMap[key];
-      if (localStorageKey) {
-        const rawValue = localStorage.getItem(localStorageKey);
-        if (rawValue !== null) {
-          const parsed = parseLocalStorageValue(key, rawValue);
-          if (parsed !== null) {
-            return parsed;
-          }
-        }
-      }
-      return await ipcRenderer.invoke('get-setting', key);
-    } catch (error) {
-      console.error(`Failed to get setting '${key}', using default`, error);
-      return defaultSettings[key];
-    }
-  },
-  setSetting: async <K extends SettingKey>(key: K, value: Settings[K]): Promise<void> => {
-    // Clear any localStorage version when writing
-    const localStorageKey = localStorageKeyMap[key];
-    if (localStorageKey) {
-      localStorage.removeItem(localStorageKey);
-    }
-    return ipcRenderer.invoke('set-setting', key, value);
-  },
+  getSettings: () => ipcRenderer.invoke('get-settings'),
+  saveSettings: (settings: unknown) => ipcRenderer.invoke('save-settings', settings),
   getSecretKey: () => ipcRenderer.invoke('get-secret-key'),
   getGoosedHostPort: () => ipcRenderer.invoke('get-goosed-host-port'),
   setWakelock: (enable: boolean) => ipcRenderer.invoke('set-wakelock', enable),
@@ -274,12 +228,7 @@ const electronAPI: ElectronAPI = {
   emit: (channel: string, ...args: unknown[]) => {
     ipcRenderer.emit(channel, ...args);
   },
-  broadcastThemeChange: (themeData: {
-    mode: string;
-    useSystemTheme: boolean;
-    theme: string;
-    tokensUpdated?: boolean;
-  }) => {
+  broadcastThemeChange: (themeData: { mode: string; useSystemTheme: boolean; theme: string }) => {
     ipcRenderer.send('broadcast-theme-change', themeData);
   },
   openExternal: (url: string): Promise<void> => {

@@ -374,6 +374,7 @@ pub fn delete_pipeline(id: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     fn sample_yaml() -> &'static str {
         r#"
@@ -555,6 +556,7 @@ edges:
     }
 
     #[test]
+    #[serial]
     fn file_crud_operations() {
         // Use temp dir via GOOSE_PATH_ROOT
         let tmp = tempfile::tempdir().unwrap();
@@ -596,6 +598,7 @@ edges:
     }
 
     #[test]
+    #[serial]
     fn save_preserves_created_at_on_update() {
         let tmp = tempfile::tempdir().unwrap();
         std::env::set_var("GOOSE_PATH_ROOT", tmp.path());

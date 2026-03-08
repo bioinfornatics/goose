@@ -11,6 +11,7 @@ pub static APP_STRATEGY: Lazy<AppStrategyArgs> = Lazy::new(|| AppStrategyArgs {
 
 pub mod autovisualiser;
 pub mod computercontroller;
+pub mod developer;
 pub mod mcp_server_runner;
 mod memory;
 #[cfg(target_os = "macos")]
@@ -20,6 +21,7 @@ pub mod tutorial;
 
 pub use autovisualiser::AutoVisualiserRouter;
 pub use computercontroller::ComputerControllerServer;
+pub use developer::rmcp_developer::DeveloperServer;
 pub use memory::MemoryServer;
 pub use tutorial::TutorialServer;
 
@@ -56,6 +58,7 @@ pub static BUILTIN_EXTENSIONS: Lazy<HashMap<&'static str, SpawnServerFn>> = Lazy
     HashMap::from([
         builtin!(autovisualiser, AutoVisualiserRouter),
         builtin!(computercontroller, ComputerControllerServer),
+        builtin!(developer, DeveloperServer),
         builtin!(memory, MemoryServer),
         builtin!(tutorial, TutorialServer),
     ])

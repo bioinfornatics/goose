@@ -118,11 +118,11 @@ pub async fn create_pipeline(
     Json(req): Json<SavePipelineRequest>,
 ) -> Result<(StatusCode, Json<SavePipelineResponse>), (StatusCode, Json<PipelineErrorResponse>)> {
     let mut pipeline = req.pipeline;
-    if let Err(e) = pipeline.validate() {
+    if pipeline.name.trim().is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(PipelineErrorResponse {
-                error: e.to_string(),
+                error: "pipeline name is required".to_string(),
             }),
         ));
     }
@@ -158,7 +158,6 @@ pub async fn update_pipeline(
     Path(id): Path<String>,
     Json(req): Json<SavePipelineRequest>,
 ) -> Result<Json<SavePipelineResponse>, (StatusCode, Json<PipelineErrorResponse>)> {
-    // Verify the pipeline exists
     if let Err(e) = fs_get(&id) {
         return Err((
             StatusCode::NOT_FOUND,
@@ -168,11 +167,11 @@ pub async fn update_pipeline(
         ));
     }
     let mut pipeline = req.pipeline;
-    if let Err(e) = pipeline.validate() {
+    if pipeline.name.trim().is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(PipelineErrorResponse {
-                error: e.to_string(),
+                error: "pipeline name is required".to_string(),
             }),
         ));
     }

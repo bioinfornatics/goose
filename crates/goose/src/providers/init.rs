@@ -12,6 +12,7 @@ use super::{
     anthropic::AnthropicProvider,
     avian::AvianProvider,
     azure::AzureProvider,
+    azure_foundry::AzureFoundryProvider,
     base::{Provider, ProviderMetadata},
     chatgpt_codex::ChatGptCodexProvider,
     claude_acp::ClaudeAcpProvider,
@@ -67,6 +68,7 @@ async fn init_registry() -> RwLock<ProviderRegistry> {
         );
         registry.register::<AvianProvider>(false);
         registry.register::<AzureProvider>(false);
+        registry.register::<AzureFoundryProvider>(true);
         #[cfg(feature = "aws-providers")]
         registry.register::<BedrockProvider>(false);
         #[cfg(feature = "local-inference")]
@@ -313,6 +315,34 @@ mod tests {
             .expect("TANZU_AI_ENDPOINT config key should exist");
         assert!(endpoint.required, "Endpoint should be required");
         assert!(!endpoint.secret, "Endpoint should not be secret");
+    }
+
+    #[tokio::test]
+    async fn test_azure_foundry_provider_registry_wiring() {
+        let foundry = get_from_registry("azure_foundry")
+            .await
+            .expect("azure_foundry provider should be registered");
+        let meta = foundry.metadata();
+
+        assert_eq!(foundry.provider_type(), ProviderType::Preferred);
+        assert_eq!(meta.display_name, "Azure AI Foundry");
+        assert_eq!(meta.default_model, "Phi-4");
+
+        let endpoint = meta
+            .config_keys
+            .iter()
+            .find(|k| k.name == "AZURE_FOUNDRY_ENDPOINT")
+            .expect("AZURE_FOUNDRY_ENDPOINT config key should exist");
+        assert!(endpoint.required);
+        assert!(!endpoint.secret);
+
+        let api_key = meta
+            .config_keys
+            .iter()
+            .find(|k| k.name == "AZURE_FOUNDRY_API_KEY")
+            .expect("AZURE_FOUNDRY_API_KEY config key should exist");
+        assert!(!api_key.required);
+        assert!(api_key.secret);
     }
 
     #[tokio::test]

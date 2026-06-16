@@ -60,6 +60,7 @@ struct TokenResponse {
 pub struct AzureAuth {
     credentials: AzureCredentials,
     cached_token: Arc<RwLock<Option<CachedToken>>>,
+    resource: String,
 }
 
 impl AzureAuth {
@@ -82,6 +83,25 @@ impl AzureAuth {
         Ok(Self {
             credentials,
             cached_token: Arc::new(RwLock::new(None)),
+            resource: "https://cognitiveservices.azure.com".to_string(),
+        })
+    }
+
+    /// Creates a new Azure authentication handler targeting a specific Entra ID resource scope.
+    ///
+    /// Use this variant when connecting to endpoints that require a non-default resource
+    /// scope — for example, Azure AI Foundry serverless (MaaS) endpoints use
+    /// `https://ml.azure.com` instead of the default Cognitive Services scope.
+    pub fn new_with_resource(api_key: Option<String>, resource: String) -> Result<Self, AuthError> {
+        let credentials = match api_key {
+            Some(key) => AzureCredentials::ApiKey(key),
+            None => AzureCredentials::DefaultCredential,
+        };
+
+        Ok(Self {
+            credentials,
+            cached_token: Arc::new(RwLock::new(None)),
+            resource,
         })
     }
 
@@ -141,7 +161,7 @@ impl AzureAuth {
                 "account",
                 "get-access-token",
                 "--resource",
-                "https://cognitiveservices.azure.com",
+                self.resource.as_str(),
             ])
             .set_no_window()
             .output()

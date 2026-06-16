@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "goose",
+  "project_id": "78f7045a-06ed-443a-a0d3-0a748de48d14"
+}

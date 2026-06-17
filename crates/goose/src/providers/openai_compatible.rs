@@ -14,7 +14,7 @@ use tokio_util::io::StreamReader;
 
 use super::api_client::ApiClient;
 use super::base::{stream_from_single_message, MessageStream, Provider};
-use super::retry::ProviderRetry;
+use super::retry::{ProviderRetry, RetryConfig};
 use super::utils::RequestLog;
 use crate::conversation::message::Message;
 use crate::providers::formats::openai_responses::responses_api_to_streaming_message;
@@ -33,6 +33,7 @@ pub struct OpenAiCompatibleProvider {
     /// Path prefix prepended to `chat/completions` (e.g. `"deployments/{name}/"` for Azure).
     completions_prefix: String,
     supports_streaming: bool,
+    retry_config: RetryConfig,
 }
 
 impl OpenAiCompatibleProvider {
@@ -48,11 +49,18 @@ impl OpenAiCompatibleProvider {
             model,
             completions_prefix,
             supports_streaming: true,
+            retry_config: RetryConfig::default(),
         }
     }
 
     pub fn with_supports_streaming(mut self, supports_streaming: bool) -> Self {
         self.supports_streaming = supports_streaming;
+        self
+    }
+
+    #[cfg(test)]
+    pub fn with_no_retries(mut self) -> Self {
+        self.retry_config = RetryConfig::new(0, 0, 1.0, 0);
         self
     }
 
@@ -84,6 +92,10 @@ impl Provider for OpenAiCompatibleProvider {
 
     fn get_model_config(&self) -> ModelConfig {
         self.model.clone()
+    }
+
+    fn retry_config(&self) -> RetryConfig {
+        self.retry_config.clone()
     }
 
     async fn fetch_supported_models(&self) -> Result<Vec<String>, ProviderError> {

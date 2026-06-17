@@ -161,6 +161,7 @@ impl ProviderTestConfig {
         self
     }
 
+    #[allow(dead_code)]
     fn clear_env(mut self, vars: &'static [&'static str]) -> Self {
         self.clear_env = vars;
         self

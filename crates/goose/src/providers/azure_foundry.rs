@@ -300,7 +300,10 @@ mod tests {
             .mount(&server)
             .await;
 
-        let provider = make_provider(&server.uri());
+        // with_no_retries() avoids the 90 s sleep (3 retries × Retry-After: 30 s).
+        // The parsed retry_delay is still returned in the error variant so we can
+        // assert it was correctly extracted from the response header.
+        let provider = make_provider(&server.uri()).with_no_retries();
         let model = ModelConfig::new_or_fail("Phi-4");
         let err = provider
             .complete(&model, "s", "", &[], &[])
@@ -308,8 +311,14 @@ mod tests {
             .expect_err("429 should be an error");
 
         assert!(
-            matches!(err, ProviderError::RateLimitExceeded { .. }),
-            "expected RateLimitExceeded, got {err:?}"
+            matches!(
+                err,
+                ProviderError::RateLimitExceeded {
+                    retry_delay: Some(d),
+                    ..
+                } if d == std::time::Duration::from_secs(30)
+            ),
+            "expected RateLimitExceeded with retry_delay=30s, got {err:?}"
         );
     }
 
@@ -322,7 +331,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let provider = make_provider(&server.uri());
+        let provider = make_provider(&server.uri()).with_no_retries();
         let model = ModelConfig::new_or_fail("Phi-4");
         let err = provider
             .complete(&model, "s", "", &[], &[])
@@ -344,7 +353,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let provider = make_provider(&server.uri());
+        let provider = make_provider(&server.uri()).with_no_retries();
         let model = ModelConfig::new_or_fail("Phi-4");
         let err = provider
             .complete(&model, "s", "", &[], &[])
@@ -354,6 +363,54 @@ mod tests {
         assert!(
             matches!(err, ProviderError::RequestFailed(_)),
             "expected RequestFailed, got {err:?}"
+        );
+    }
+
+    // ── SSE error handling ────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_malformed_sse_chunk_returns_network_error() {
+        let server = MockServer::start().await;
+        // First line is valid SSE so the HTTP layer returns 200; second line is
+        // invalid JSON to trigger a stream-decode error.
+        let bad_body = "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"model\":\"Phi-4\",\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"Hi\"},\"index\":0}]}\n\ndata: NOT_JSON\n\ndata: [DONE]\n\n";
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string(bad_body)
+                    .append_header("content-type", "text/event-stream"),
+            )
+            .mount(&server)
+            .await;
+
+        let provider = make_provider(&server.uri());
+        let model = ModelConfig::new_or_fail("Phi-4");
+        let err = provider
+            .complete(&model, "s", "", &[], &[])
+            .await
+            .expect_err("malformed SSE chunk should be an error");
+
+        assert!(
+            matches!(err, ProviderError::NetworkError(_)),
+            "expected NetworkError for malformed SSE, got {err:?}"
+        );
+    }
+
+    // ── config validation ─────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_missing_endpoint_from_env_returns_err() {
+        // If the developer already has AZURE_FOUNDRY_ENDPOINT configured in their
+        // environment we cannot test the "missing" path — skip gracefully.
+        if std::env::var("AZURE_FOUNDRY_ENDPOINT").is_ok() {
+            return;
+        }
+        let model = ModelConfig::new_or_fail("Phi-4");
+        let result = AzureFoundryProvider::from_env(model, vec![]).await;
+        assert!(
+            result.is_err(),
+            "from_env should fail when AZURE_FOUNDRY_ENDPOINT is not configured"
         );
     }
 

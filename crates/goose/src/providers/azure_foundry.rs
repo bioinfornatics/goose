@@ -45,7 +45,7 @@ impl AuthProvider for AzureFoundryAuthProvider {
 
         match self.auth.credential_type() {
             AzureCredentials::ApiKey(_) => Ok(("api-key".to_string(), auth_token.token_value)),
-            AzureCredentials::DefaultCredential => Ok((
+            AzureCredentials::BearerToken(_) | AzureCredentials::DefaultCredential => Ok((
                 "Authorization".to_string(),
                 format!("Bearer {}", auth_token.token_value),
             )),

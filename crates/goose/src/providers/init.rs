@@ -68,7 +68,10 @@ async fn init_registry() -> RwLock<ProviderRegistry> {
         );
         registry.register::<AvianProvider>(false);
         registry.register::<AzureProvider>(false);
-        registry.register::<AzureFoundryProvider>(true);
+        registry.register_with_inventory::<AzureFoundryProvider>(
+            true,
+            Some(registrations::azure_foundry_inventory()),
+        );
         #[cfg(feature = "aws-providers")]
         registry.register::<BedrockProvider>(false);
         #[cfg(feature = "local-inference")]
@@ -355,10 +358,11 @@ mod tests {
         assert_eq!(huggingface.provider_type(), ProviderType::Preferred);
         assert_eq!(meta.display_name, "Hugging Face");
         assert_eq!(meta.default_model, "Qwen/Qwen3-Coder-480B-A35B-Instruct");
-        assert!(meta
-            .config_keys
-            .iter()
-            .any(|key| key.name == "HF_TOKEN" && key.secret));
+        assert!(
+            meta.config_keys
+                .iter()
+                .any(|key| key.name == "HF_TOKEN" && key.secret)
+        );
     }
 
     #[tokio::test]

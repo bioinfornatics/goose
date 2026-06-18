@@ -31,22 +31,10 @@ struct AzureAuthProvider {
 #[async_trait]
 impl AuthProvider for AzureAuthProvider {
     async fn get_auth_header(&self) -> Result<(String, String)> {
-        let auth_token = self
-            .auth
-            .get_token()
+        self.auth
+            .auth_header()
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to get authentication token: {}", e))?;
-
-        match self.auth.credential_type() {
-            super::azureauth::AzureCredentials::ApiKey(_) => {
-                Ok(("api-key".to_string(), auth_token.token_value))
-            }
-            super::azureauth::AzureCredentials::BearerToken(_)
-            | super::azureauth::AzureCredentials::DefaultCredential => Ok((
-                "Authorization".to_string(),
-                format!("Bearer {}", auth_token.token_value),
-            )),
-        }
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 }
 

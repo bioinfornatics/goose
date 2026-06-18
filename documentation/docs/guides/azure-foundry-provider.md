@@ -39,7 +39,6 @@ Both formats are supported. Use whichever URL appears on your deployment's detai
 |----------|----------|-------------|
 | `AZURE_FOUNDRY_ENDPOINT` | **Yes** | Full URL of the MaaS endpoint, e.g. `https://my-phi4.models.ai.azure.com` |
 | `AZURE_FOUNDRY_API_KEY` | No | API key from the endpoint's deployment page; omit to use Entra ID (`DefaultAzureCredential`) |
-| `AZURE_FOUNDRY_DEPLOYMENT` | No | Override the model name sent in the request body; useful when the local alias differs from the deployment name |
 | `AZURE_FOUNDRY_API_VERSION` | No | API version query parameter; not required for MaaS endpoints (leave unset) |
 
 ## Step 2: Authentication

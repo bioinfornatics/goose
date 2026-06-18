@@ -110,6 +110,27 @@ impl AzureAuth {
         &self.credentials
     }
 
+    /// Returns the authentication header `(header_name, header_value)` for the
+    /// current credential type. Centralises the `AzureCredentials` → header
+    /// mapping so callers never need to duplicate it.
+    pub async fn auth_header(&self) -> Result<(String, String), AuthError> {
+        let token = self.get_token().await?;
+        Ok(match &self.credentials {
+            AzureCredentials::ApiKey(_) => ("api-key".to_string(), token.token_value),
+            AzureCredentials::BearerToken(_) | AzureCredentials::DefaultCredential => (
+                "Authorization".to_string(),
+                format!("Bearer {}", token.token_value),
+            ),
+        })
+    }
+
+    /// Invalidates the cached Entra ID token, forcing a fresh acquisition on the
+    /// next call to [`get_token`]. No-op for `ApiKey` and `BearerToken` credentials
+    /// (they have no cache to invalidate).
+    pub async fn invalidate_token(&self) {
+        *self.cached_token.write().await = None;
+    }
+
     /// Retrieves a valid authentication token.
     ///
     /// This method implements an efficient token management strategy:

@@ -1,22 +1,25 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use anyhow::Result;
+use anyhow::{Error, Result};
+use async_stream::try_stream;
 use async_trait::async_trait;
-use futures::future::BoxFuture;
-use reqwest::StatusCode;
+use futures::{TryStreamExt, future::BoxFuture};
+use reqwest::{Response, StatusCode};
+use tokio::pin;
+use tokio_stream::StreamExt;
+use tokio_util::codec::{FramedRead, LinesCodec};
+use tokio_util::io::StreamReader;
 
 use super::api_client::{ApiClient, AuthMethod, AuthProvider};
-use super::azureauth::{AuthError, AzureAuth, AzureCredentials};
+use super::azureauth::{AzureAuth, AzureCredentials};
 use super::base::{ConfigKey, MessageStream, Provider, ProviderDef, ProviderMetadata};
-use super::openai_compatible::{
-    handle_status, stream_anthropic_compat, stream_responses_compat, OpenAiCompatibleProvider,
-};
+use super::openai_compatible::{OpenAiCompatibleProvider, handle_status, stream_responses_compat};
 use super::retry::{ProviderRetry, RetryConfig};
 use crate::conversation::message::Message;
-use crate::model::ModelConfig;
+use goose_providers::model::ModelConfig;
 use crate::providers::formats::anthropic::{
-    create_request_with_options_for_provider as create_anthropic_request, AnthropicFormatOptions,
+    AnthropicFormatOptions, create_request_with_options_for_provider as create_anthropic_request,
 };
 use crate::providers::formats::openai_responses::create_responses_request;
 use crate::providers::utils::RequestLog;
@@ -114,6 +117,10 @@ pub struct AzureFoundryActualProvider {
     /// Falls back to [`ModelPublisher::from_model_name`] when the cache is empty
     /// (before first model fetch, MaaS endpoint, or offline mode).
     deployment_cache: Arc<Mutex<HashMap<String, ModelPublisher>>>,
+    /// Shared HTTP client for the management plane (`GET /deployments`). Stored
+    /// so the connection pool and TLS configuration are reused across successive
+    /// list calls rather than creating a new raw client on every invocation.
+    deployments_client: ApiClient,
 }
 
 // ── Auth adapter ──────────────────────────────────────────────────────────────
@@ -125,19 +132,10 @@ struct AzureFoundryAuthProvider {
 #[async_trait]
 impl AuthProvider for AzureFoundryAuthProvider {
     async fn get_auth_header(&self) -> Result<(String, String)> {
-        let auth_token = self
-            .auth
-            .get_token()
+        self.auth
+            .auth_header()
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to get authentication token: {}", e))?;
-
-        match self.auth.credential_type() {
-            AzureCredentials::ApiKey(_) => Ok(("api-key".to_string(), auth_token.token_value)),
-            AzureCredentials::BearerToken(_) | AzureCredentials::DefaultCredential => Ok((
-                "Authorization".to_string(),
-                format!("Bearer {}", auth_token.token_value),
-            )),
-        }
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 }
 
@@ -150,40 +148,25 @@ impl AzureFoundryActualProvider {
     async fn fetch_deployments_and_publishers(
         &self,
     ) -> Result<(Vec<String>, HashMap<String, ModelPublisher>), ProviderError> {
-        let auth_token = self
-            .auth
-            .get_token()
-            .await
-            .map_err(|e| ProviderError::Authentication(e.to_string()))?;
-
-        let (header_name, header_value) = match self.auth.credential_type() {
-            AzureCredentials::ApiKey(_) => ("api-key".to_string(), auth_token.token_value),
-            AzureCredentials::BearerToken(_) | AzureCredentials::DefaultCredential => (
-                "Authorization".to_string(),
-                format!("Bearer {}", auth_token.token_value),
-            ),
-        };
-
-        let base = self.endpoint.trim_end_matches('/');
         let effective_api_version = self
             .api_version
             .as_deref()
             .or_else(|| is_project_endpoint(&self.endpoint).then_some("v1"));
-        let first_url = match effective_api_version {
-            Some(v) => format!("{}/deployments?api-version={}", base, v),
-            None => format!("{}/deployments", base),
+        let first_path = match effective_api_version {
+            Some(v) => format!("deployments?api-version={}", v),
+            None => "deployments".to_string(),
         };
 
-        let client = reqwest::Client::new();
         let mut names: Vec<String> = Vec::new();
         let mut publishers: HashMap<String, ModelPublisher> = HashMap::new();
-        let mut next_url: Option<String> = Some(first_url);
+        // Successive pages are fetched by passing the absolute `nextLink` URL as
+        // the path; `ApiClient::build_url` treats absolute URLs as-is (RFC 3986).
+        let mut next_path: Option<String> = Some(first_path);
 
-        while let Some(url) = next_url {
-            let response = client
-                .get(&url)
-                .header(header_name.as_str(), header_value.as_str())
-                .send()
+        while let Some(path) = next_path {
+            let response = self
+                .deployments_client
+                .response_get(None, &path)
                 .await
                 .map_err(|e| ProviderError::NetworkError(e.to_string()))?;
 
@@ -218,7 +201,7 @@ impl AzureFoundryActualProvider {
                 }
             }
 
-            next_url = json
+            next_path = json
                 .get("nextLink")
                 .and_then(|v| v.as_str())
                 .map(str::to_string);
@@ -252,6 +235,11 @@ impl Provider for AzureFoundryActualProvider {
 
     fn retry_config(&self) -> RetryConfig {
         Provider::retry_config(&self.inner)
+    }
+
+    async fn refresh_credentials(&self) -> Result<(), ProviderError> {
+        self.auth.invalidate_token().await;
+        Ok(())
     }
 
     /// Azure Foundry deployment names are free text (e.g. `"claude-sonnet-4-6"`,
@@ -309,9 +297,17 @@ impl Provider for AzureFoundryActualProvider {
         let publisher = self
             .deployment_cache
             .lock()
+            // A poisoned lock means another thread panicked while updating the cache;
+            // fall back to heuristic routing rather than propagating the panic.
             .ok()
             .and_then(|cache| cache.get(&model_config.model_name).copied())
             .unwrap_or_else(|| ModelPublisher::from_model_name(&model_config.model_name));
+
+        tracing::debug!(
+            model = %model_config.model_name,
+            publisher = ?publisher,
+            "azure_foundry routing decision"
+        );
 
         // Three-branch routing based on publisher:
         //
@@ -363,12 +359,11 @@ impl AzureFoundryActualProvider {
         messages: &[Message],
         tools: &[Tool],
     ) -> Result<MessageStream, ProviderError> {
-        let Some(ref anthropic_client) = self.anthropic_client else {
-            return self
-                .inner
-                .stream(model_config, session_id, system, messages, tools)
-                .await;
-        };
+        // Caller in `stream()` already verified `self.anthropic_client.is_some()`.
+        let anthropic_client = self
+            .anthropic_client
+            .as_ref()
+            .expect("stream_via_anthropic requires anthropic_client; caller must check is_some()");
 
         let mut payload = create_anthropic_request(
             AZURE_FOUNDRY_PROVIDER_NAME,
@@ -417,12 +412,11 @@ impl AzureFoundryActualProvider {
         messages: &[Message],
         tools: &[Tool],
     ) -> Result<MessageStream, ProviderError> {
-        let Some(ref responses_client) = self.responses_client else {
-            return self
-                .inner
-                .stream(model_config, session_id, system, messages, tools)
-                .await;
-        };
+        // Caller in `stream()` already verified `self.responses_client.is_some()`.
+        let responses_client = self
+            .responses_client
+            .as_ref()
+            .expect("stream_via_responses requires responses_client; caller must check is_some()");
 
         let mut payload = create_responses_request(model_config, system, messages, tools)
             .map_err(|e| ProviderError::RequestFailed(e.to_string()))?;
@@ -458,12 +452,21 @@ impl AzureFoundryActualProvider {
 /// routed to the Responses API.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelPublisher {
+    /// OpenAI models (gpt-*, o-series). The open-world default: unknown or
+    /// future models resolve to this variant and are routed to the Responses API.
     OpenAI,
+    /// Anthropic Claude models. Routed to `/anthropic/v1/messages` on project
+    /// endpoints to preserve prompt caching and extended thinking.
     Anthropic,
+    /// Meta Llama models. Routed via OpenAI-compatible `chat/completions`.
     Meta,
+    /// Microsoft Phi models. Routed via OpenAI-compatible `chat/completions`.
     Microsoft,
+    /// Mistral AI models. Routed via OpenAI-compatible `chat/completions`.
     Mistral,
+    /// Cohere Command models. Routed via OpenAI-compatible `chat/completions`.
     Cohere,
+    /// AI21 Jamba models. Routed via OpenAI-compatible `chat/completions`.
     AI21,
     /// Zhipu AI GLM models.
     ///
@@ -594,7 +597,6 @@ impl ProviderDef for AzureFoundryProvider {
             AZURE_FOUNDRY_DOC_URL,
             vec![
                 ConfigKey::new("AZURE_FOUNDRY_ENDPOINT", true, false, None, true),
-
                 ConfigKey::new("AZURE_FOUNDRY_API_KEY", false, true, Some(""), true),
                 ConfigKey::new("AZURE_FOUNDRY_API_VERSION", false, false, None, false),
             ],
@@ -627,14 +629,8 @@ impl ProviderDef for AzureFoundryProvider {
             };
 
             let auth = Arc::new(
-                AzureAuth::new_with_resource(api_key, entra_resource).map_err(|e| match e {
-                    AuthError::Credentials(msg) => {
-                        anyhow::anyhow!("Credentials error: {}", msg)
-                    }
-                    AuthError::TokenExchange(msg) => {
-                        anyhow::anyhow!("Token exchange error: {}", msg)
-                    }
-                })?,
+                AzureAuth::new_with_resource(api_key, entra_resource)
+                    .map_err(anyhow::Error::from)?,
             );
 
             let auth_provider = AzureFoundryAuthProvider {
@@ -742,6 +738,17 @@ impl ProviderDef for AzureFoundryProvider {
             // Keeping startup free of network calls ensures fast provider initialization.
             let deployment_cache = Arc::new(Mutex::new(HashMap::new()));
 
+            // Dedicated client for the management plane (GET /deployments).
+            // Uses the same base endpoint and auth as the inference clients so
+            // that TLS config, connection pooling, and auth injection are shared.
+            let auth_deploy = AzureFoundryAuthProvider {
+                auth: Arc::clone(&auth),
+            };
+            let deployments_client = ApiClient::new(
+                project_host.clone(),
+                AuthMethod::Custom(Box::new(auth_deploy)),
+            )?;
+
             Ok(AzureFoundryActualProvider {
                 inner,
                 responses_client,
@@ -752,9 +759,42 @@ impl ProviderDef for AzureFoundryProvider {
                 api_version,
                 auth,
                 deployment_cache,
+                deployments_client,
             })
         })
     }
+}
+
+// ── Anthropic SSE decoder ─────────────────────────────────────────────────────
+
+/// Decodes an Anthropic `v1/messages` streaming response into a [`MessageStream`].
+///
+/// Uses the Anthropic `content_block_start / content_block_delta / message_stop` SSE
+/// format.  Defined here (not in `openai_compatible`) because only this provider calls it.
+fn stream_anthropic_compat(
+    response: Response,
+    mut log: RequestLog,
+) -> Result<MessageStream, ProviderError> {
+    use crate::providers::formats::anthropic::response_to_streaming_message as anthropic_stream;
+
+    let stream = response.bytes_stream().map_err(std::io::Error::other);
+
+    Ok(Box::pin(try_stream! {
+        let stream_reader = StreamReader::new(stream);
+        let framed = FramedRead::new(stream_reader, LinesCodec::new())
+            .map_err(Error::from);
+
+        let message_stream = anthropic_stream(framed);
+        pin!(message_stream);
+        while let Some(message) = message_stream.next().await {
+            let (message, usage) = message.map_err(|e|
+                e.downcast::<ProviderError>()
+                    .unwrap_or_else(ProviderError::stream_decode_error)
+            )?;
+            log.write(&message, usage.as_ref().map(|f| f.usage).as_ref())?;
+            yield (message, usage);
+        }
+    }))
 }
 
 #[cfg(test)]
@@ -954,6 +994,7 @@ mod tests {
             api_version: None,
             auth,
             deployment_cache: Arc::new(Mutex::new(HashMap::new())),
+            deployments_client: ApiClient::new(server.uri(), AuthMethod::NoAuth).unwrap(),
         };
 
         let models = provider
@@ -1006,6 +1047,7 @@ mod tests {
             api_version: None,
             auth,
             deployment_cache: Arc::new(Mutex::new(HashMap::new())),
+            deployments_client: ApiClient::new(server.uri(), AuthMethod::NoAuth).unwrap(),
         };
 
         let _ = page2_url; // used in mock setup above
@@ -1045,6 +1087,7 @@ mod tests {
             api_version: None,
             auth,
             deployment_cache: Arc::new(Mutex::new(HashMap::new())),
+            deployments_client: ApiClient::new(server.uri(), AuthMethod::NoAuth).unwrap(),
         };
 
         let models = provider
@@ -1086,6 +1129,7 @@ mod tests {
             api_version: Some("2025-01-01".to_string()),
             auth,
             deployment_cache: Arc::new(Mutex::new(HashMap::new())),
+            deployments_client: ApiClient::new(server.uri(), AuthMethod::NoAuth).unwrap(),
         };
 
         let models = provider
@@ -1602,7 +1646,9 @@ mod tests {
         let block_stop = r#"data: {"type":"content_block_stop","index":0}"#;
         let msg_delta = r#"data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":1}}"#;
         let msg_stop = r#"data: {"type":"message_stop"}"#;
-        format!("{message_start}\n\n{block_start}\n\n{delta}\n\n{block_stop}\n\n{msg_delta}\n\n{msg_stop}\n\n")
+        format!(
+            "{message_start}\n\n{block_start}\n\n{delta}\n\n{block_stop}\n\n{msg_delta}\n\n{msg_stop}\n\n"
+        )
     }
 
     #[tokio::test]
@@ -1711,6 +1757,55 @@ mod tests {
         format!("{created}\n\n{delta}\n\n{completed}\n\n{done}\n\n")
     }
 
+    #[tokio::test]
+    async fn test_anthropic_streaming_parses_sse_correctly() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/anthropic/v1/messages"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string(sse_anthropic_body())
+                    .append_header("content-type", "text/event-stream"),
+            )
+            .mount(&server)
+            .await;
+
+        let provider = make_project_azure_foundry_provider(&server.uri());
+        let model = ModelConfig::new_or_fail("claude-haiku-3-5");
+        let (msg, usage) = provider
+            .complete(&model, "test-session", "You are helpful.", &[], &[])
+            .await
+            .expect("Anthropic streaming should parse SSE correctly");
+
+        let text = msg.as_concat_text();
+        assert!(text.contains("Hello"), "got: {text}");
+        assert_eq!(usage.usage.output_tokens, Some(1));
+    }
+
+    #[tokio::test]
+    async fn test_responses_api_streaming_parses_sse_correctly() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/openai/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string(sse_responses_body())
+                    .append_header("content-type", "text/event-stream"),
+            )
+            .mount(&server)
+            .await;
+
+        let provider = make_project_azure_foundry_provider(&server.uri());
+        let model = ModelConfig::new_or_fail("o3");
+        let (msg, _usage) = provider
+            .complete(&model, "test-session", "You are helpful.", &[], &[])
+            .await
+            .expect("Responses API streaming should parse SSE correctly");
+
+        let text = msg.as_concat_text();
+        assert!(text.contains("Hello"), "got: {text}");
+    }
+
     /// Builds an `AzureFoundryActualProvider` configured for a PROJECT endpoint.
     ///
     /// Both the `inner` (chat/completions) and `responses_client` point at
@@ -1741,6 +1836,7 @@ mod tests {
             api_version: None,
             auth,
             deployment_cache: Arc::new(Mutex::new(HashMap::new())),
+            deployments_client: ApiClient::new(server_uri.to_string(), AuthMethod::NoAuth).unwrap(),
         }
     }
 
@@ -1772,6 +1868,7 @@ mod tests {
             api_version: None,
             auth,
             deployment_cache: Arc::new(Mutex::new(HashMap::new())),
+            deployments_client: ApiClient::new(server_uri.to_string(), AuthMethod::NoAuth).unwrap(),
         }
     }
 }

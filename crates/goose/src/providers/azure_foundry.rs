@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -107,14 +107,13 @@ pub struct AzureFoundryActualProvider {
     auth: Arc<AzureAuth>,
     /// Maps **deployment name** (user-defined free text) → [`ModelPublisher`].
     ///
-    /// Built eagerly at startup by querying `GET {endpoint}/deployments`, which
-    /// returns the authoritative `modelPublisher` field from Azure.  This is the
-    /// only reliable way to determine the API format for a deployment whose name
-    /// does not follow any predictable pattern (e.g. `"my-prod-llm"`).
+    /// Populated lazily on the first call to `fetch_supported_models()` by
+    /// querying `GET {endpoint}/deployments`, which returns the authoritative
+    /// `modelPublisher` field from Azure regardless of the user-defined name.
     ///
     /// Falls back to [`ModelPublisher::from_model_name`] when the cache is empty
-    /// (startup failure, MaaS endpoint, or offline mode).
-    deployment_cache: HashMap<String, ModelPublisher>,
+    /// (before first model fetch, MaaS endpoint, or offline mode).
+    deployment_cache: Arc<Mutex<HashMap<String, ModelPublisher>>>,
 }
 
 // ── Auth adapter ──────────────────────────────────────────────────────────────
@@ -142,96 +141,15 @@ impl AuthProvider for AzureFoundryAuthProvider {
     }
 }
 
-// ── Deployment publisher cache ────────────────────────────────────────────────
-
-/// Query `GET {endpoint}/deployments` and return a map of
-/// **deployment name → [`ModelPublisher`]** built from the authoritative
-/// `modelPublisher` field returned by Azure.
-///
-/// The deployment name is what the user sets in their goose configuration
-/// (free text, e.g. `"my-prod-llm"`).  The `modelPublisher` value
-/// (e.g. `"Anthropic"`) is set by Azure and is independent of the name.
-///
-/// Returns an empty map on any error so callers can fall back gracefully.
-async fn build_deployment_cache(
-    endpoint: &str,
-    auth: &AzureAuth,
-    api_version: Option<&str>,
-) -> HashMap<String, ModelPublisher> {
-    let auth_token = match auth.get_token().await {
-        Ok(t) => t,
-        Err(_) => return HashMap::new(),
-    };
-
-    let (header_name, header_value) = match auth.credential_type() {
-        AzureCredentials::ApiKey(_) => ("api-key".to_string(), auth_token.token_value),
-        AzureCredentials::BearerToken(_) | AzureCredentials::DefaultCredential => (
-            "Authorization".to_string(),
-            format!("Bearer {}", auth_token.token_value),
-        ),
-    };
-
-    let base = endpoint.trim_end_matches('/');
-    let effective_version = api_version.or_else(|| is_project_endpoint(endpoint).then_some("v1"));
-    let first_url = match effective_version {
-        Some(v) => format!("{base}/deployments?api-version={v}"),
-        None => format!("{base}/deployments"),
-    };
-
-    let client = reqwest::Client::new();
-    let mut cache: HashMap<String, ModelPublisher> = HashMap::new();
-    let mut next_url: Option<String> = Some(first_url);
-
-    while let Some(url) = next_url {
-        let Ok(response) = client
-            .get(&url)
-            .header(header_name.as_str(), header_value.as_str())
-            .send()
-            .await
-        else {
-            break;
-        };
-
-        if !response.status().is_success() {
-            break;
-        }
-
-        let Ok(json) = response.json::<serde_json::Value>().await else {
-            break;
-        };
-
-        if let Some(items) = json.get("value").and_then(|v| v.as_array()) {
-            for item in items {
-                // `name` is the user-defined deployment name.
-                let Some(name) = item.get("name").and_then(|v| v.as_str()) else {
-                    continue;
-                };
-                // `modelPublisher` is set by Azure — the authoritative source.
-                let publisher = item
-                    .get("modelPublisher")
-                    .and_then(|v| v.as_str())
-                    .map(ModelPublisher::from_publisher_str)
-                    .unwrap_or(ModelPublisher::OpenAI);
-
-                cache.insert(name.to_string(), publisher);
-            }
-        }
-
-        next_url = json
-            .get("nextLink")
-            .and_then(|v| v.as_str())
-            .map(str::to_string);
-    }
-
-    cache
-}
-
 // ── AzureFoundryActualProvider ────────────────────────────────────────────────
 
 impl AzureFoundryActualProvider {
-    /// Fetch all deployment names from `GET {endpoint}/deployments`, following
-    /// `nextLink` pagination until the list is exhausted.
-    async fn fetch_deployments(&self) -> Result<Vec<String>, ProviderError> {
+    /// Queries `GET {endpoint}/deployments` and returns both the list of deployment
+    /// names (for model selection) and a publisher cache (for routing decisions).
+    /// The single network call populates both.
+    async fn fetch_deployments_and_publishers(
+        &self,
+    ) -> Result<(Vec<String>, HashMap<String, ModelPublisher>), ProviderError> {
         let auth_token = self
             .auth
             .get_token()
@@ -247,9 +165,6 @@ impl AzureFoundryActualProvider {
         };
 
         let base = self.endpoint.trim_end_matches('/');
-        // Project endpoints require api-version=v1 (Azure AI Projects REST API).
-        // Use the user-configured version if set; otherwise default to "v1" for
-        // project endpoints and omit for MaaS endpoints.
         let effective_api_version = self
             .api_version
             .as_deref()
@@ -260,7 +175,8 @@ impl AzureFoundryActualProvider {
         };
 
         let client = reqwest::Client::new();
-        let mut models: Vec<String> = Vec::new();
+        let mut names: Vec<String> = Vec::new();
+        let mut publishers: HashMap<String, ModelPublisher> = HashMap::new();
         let mut next_url: Option<String> = Some(first_url);
 
         while let Some(url) = next_url {
@@ -289,14 +205,16 @@ impl AzureFoundryActualProvider {
 
             if let Some(items) = json.get("value").and_then(|v| v.as_array()) {
                 for item in items {
-                    // Use the deployment `name` (user-defined, e.g. "claude-sonnet-4-6")
-                    // as the primary identifier — this is what the user configures in goose
-                    // and what must be passed as the `model` field when calling the API.
-                    // `modelName` is the Azure canonical name and is intentionally ignored
-                    // here: it differs from the deployment name and would confuse users.
-                    if let Some(name) = item.get("name").and_then(|v| v.as_str()) {
-                        models.push(name.to_string());
-                    }
+                    let Some(name) = item.get("name").and_then(|v| v.as_str()) else {
+                        continue;
+                    };
+                    names.push(name.to_string());
+                    let publisher = item
+                        .get("modelPublisher")
+                        .and_then(|v| v.as_str())
+                        .map(ModelPublisher::from_publisher_str)
+                        .unwrap_or(ModelPublisher::OpenAI);
+                    publishers.insert(name.to_string(), publisher);
                 }
             }
 
@@ -306,9 +224,19 @@ impl AzureFoundryActualProvider {
                 .map(str::to_string);
         }
 
-        models.sort();
-        models.dedup();
-        Ok(models)
+        names.sort();
+        names.dedup();
+        Ok((names, publishers))
+    }
+
+    /// Fetch all deployment names from `GET {endpoint}/deployments`.
+    async fn fetch_deployments(&self) -> Result<Vec<String>, ProviderError> {
+        let (names, publishers) = self.fetch_deployments_and_publishers().await?;
+        // Populate the publisher cache as a side-effect of listing deployments.
+        if let Ok(mut cache) = self.deployment_cache.lock() {
+            *cache = publishers;
+        }
+        Ok(names)
     }
 }
 
@@ -380,8 +308,9 @@ impl Provider for AzureFoundryActualProvider {
         //        model name prefix; unreliable for arbitrary deployment names.
         let publisher = self
             .deployment_cache
-            .get(&model_config.model_name)
-            .copied()
+            .lock()
+            .ok()
+            .and_then(|cache| cache.get(&model_config.model_name).copied())
             .unwrap_or_else(|| ModelPublisher::from_model_name(&model_config.model_name));
 
         // Three-branch routing based on publisher:
@@ -815,11 +744,9 @@ impl ProviderDef for AzureFoundryProvider {
                     (None, String::new(), None, String::new())
                 };
 
-            // Build deployment_name → publisher map from GET /deployments.
-            // Authoritative source: Azure returns `modelPublisher` regardless of the
-            // user-defined deployment name. Empty on failure → heuristic fallback.
-            let deployment_cache =
-                build_deployment_cache(&endpoint, &auth, api_version.as_deref()).await;
+            // Publisher cache is populated lazily on first fetch_supported_models() call.
+            // Keeping startup free of network calls ensures fast provider initialization.
+            let deployment_cache = Arc::new(Mutex::new(HashMap::new()));
 
             Ok(AzureFoundryActualProvider {
                 inner,
@@ -1032,7 +959,7 @@ mod tests {
             endpoint: server.uri(),
             api_version: None,
             auth,
-            deployment_cache: HashMap::new(),
+            deployment_cache: Arc::new(Mutex::new(HashMap::new())),
         };
 
         let models = provider
@@ -1084,7 +1011,7 @@ mod tests {
             endpoint: server.uri(),
             api_version: None,
             auth,
-            deployment_cache: HashMap::new(),
+            deployment_cache: Arc::new(Mutex::new(HashMap::new())),
         };
 
         let _ = page2_url; // used in mock setup above
@@ -1123,7 +1050,7 @@ mod tests {
             endpoint: server.uri(),
             api_version: None,
             auth,
-            deployment_cache: HashMap::new(),
+            deployment_cache: Arc::new(Mutex::new(HashMap::new())),
         };
 
         let models = provider
@@ -1164,7 +1091,7 @@ mod tests {
             endpoint: server.uri(),
             api_version: Some("2025-01-01".to_string()),
             auth,
-            deployment_cache: HashMap::new(),
+            deployment_cache: Arc::new(Mutex::new(HashMap::new())),
         };
 
         let models = provider
@@ -1819,7 +1746,7 @@ mod tests {
             endpoint: server_uri.to_string(),
             api_version: None,
             auth,
-            deployment_cache: HashMap::new(),
+            deployment_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -1850,7 +1777,7 @@ mod tests {
             endpoint: server_uri.to_string(),
             api_version: None,
             auth,
-            deployment_cache: HashMap::new(),
+            deployment_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }

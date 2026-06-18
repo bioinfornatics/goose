@@ -594,7 +594,7 @@ impl ProviderDef for AzureFoundryProvider {
             AZURE_FOUNDRY_DOC_URL,
             vec![
                 ConfigKey::new("AZURE_FOUNDRY_ENDPOINT", true, false, None, true),
-                ConfigKey::new("AZURE_FOUNDRY_DEPLOYMENT", false, false, None, false),
+
                 ConfigKey::new("AZURE_FOUNDRY_API_KEY", false, true, Some(""), true),
                 ConfigKey::new("AZURE_FOUNDRY_API_VERSION", false, false, None, false),
             ],
@@ -608,7 +608,7 @@ impl ProviderDef for AzureFoundryProvider {
         Box::pin(async move {
             let config = crate::config::Config::global();
             let endpoint: String = config.get_param("AZURE_FOUNDRY_ENDPOINT")?;
-            let deployment: Option<String> = config.get_param("AZURE_FOUNDRY_DEPLOYMENT").ok();
+
             let api_version: Option<String> = config.get_param("AZURE_FOUNDRY_API_VERSION").ok();
 
             let api_key = config
@@ -661,13 +661,7 @@ impl ProviderDef for AzureFoundryProvider {
                     api_client.with_query(vec![("api-version".to_string(), version.clone())]);
             }
 
-            let effective_model = match deployment {
-                Some(dep) if !dep.is_empty() => ModelConfig {
-                    model_name: dep,
-                    ..model
-                },
-                _ => model,
-            };
+            let effective_model = model;
 
             let inner = OpenAiCompatibleProvider::new(
                 AZURE_FOUNDRY_PROVIDER_NAME.to_string(),

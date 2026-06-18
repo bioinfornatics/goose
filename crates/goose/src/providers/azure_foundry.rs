@@ -31,6 +31,8 @@ const AZURE_FOUNDRY_DOC_URL: &str = "https://learn.microsoft.com/en-us/azure/ai-
 /// Entra ID resource scope for Azure AI Foundry serverless (MaaS) endpoints.
 /// MaaS endpoints (`*.models.ai.azure.com` / `.../models`) use the ML workspace scope.
 const AZURE_FOUNDRY_ENTRA_RESOURCE: &str = "https://ml.azure.com";
+/// Required by the Anthropic Messages API on Azure Foundry (hub-level endpoint).
+const ANTHROPIC_VERSION: &str = "2023-06-01";
 
 /// Project endpoints (`…/api/projects/…`) use the AI Foundry scope.
 /// This matches the scope used by the Azure AI Projects TypeScript SDK:
@@ -786,12 +788,23 @@ impl ProviderDef for AzureFoundryProvider {
                         AuthMethod::Custom(Box::new(auth_resp)),
                     )
                     .ok();
-                    // Anthropic API: hub-level (not project-scoped)
-                    let ac = ApiClient::new(
-                        hub_host.clone(),
-                        AuthMethod::Custom(Box::new(auth_anth)),
-                    )
-                    .ok();
+                    // Anthropic API: hub-level, uses Anthropic wire format.
+                    //
+                    // Auth differs from other Azure Foundry endpoints:
+                    // - API key → `x-api-key` header  (Anthropic convention, not Azure `api-key`)
+                    // - Entra ID → `Authorization: Bearer` (same as other endpoints)
+                    //
+                    // The `anthropic-version` header is always required.
+                    let anthropic_auth = match auth.credential_type() {
+                        AzureCredentials::ApiKey(key) => AuthMethod::ApiKey {
+                            header_name: "x-api-key".to_string(),
+                            key: key.clone(),
+                        },
+                        _ => AuthMethod::Custom(Box::new(auth_anth)),
+                    };
+                    let ac = ApiClient::new(hub_host.clone(), anthropic_auth)
+                        .and_then(|c| c.with_header("anthropic-version", ANTHROPIC_VERSION))
+                        .ok();
                     (
                         rc,
                         "openai/v1/responses".to_string(),

@@ -28,6 +28,8 @@ pub enum DictationProvider {
     OpenAI,
     ElevenLabs,
     Groq,
+    #[serde(rename = "azure_foundry")]
+    AzureFoundry,
     #[cfg(feature = "local-inference")]
     Local,
 }
@@ -73,6 +75,16 @@ pub const PROVIDERS: &[DictationProviderDef] = &[
         description: "Uses ElevenLabs speech-to-text API for advanced voice processing.",
         uses_provider_config: false,
         settings_path: None,
+    },
+    DictationProviderDef {
+        provider: DictationProvider::AzureFoundry,
+        config_key: "AZURE_FOUNDRY_API_KEY",
+        default_base_url: "",
+        endpoint_path: "speechtotext/transcriptions:transcribe",
+        host_key: Some("AZURE_FOUNDRY_ENDPOINT"),
+        description: "Uses Azure AI Foundry for speech-to-text via the Fast Transcription API. Configured via Azure AI Foundry provider settings.",
+        uses_provider_config: true,
+        settings_path: Some("Settings > Models > Azure AI Foundry"),
     },
 ];
 
@@ -124,6 +136,13 @@ pub fn is_configured(provider: DictationProvider) -> bool {
             .and_then(|v| v.as_str().map(|s| s.to_string()))
             .and_then(|id| super::whisper::get_model(&id))
             .is_some_and(|m| m.is_downloaded()),
+        DictationProvider::AzureFoundry => {
+            config.get_param::<String>("AZURE_FOUNDRY_ENDPOINT").is_ok()
+                && config
+                    .get_secret::<String>("AZURE_FOUNDRY_API_KEY")
+                    .map(|k| !k.is_empty())
+                    .unwrap_or(false)
+        }
         _ => {
             let def = get_provider_def(provider);
             config.get_secret::<String>(def.config_key).is_ok()
@@ -200,6 +219,123 @@ fn resolve_openai_base_url_target(raw_url: Option<&str>) -> Result<Option<OpenAi
         .transpose()
 }
 
+/// Azure AI Foundry Fast Transcription API version.
+const AZURE_FOUNDRY_SPEECH_API_VERSION: &str = "2024-11-15";
+
+/// Derives the speech transcription URL from an Azure AI Foundry endpoint.
+///
+/// Two endpoint formats are supported:
+///
+/// - **MaaS** (`https://<hub>.services.ai.azure.com/models`): strip the `/models` suffix
+///   to obtain the hub base URL.
+/// - **Project** (`https://<hub>.services.ai.azure.com/api/projects/<project>`): the speech
+///   service lives at the hub level, so strip everything from `/api/projects/` onward.
+///
+/// The resulting URL targets the Fast Transcription REST API:
+/// `{hub}/speechtotext/transcriptions:transcribe?api-version=<version>`
+fn derive_azure_foundry_speech_url(foundry_endpoint: &str) -> String {
+    let trimmed = foundry_endpoint.trim_end_matches('/');
+
+    let base = if trimmed.contains("/api/projects/") {
+        // Project endpoint — speech lives at the hub, not the project scope.
+        trimmed.split("/api/projects/").next().unwrap_or(trimmed)
+    } else {
+        // MaaS endpoint — strip the trailing /models segment if present.
+        trimmed
+            .strip_suffix("models")
+            .unwrap_or(trimmed)
+            .trim_end_matches('/')
+    };
+
+    format!(
+        "{}/speechtotext/transcriptions:transcribe?api-version={}",
+        base, AZURE_FOUNDRY_SPEECH_API_VERSION
+    )
+}
+
+/// Transcribes audio using the Azure AI Foundry Fast Transcription REST API.
+///
+/// Authentication uses the `api-key` header with `AZURE_FOUNDRY_API_KEY`.
+/// The endpoint is derived from `AZURE_FOUNDRY_ENDPOINT` by stripping the `/models`
+/// suffix and appending the speech path.
+///
+/// Response format: `{ "combinedPhrases": [{ "text": "..." }] }`
+async fn transcribe_with_azure_foundry(
+    audio_bytes: Vec<u8>,
+    extension: &str,
+    mime_type: &str,
+) -> Result<String> {
+    let config = Config::global();
+
+    let foundry_endpoint: String = config
+        .get_param("AZURE_FOUNDRY_ENDPOINT")
+        .map_err(|_| anyhow::anyhow!("AZURE_FOUNDRY_ENDPOINT not configured"))?;
+
+    let api_key: String = config
+        .get_secret("AZURE_FOUNDRY_API_KEY")
+        .ok()
+        .filter(|k: &String| !k.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("AZURE_FOUNDRY_API_KEY not configured"))?;
+
+    let speech_url = derive_azure_foundry_speech_url(&foundry_endpoint);
+
+    let audio_part = reqwest::multipart::Part::bytes(audio_bytes)
+        .file_name(format!("audio.{}", extension))
+        .mime_str(mime_type)
+        .map_err(|e| anyhow::anyhow!("Failed to set audio MIME type: {}", e))?;
+
+    // The Azure Fast Transcription API accepts an audio file and an optional JSON
+    // definition for locale, diarization, profanity filtering, etc.
+    let form = reqwest::multipart::Form::new()
+        .part("audio", audio_part)
+        .text("definition", "{}");
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(&speech_url)
+        .header("api-key", &api_key)
+        .multipart(form)
+        .timeout(REQUEST_TIMEOUT)
+        .send()
+        .await
+        .map_err(|e| {
+            tracing::error!("Azure Foundry speech request failed: {}", e);
+            e
+        })?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response.text().await.unwrap_or_default();
+        if status == 401 || error_text.contains("Invalid API key") {
+            anyhow::bail!("Invalid API key");
+        } else if status == 429 {
+            anyhow::bail!("Rate limit exceeded");
+        } else if error_text.contains("too short") {
+            return Ok(String::new());
+        } else {
+            anyhow::bail!(
+                "Azure Foundry speech API error ({}): {}",
+                status,
+                error_text
+            );
+        }
+    }
+
+    let data: serde_json::Value = response.json().await.map_err(|e| {
+        tracing::error!("Failed to parse Azure Foundry speech response: {}", e);
+        anyhow::anyhow!(e)
+    })?;
+
+    let text = data["combinedPhrases"]
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|p| p["text"].as_str())
+        .unwrap_or("")
+        .to_string();
+
+    Ok(text)
+}
+
 fn build_api_client(provider: DictationProvider) -> Result<(ApiClient, String)> {
     let config = Config::global();
     let def = get_provider_def(provider);
@@ -247,6 +383,9 @@ fn build_api_client(provider: DictationProvider) -> Result<(ApiClient, String)> 
             header_name: "xi-api-key".to_string(),
             key: api_key,
         },
+        DictationProvider::AzureFoundry => {
+            anyhow::bail!("Azure Foundry uses a dedicated transcription path")
+        }
         #[cfg(feature = "local-inference")]
         DictationProvider::Local => anyhow::bail!("Local provider should not use API client"),
     };
@@ -269,6 +408,10 @@ pub async fn transcribe_with_provider(
     extension: &str,
     mime_type: &str,
 ) -> Result<String> {
+    if provider == DictationProvider::AzureFoundry {
+        return transcribe_with_azure_foundry(audio_bytes, extension, mime_type).await;
+    }
+
     let (client, endpoint_path) = build_api_client(provider)?;
 
     let part = reqwest::multipart::Part::bytes(audio_bytes)
@@ -323,8 +466,8 @@ pub async fn transcribe_with_provider(
 #[cfg(test)]
 mod tests {
     use super::{
-        openai_dictation_target, resolve_openai_base_url_target,
-        OPENAI_VERSIONLESS_TRANSCRIPTIONS_PATH,
+        derive_azure_foundry_speech_url, openai_dictation_target, resolve_openai_base_url_target,
+        AZURE_FOUNDRY_SPEECH_API_VERSION, OPENAI_VERSIONLESS_TRANSCRIPTIONS_PATH,
     };
 
     #[test]
@@ -364,5 +507,57 @@ mod tests {
         assert!(resolve_openai_base_url_target(Some("   "))
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn azure_foundry_speech_url_strips_models_suffix() {
+        let url = derive_azure_foundry_speech_url("https://myproject.services.ai.azure.com/models");
+        assert_eq!(
+            url,
+            format!(
+                "https://myproject.services.ai.azure.com/speechtotext/transcriptions:transcribe?api-version={}",
+                AZURE_FOUNDRY_SPEECH_API_VERSION
+            )
+        );
+    }
+
+    #[test]
+    fn azure_foundry_speech_url_handles_trailing_slash() {
+        let url =
+            derive_azure_foundry_speech_url("https://myproject.services.ai.azure.com/models/");
+        assert_eq!(
+            url,
+            format!(
+                "https://myproject.services.ai.azure.com/speechtotext/transcriptions:transcribe?api-version={}",
+                AZURE_FOUNDRY_SPEECH_API_VERSION
+            )
+        );
+    }
+
+    #[test]
+    fn azure_foundry_speech_url_handles_bare_host() {
+        let url = derive_azure_foundry_speech_url("https://myproject.services.ai.azure.com");
+        assert_eq!(
+            url,
+            format!(
+                "https://myproject.services.ai.azure.com/speechtotext/transcriptions:transcribe?api-version={}",
+                AZURE_FOUNDRY_SPEECH_API_VERSION
+            )
+        );
+    }
+
+    #[test]
+    fn azure_foundry_speech_url_strips_project_path() {
+        // Project endpoint: speech lives at the hub level, not inside /api/projects/<proj>
+        let url = derive_azure_foundry_speech_url(
+            "https://myhub.services.ai.azure.com/api/projects/my-project",
+        );
+        assert_eq!(
+            url,
+            format!(
+                "https://myhub.services.ai.azure.com/speechtotext/transcriptions:transcribe?api-version={}",
+                AZURE_FOUNDRY_SPEECH_API_VERSION
+            )
+        );
     }
 }

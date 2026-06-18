@@ -178,6 +178,16 @@ pub async fn transcribe_dictation(
         )
         .await
         .map_err(convert_error)?,
+        DictationProvider::AzureFoundry => transcribe_with_provider(
+            DictationProvider::AzureFoundry,
+            String::new(),
+            String::new(),
+            audio_bytes,
+            extension,
+            &request.mime_type,
+        )
+        .await
+        .map_err(convert_error)?,
         #[cfg(feature = "local-inference")]
         DictationProvider::Local => transcribe_local(audio_bytes).await.map_err(convert_error)?,
     };

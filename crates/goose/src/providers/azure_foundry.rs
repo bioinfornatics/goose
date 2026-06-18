@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::{Error, Result};
 use async_stream::try_stream;
 use async_trait::async_trait;
-use futures::{TryStreamExt, future::BoxFuture};
+use futures::{future::BoxFuture, TryStreamExt};
 use reqwest::{Response, StatusCode};
 use tokio::pin;
 use tokio_stream::StreamExt;
@@ -14,16 +14,16 @@ use tokio_util::io::StreamReader;
 use super::api_client::{ApiClient, AuthMethod, AuthProvider};
 use super::azureauth::{AzureAuth, AzureCredentials};
 use super::base::{ConfigKey, MessageStream, Provider, ProviderDef, ProviderMetadata};
-use super::openai_compatible::{OpenAiCompatibleProvider, handle_status, stream_responses_compat};
+use super::openai_compatible::{handle_status, stream_responses_compat, OpenAiCompatibleProvider};
 use super::retry::{ProviderRetry, RetryConfig};
 use crate::conversation::message::Message;
-use goose_providers::model::ModelConfig;
 use crate::providers::formats::anthropic::{
-    AnthropicFormatOptions, create_request_with_options_for_provider as create_anthropic_request,
+    create_request_with_options_for_provider as create_anthropic_request, AnthropicFormatOptions,
 };
 use crate::providers::formats::openai_responses::create_responses_request;
 use crate::providers::utils::RequestLog;
 use goose_providers::errors::ProviderError;
+use goose_providers::model::ModelConfig;
 
 use rmcp::model::Tool;
 

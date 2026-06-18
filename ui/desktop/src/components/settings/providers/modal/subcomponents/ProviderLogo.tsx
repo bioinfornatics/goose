@@ -1,5 +1,6 @@
 import OpenAILogo from './icons/openai@3x.png';
 import AnthropicLogo from './icons/anthropic@3x.png';
+import AzureFoundryLogo from './icons/azure_foundry@3x.png';
 import GoogleLogo from './icons/google@3x.png';
 import GroqLogo from './icons/groq@3x.png';
 import OllamaLogo from './icons/ollama@3x.png';
@@ -23,6 +24,7 @@ const i18n = defineMessages({
 const providerLogos: Record<string, string> = {
   openai: OpenAILogo,
   anthropic: AnthropicLogo,
+  azure_foundry: AzureFoundryLogo,
   google: GoogleLogo,
   groq: GroqLogo,
   ollama: OllamaLogo,

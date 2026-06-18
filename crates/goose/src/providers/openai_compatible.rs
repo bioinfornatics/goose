@@ -13,7 +13,7 @@ use tokio_util::codec::{FramedRead, LinesCodec};
 use tokio_util::io::StreamReader;
 
 use super::api_client::ApiClient;
-use super::base::{MessageStream, Provider, stream_from_single_message};
+use super::base::{stream_from_single_message, MessageStream, Provider};
 use super::retry::{ProviderRetry, RetryConfig};
 use super::utils::RequestLog;
 use crate::conversation::message::Message;

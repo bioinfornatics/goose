@@ -182,6 +182,37 @@ impl Provider for OpenAiCompatibleProvider {
 
 // Re-exported from the dedicated `http_status` module — these helpers are
 // format-agnostic and used across all provider families.
+/// Wraps an Anthropic `v1/messages` streaming response into a [`MessageStream`].
+///
+/// Mirrors [`stream_responses_compat`] and [`stream_openai_compat`] but uses the
+/// Anthropic `content_block_start / content_block_delta / message_stop` SSE format
+/// parsed by [`crate::providers::formats::anthropic::response_to_streaming_message`].
+pub fn stream_anthropic_compat(
+    response: Response,
+    mut log: RequestLog,
+) -> Result<MessageStream, ProviderError> {
+    use crate::providers::formats::anthropic::response_to_streaming_message as anthropic_stream;
+
+    let stream = response.bytes_stream().map_err(std::io::Error::other);
+
+    Ok(Box::pin(try_stream! {
+        let stream_reader = StreamReader::new(stream);
+        let framed = FramedRead::new(stream_reader, LinesCodec::new())
+            .map_err(Error::from);
+
+        let message_stream = anthropic_stream(framed);
+        pin!(message_stream);
+        while let Some(message) = message_stream.next().await {
+            let (message, usage) = message.map_err(|e|
+                e.downcast::<ProviderError>()
+                    .unwrap_or_else(ProviderError::stream_decode_error)
+            )?;
+            log.write(&message, usage.as_ref().map(|f| f.usage).as_ref())?;
+            yield (message, usage);
+        }
+    }))
+}
+
 pub use super::http_status::{
     handle_response, handle_status, map_http_error_to_provider_error, sanitize_url,
 };

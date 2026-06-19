@@ -3,15 +3,7 @@ use crate::config::Config;
 #[cfg(feature = "local-inference")]
 use crate::dictation::whisper::LOCAL_WHISPER_MODEL_CONFIG_KEY;
 use crate::providers::api_client::{ApiClient, AuthMethod};
-// Local helpers — avoids a dependency on the azure_foundry provider module so
-// this file can be reviewed and merged independently of the inference provider.
-/// Returns true when the endpoint is an Azure AI Foundry project endpoint
-/// (`/api/projects/` in the URL path).
-fn is_project_endpoint(url: &str) -> bool {
-    url.contains("/api/projects/")
-}
-/// Entra ID resource scope for Azure AI Foundry project endpoints.
-const AZURE_FOUNDRY_PROJECT_ENTRA_RESOURCE: &str = "https://ai.azure.com";
+use crate::providers::azure_foundry::{is_project_endpoint, AZURE_FOUNDRY_PROJECT_ENTRA_RESOURCE};
 use crate::providers::azureauth::AzureAuth;
 use crate::providers::openai::parse_openai_base_url;
 use anyhow::Result;
@@ -694,10 +686,10 @@ pub async fn transcribe_with_provider(
 #[cfg(test)]
 mod tests {
     use super::{
-        derive_azure_foundry_speech_url, is_project_endpoint, openai_dictation_target,
-        resolve_openai_base_url_target, AZURE_FOUNDRY_SPEECH_API_VERSION,
-        OPENAI_VERSIONLESS_TRANSCRIPTIONS_PATH,
+        derive_azure_foundry_speech_url, openai_dictation_target, resolve_openai_base_url_target,
+        AZURE_FOUNDRY_SPEECH_API_VERSION, OPENAI_VERSIONLESS_TRANSCRIPTIONS_PATH,
     };
+    use crate::providers::azure_foundry::is_project_endpoint;
 
     #[test]
     fn openai_dictation_target_preserves_prefix_and_query_params() {
@@ -887,7 +879,7 @@ mod tests {
 
     #[test]
     fn azure_foundry_project_endpoint_uses_ai_azure_com_resource() {
-        // is_project_endpoint is a local helper — no import needed.
+        // is_project_endpoint is imported from crate::providers::azure_foundry.
         assert!(is_project_endpoint(
             "https://myhub.services.ai.azure.com/api/projects/proj"
         ));

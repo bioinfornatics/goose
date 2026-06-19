@@ -229,6 +229,23 @@ fn resolve_openai_base_url_target(raw_url: Option<&str>) -> Result<Option<OpenAi
         .transpose()
 }
 
+/// Tries to derive an Azure AI Services (cognitiveservices) endpoint from an AI Foundry
+/// hub URL. The hub and the backing AI Services resource share the same name prefix:
+///   `{name}.services.ai.azure.com` → `https://{name}.cognitiveservices.azure.com/`
+///
+/// Returns `None` when the endpoint does not follow the expected `services.ai.azure.com`
+/// pattern (e.g. custom domains, MaaS model-specific URLs).
+fn derive_cognitive_services_from_foundry(foundry_endpoint: &str) -> Option<String> {
+    let url = foundry_endpoint.trim_end_matches('/');
+    // Strip scheme
+    let after_scheme = url.strip_prefix("https://")?;
+    // Take only the host part (before first '/')
+    let host = after_scheme.split('/').next()?;
+    // Only handle *.services.ai.azure.com hosts
+    let name = host.strip_suffix(".services.ai.azure.com")?;
+    Some(format!("https://{}.cognitiveservices.azure.com/", name))
+}
+
 /// Azure AI Foundry Fast Transcription API version.
 /// API version query-param for `*.services.ai.azure.com` endpoints (AI Foundry style).
 const AZURE_FOUNDRY_SPEECH_API_VERSION: &str = "2024-11-15";
@@ -328,6 +345,10 @@ async fn transcribe_with_azure_foundry(
                 base, AZURE_FOUNDRY_SPEECH_API_VERSION
             )
         };
+        tracing::info!(
+            speech_url,
+            "azure_foundry dictation: using AZURE_SPEECH_ENDPOINT"
+        );
         return transcribe_speech_request(
             &speech_url,
             &header_name,
@@ -339,15 +360,50 @@ async fn transcribe_with_azure_foundry(
         .await;
     }
 
-    // Priority 2: derive speech URL from AZURE_FOUNDRY_ENDPOINT (legacy path).
+    // Priority 2: derive speech URL from AZURE_FOUNDRY_ENDPOINT.
     let foundry_endpoint: String = config
         .get_param("AZURE_FOUNDRY_ENDPOINT")
         .map_err(|_| anyhow::anyhow!(
-            "Configure AZURE_SPEECH_ENDPOINT (Azure AI Services URL from Azure portal)              or AZURE_FOUNDRY_ENDPOINT"
+            "Configure AZURE_SPEECH_ENDPOINT (cognitiveservices URL from Azure portal              → AI Foundry Hub → AI Services resource → Keys and Endpoint)              or AZURE_FOUNDRY_ENDPOINT"
         ))?;
 
+    // Priority 2a: auto-derive cognitiveservices URL from the hub domain.
+    // *.services.ai.azure.com → *.cognitiveservices.azure.com (same resource, unified key).
+    // This is tried before the project-scope path because the cognitiveservices endpoint
+    // exposes the Fast Transcription API reliably, while the project-scope path may return
+    // "400 API version not supported" for the /speechtotext path.
+    if let Some(derived_cs) = derive_cognitive_services_from_foundry(&foundry_endpoint) {
+        let speech_key = config
+            .get_secret("AZURE_SPEECH_KEY")
+            .ok()
+            .filter(|k: &String| !k.is_empty())
+            .or_else(|| {
+                config
+                    .get_secret("AZURE_FOUNDRY_API_KEY")
+                    .ok()
+                    .filter(|k: &String| !k.is_empty())
+            });
+        let auth = AzureAuth::new(speech_key, None).map_err(anyhow::Error::from)?;
+        let (header_name, header_value) = auth.auth_header().await.map_err(anyhow::Error::from)?;
+        let base = derived_cs.trim_end_matches('/');
+        let speech_url = format!("{}/{}", base, AZURE_COGNITIVE_SERVICES_SPEECH_PATH);
+        tracing::info!(
+            speech_url,
+            "azure_foundry dictation: auto-derived cognitiveservices endpoint"
+        );
+        return transcribe_speech_request(
+            &speech_url,
+            &header_name,
+            &header_value,
+            audio_bytes,
+            extension,
+            mime_type,
+        )
+        .await;
+    }
+
+    // Priority 2b: project or MaaS endpoint fallback (no auto-derivation possible).
     let auth = if is_project_endpoint(&foundry_endpoint) {
-        // Project endpoint: speech served at project scope with the project API key.
         let api_key = config
             .get_secret("AZURE_FOUNDRY_API_KEY")
             .ok()
@@ -355,7 +411,6 @@ async fn transcribe_with_azure_foundry(
         AzureAuth::new_with_resource(api_key, AZURE_FOUNDRY_PROJECT_ENTRA_RESOURCE.to_string())
             .map_err(anyhow::Error::from)?
     } else {
-        // MaaS/hub: AZURE_SPEECH_KEY → AZURE_FOUNDRY_API_KEY (same unified key) → Entra ID.
         let speech_key = config
             .get_secret("AZURE_SPEECH_KEY")
             .ok()
@@ -373,6 +428,10 @@ async fn transcribe_with_azure_foundry(
         auth.auth_header().await.map_err(anyhow::Error::from)?;
 
     let speech_url = derive_azure_foundry_speech_url(&foundry_endpoint);
+    tracing::info!(
+        speech_url,
+        "azure_foundry dictation: using foundry endpoint path"
+    );
 
     transcribe_speech_request(
         &speech_url,
@@ -408,6 +467,7 @@ async fn transcribe_speech_request(
         .timeout(REQUEST_TIMEOUT)
         .build()?;
 
+    tracing::debug!(speech_url, "azure_foundry dictation: POST speech request");
     let response = client
         .post(speech_url)
         .header(auth_header_name, auth_header_value)
@@ -415,7 +475,7 @@ async fn transcribe_speech_request(
         .send()
         .await
         .map_err(|e| {
-            tracing::error!("Azure Foundry speech request failed: {}", e);
+            tracing::error!(speech_url, error = %e, "Azure Foundry speech request failed");
             e
         })?;
 
@@ -699,6 +759,27 @@ mod tests {
     }
 
     // ── AZURE_SPEECH_ENDPOINT (cognitiveservices) URL construction ────────────
+
+    #[test]
+    fn derive_cognitive_services_from_project_endpoint() {
+        use super::derive_cognitive_services_from_foundry;
+        let cs = derive_cognitive_services_from_foundry(
+            "https://servier-difa-foundry-nprd.services.ai.azure.com/api/projects/proj",
+        );
+        assert_eq!(
+            cs,
+            Some("https://servier-difa-foundry-nprd.cognitiveservices.azure.com/".to_string())
+        );
+    }
+
+    #[test]
+    fn derive_cognitive_services_from_maas_endpoint() {
+        use super::derive_cognitive_services_from_foundry;
+        // MaaS model-specific endpoint doesn't match *.services.ai.azure.com → None
+        let cs =
+            derive_cognitive_services_from_foundry("https://myphi4.models.ai.azure.com/models");
+        assert_eq!(cs, None);
+    }
 
     #[test]
     fn cognitive_services_endpoint_uses_path_versioned_url() {

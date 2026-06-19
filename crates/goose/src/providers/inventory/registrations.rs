@@ -22,7 +22,7 @@ use crate::providers::pi_acp::{PI_ACP_BINARY, PI_ACP_PROVIDER_NAME};
 use crate::providers::xai_oauth::TokenCache as XaiOAuthTokenCache;
 
 pub fn azure_foundry_inventory() -> InventoryRegistration {
-    InventoryRegistration::new(false, || {
+    InventoryRegistration::new(true, || {
         let metadata = AzureFoundryProvider::metadata();
         Ok(default_inventory_identity(
             &metadata.name,

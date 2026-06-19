@@ -148,11 +148,19 @@ pub fn is_configured(provider: DictationProvider) -> bool {
             .is_some_and(|m| m.is_downloaded()),
         DictationProvider::AzureFoundry => {
             // Configured when either:
-            // • AZURE_SPEECH_ENDPOINT (cognitiveservices URL) is set — preferred, direct path.
-            // • AZURE_FOUNDRY_ENDPOINT is set — legacy derivation path.
-            // AZURE_SPEECH_KEY is optional in both cases (Entra ID fallback).
+            // • AZURE_SPEECH_ENDPOINT (cognitiveservices URL) is set — direct path.
+            // • AZURE_FOUNDRY_ENDPOINT is a *.services.ai.azure.com hub — the speech
+            //   endpoint can be auto-derived (derive_cognitive_services_from_foundry
+            //   returns Some only for hub domains, not for MaaS *.models.ai.azure.com).
+            //   A raw MaaS endpoint alone is NOT sufficient: Fast Transcription is
+            //   served from a Speech resource (cognitiveservices), not from a model
+            //   endpoint, so we must not report it as speech-configured.
             config.get_param::<String>("AZURE_SPEECH_ENDPOINT").is_ok()
-                || config.get_param::<String>("AZURE_FOUNDRY_ENDPOINT").is_ok()
+                || config
+                    .get_param::<String>("AZURE_FOUNDRY_ENDPOINT")
+                    .ok()
+                    .and_then(|ep| derive_cognitive_services_from_foundry(&ep))
+                    .is_some()
         }
         _ => {
             let def = get_provider_def(provider);

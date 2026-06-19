@@ -80,14 +80,17 @@ pub const PROVIDERS: &[DictationProviderDef] = &[
     },
     DictationProviderDef {
         provider: DictationProvider::AzureFoundry,
-        // AZURE_SPEECH_KEY is an Azure AI Services subscription key (Cognitive Services).
+        // AZURE_SPEECH_KEY is the Azure AI Services subscription key shown in Azure portal
+        // under your AI Foundry Hub → AI Services resource → Keys and Endpoint.
         // This is DIFFERENT from AZURE_FOUNDRY_API_KEY (AI Foundry project key).
-        // Leave empty to authenticate via Entra ID (az login).
+        // Leave empty to fall back to Entra ID (az login).
         config_key: "AZURE_SPEECH_KEY",
         default_base_url: "",
         endpoint_path: "speechtotext/transcriptions:transcribe",
-        host_key: Some("AZURE_FOUNDRY_ENDPOINT"),
-        description: "Uses Azure AI Foundry for speech-to-text via the Fast Transcription API. For project endpoints: uses AZURE_FOUNDRY_API_KEY (same as inference). For MaaS/hub endpoints: set AZURE_SPEECH_KEY or use Entra ID (az login).",
+        host_key: Some("AZURE_SPEECH_ENDPOINT"),
+        description: "Uses Azure AI Foundry speech-to-text (Fast Transcription API). \
+                      Configure AZURE_SPEECH_ENDPOINT (cognitiveservices URL) and AZURE_SPEECH_KEY \
+                      from your AI Services resource in Azure portal.",
         uses_provider_config: false,
         settings_path: None,
     },
@@ -142,10 +145,12 @@ pub fn is_configured(provider: DictationProvider) -> bool {
             .and_then(|id| super::whisper::get_model(&id))
             .is_some_and(|m| m.is_downloaded()),
         DictationProvider::AzureFoundry => {
-            // API key is optional — the provider falls back to Entra ID (az CLI /
-            // managed identity) when none is configured, exactly like inference does.
-            // Require only the endpoint.
-            config.get_param::<String>("AZURE_FOUNDRY_ENDPOINT").is_ok()
+            // Configured when either:
+            // • AZURE_SPEECH_ENDPOINT (cognitiveservices URL) is set — preferred, direct path.
+            // • AZURE_FOUNDRY_ENDPOINT is set — legacy derivation path.
+            // AZURE_SPEECH_KEY is optional in both cases (Entra ID fallback).
+            config.get_param::<String>("AZURE_SPEECH_ENDPOINT").is_ok()
+                || config.get_param::<String>("AZURE_FOUNDRY_ENDPOINT").is_ok()
         }
         _ => {
             let def = get_provider_def(provider);
@@ -261,20 +266,22 @@ fn derive_azure_foundry_speech_url(foundry_endpoint: &str) -> String {
     )
 }
 
-/// Transcribes audio using the Azure AI Foundry Fast Transcription REST API.
+/// Transcribes audio using the Azure Fast Transcription REST API.
 ///
-/// Authentication is endpoint-type aware:
+/// **Priority 1 — explicit `AZURE_SPEECH_ENDPOINT`** (recommended):
+/// Set `AZURE_SPEECH_ENDPOINT` to the Azure AI Services (Cognitive Services) URL
+/// shown in Azure portal under your AI Foundry Hub → "Azure AI services resource"
+/// → "Keys and Endpoint", e.g. `https://<name>.cognitiveservices.azure.com/`.
+/// The "Azure-Speech-to-text" model from registry `azureml-cogsvc` shows "Adjust"
+/// in the Foundry portal because it is built into the AI Services resource — no
+/// separate deployment is required.
+/// Auth: `AZURE_SPEECH_KEY` (Azure AI Services subscription key, different from
+/// `AZURE_FOUNDRY_API_KEY`) or Entra ID (`az login`,
+/// `https://cognitiveservices.azure.com` scope).
 ///
-/// **Project endpoint** (`/api/projects/…`):
-/// The `Azure-Speech-to-text` model is deployed within the project, so the speech
-/// API lives at the project scope.  The AI Foundry project key
-/// (`AZURE_FOUNDRY_API_KEY`) is used — the same key as model inference.
-/// Falls back to Entra ID with `https://ai.azure.com` scope when no key is set.
-///
-/// **MaaS / hub endpoint**:
-/// Speech is at the hub level and requires `AZURE_SPEECH_KEY` (Azure AI Services
-/// subscription key) or an Entra ID Bearer token with
-/// `https://cognitiveservices.azure.com` scope (`az login`).
+/// **Priority 2 — derive from `AZURE_FOUNDRY_ENDPOINT`** (legacy fallback):
+/// For project endpoints (`/api/projects/…`), uses the project API key.
+/// For MaaS endpoints, uses `AZURE_SPEECH_KEY` or Entra ID.
 async fn transcribe_with_azure_foundry(
     audio_bytes: Vec<u8>,
     extension: &str,
@@ -282,22 +289,44 @@ async fn transcribe_with_azure_foundry(
 ) -> Result<String> {
     let config = Config::global();
 
+    // Priority 1: explicit Azure AI Services (Cognitive Services) endpoint.
+    // This is the endpoint shown in Azure portal → AI Foundry Hub → AI Services resource
+    // → "Keys and Endpoint" (e.g. https://<name>.cognitiveservices.azure.com/).
+    // The Azure-Speech-to-text model (azureml-cogsvc registry) is built into this
+    // resource — no separate deployment is needed ("Adjust" action in the portal).
+    if let Ok(speech_endpoint) = config.get_param::<String>("AZURE_SPEECH_ENDPOINT") {
+        let speech_key = config
+            .get_secret("AZURE_SPEECH_KEY")
+            .ok()
+            .filter(|k: &String| !k.is_empty());
+        // cognitiveservices endpoint — use cognitiveservices.azure.com Entra ID scope.
+        let auth = AzureAuth::new(speech_key, None).map_err(anyhow::Error::from)?;
+        let (header_name, header_value) = auth.auth_header().await.map_err(anyhow::Error::from)?;
+        let base = speech_endpoint.trim_end_matches('/');
+        let speech_url = format!(
+            "{}/speechtotext/transcriptions:transcribe?api-version={}",
+            base, AZURE_FOUNDRY_SPEECH_API_VERSION
+        );
+        return transcribe_speech_request(
+            &speech_url,
+            &header_name,
+            &header_value,
+            audio_bytes,
+            extension,
+            mime_type,
+        )
+        .await;
+    }
+
+    // Priority 2: derive speech URL from AZURE_FOUNDRY_ENDPOINT (legacy path).
     let foundry_endpoint: String = config
         .get_param("AZURE_FOUNDRY_ENDPOINT")
-        .map_err(|_| anyhow::anyhow!("AZURE_FOUNDRY_ENDPOINT not configured"))?;
+        .map_err(|_| anyhow::anyhow!(
+            "Configure AZURE_SPEECH_ENDPOINT (Azure AI Services URL from Azure portal)              or AZURE_FOUNDRY_ENDPOINT"
+        ))?;
 
-    // Authentication splits by endpoint type:
-    //
-    // • Project endpoint (`/api/projects/…`): the Azure-Speech-to-text model is
-    //   deployed inside the project, so the speech API is served at the project scope.
-    //   The AI Foundry project API key (`AZURE_FOUNDRY_API_KEY`) is valid here —
-    //   it is the same key used for model inference.  Falls back to Entra ID with the
-    //   `https://ai.azure.com` scope when no key is configured.
-    //
-    // • MaaS / hub endpoint: speech is at the hub level and requires either
-    //   `AZURE_SPEECH_KEY` (Azure AI Services subscription key) or an Entra ID
-    //   Bearer token scoped to `https://cognitiveservices.azure.com`.
     let auth = if is_project_endpoint(&foundry_endpoint) {
+        // Project endpoint: speech served at project scope with the project API key.
         let api_key = config
             .get_secret("AZURE_FOUNDRY_API_KEY")
             .ok()
@@ -305,12 +334,11 @@ async fn transcribe_with_azure_foundry(
         AzureAuth::new_with_resource(api_key, AZURE_FOUNDRY_PROJECT_ENTRA_RESOURCE.to_string())
             .map_err(anyhow::Error::from)?
     } else {
+        // MaaS/hub: use AZURE_SPEECH_KEY or Entra ID (cognitiveservices scope).
         let speech_key = config
             .get_secret("AZURE_SPEECH_KEY")
             .ok()
             .filter(|k: &String| !k.is_empty());
-        // AzureAuth::new() defaults to https://cognitiveservices.azure.com — correct
-        // for the hub-level Azure AI Services speech endpoint.
         AzureAuth::new(speech_key, None).map_err(anyhow::Error::from)?
     };
 
@@ -319,13 +347,32 @@ async fn transcribe_with_azure_foundry(
 
     let speech_url = derive_azure_foundry_speech_url(&foundry_endpoint);
 
+    transcribe_speech_request(
+        &speech_url,
+        &auth_header_name,
+        &auth_header_value,
+        audio_bytes,
+        extension,
+        mime_type,
+    )
+    .await
+}
+
+/// Shared HTTP call for the Azure Fast Transcription API.
+/// Used by both the `AZURE_SPEECH_ENDPOINT` path and the legacy `AZURE_FOUNDRY_ENDPOINT` path.
+async fn transcribe_speech_request(
+    speech_url: &str,
+    auth_header_name: &str,
+    auth_header_value: &str,
+    audio_bytes: Vec<u8>,
+    extension: &str,
+    mime_type: &str,
+) -> Result<String> {
     let audio_part = reqwest::multipart::Part::bytes(audio_bytes)
         .file_name(format!("audio.{}", extension))
         .mime_str(mime_type)
         .map_err(|e| anyhow::anyhow!("Failed to set audio MIME type: {}", e))?;
 
-    // The Azure Fast Transcription API accepts an audio file and an optional JSON
-    // definition for locale, diarization, profanity filtering, etc.
     let form = reqwest::multipart::Form::new()
         .part("audio", audio_part)
         .text("definition", "{}");
@@ -335,8 +382,8 @@ async fn transcribe_with_azure_foundry(
         .build()?;
 
     let response = client
-        .post(&speech_url)
-        .header(auth_header_name.as_str(), auth_header_value.as_str())
+        .post(speech_url)
+        .header(auth_header_name, auth_header_value)
         .multipart(form)
         .send()
         .await
@@ -618,6 +665,27 @@ mod tests {
             url,
             format!(
                 "https://myhub.services.ai.azure.com/api/projects/my-project/speechtotext/transcriptions:transcribe?api-version={}",
+                AZURE_FOUNDRY_SPEECH_API_VERSION
+            )
+        );
+    }
+
+    // ── AZURE_SPEECH_ENDPOINT (cognitiveservices) URL construction ────────────
+
+    #[test]
+    fn azure_speech_endpoint_url_no_trailing_slash() {
+        // The cognitiveservices URL from Azure portal has a trailing slash;
+        // we should normalise it before appending the speech path.
+        let base = "https://myresource.cognitiveservices.azure.com/";
+        let url = format!(
+            "{}/speechtotext/transcriptions:transcribe?api-version={}",
+            base.trim_end_matches('/'),
+            AZURE_FOUNDRY_SPEECH_API_VERSION
+        );
+        assert_eq!(
+            url,
+            format!(
+                "https://myresource.cognitiveservices.azure.com/speechtotext/transcriptions:transcribe?api-version={}",
                 AZURE_FOUNDRY_SPEECH_API_VERSION
             )
         );

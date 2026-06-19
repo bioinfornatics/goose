@@ -4711,6 +4711,7 @@
           "openai",
           "elevenlabs",
           "groq",
+          "azure_foundry",
           "local"
         ]
       },

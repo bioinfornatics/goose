@@ -91,6 +91,8 @@ export const DictationSettings = () => {
   const [preferredMic, setPreferredMic] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState('');
   const [isEditingKey, setIsEditingKey] = useState(false);
+  const [endpointValue, setEndpointValue] = useState('');
+  const [isEditingEndpoint, setIsEditingEndpoint] = useState(false);
   const { read, upsert, remove } = useConfig();
 
   const refreshStatuses = async () => {
@@ -169,6 +171,27 @@ export const DictationSettings = () => {
     await refreshStatuses();
   };
 
+  const handleSaveEndpoint = async () => {
+    const trimmed = endpointValue.trim();
+    if (!trimmed) return;
+    await upsert('AZURE_SPEECH_ENDPOINT', trimmed, false);
+    setEndpointValue('');
+    setIsEditingEndpoint(false);
+    await refreshStatuses();
+  };
+
+  const handleRemoveEndpoint = async () => {
+    await remove('AZURE_SPEECH_ENDPOINT', false);
+    setEndpointValue('');
+    setIsEditingEndpoint(false);
+    await refreshStatuses();
+  };
+
+  const handleCancelEndpointEdit = () => {
+    setEndpointValue('');
+    setIsEditingEndpoint(false);
+  };
+
   const handleCancelEdit = () => {
     setApiKey('');
     setIsEditingKey(false);
@@ -235,48 +258,136 @@ export const DictationSettings = () => {
               )}
             </div>
           ) : (
-            <div className="py-2 px-2 bg-background-secondary rounded-lg">
-              <div className="mb-2">
-                <h4 className="text-text-primary text-sm">{intl.formatMessage(i18n.apiKey)}</h4>
-                <p className="text-xs text-text-secondary mt-[2px]">
-                  {intl.formatMessage(i18n.requiredForTranscription)}
-                  {providerStatuses[provider]?.configured && (
-                    <span className="text-green-600 ml-2">{intl.formatMessage(i18n.configured)}</span>
-                  )}
-                </p>
-              </div>
-
-              {!isEditingKey ? (
-                <div className="flex gap-2 flex-wrap">
-                  <Button variant="outline" size="sm" onClick={() => setIsEditingKey(true)}>
-                    {providerStatuses[provider]?.configured ? intl.formatMessage(i18n.updateApiKey) : intl.formatMessage(i18n.addApiKey)}
-                  </Button>
-                  {providerStatuses[provider]?.configured && (
-                    <Button variant="destructive" size="sm" onClick={handleRemoveKey}>
-                      {intl.formatMessage(i18n.removeApiKey)}
-                    </Button>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <Input
-                    type="password"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder={intl.formatMessage(i18n.enterApiKey)}
-                    className="max-w-md"
-                    autoFocus
-                  />
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={handleSaveKey}>
-                      {intl.formatMessage(i18n.save)}
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={handleCancelEdit}>
-                      {intl.formatMessage(i18n.cancel)}
-                    </Button>
+            <div className="py-2 px-2 bg-background-secondary rounded-lg space-y-4">
+              {/* ── Azure Foundry: endpoint field (required) ── */}
+              {provider === 'azure_foundry' && (
+                <div>
+                  <div className="mb-2">
+                    <h4 className="text-text-primary text-sm">Speech Endpoint</h4>
+                    <p className="text-xs text-text-secondary mt-[2px]">
+                      Cognitiveservices URL from Azure portal → AI Foundry Hub → AI Services
+                      resource → Keys and Endpoint (e.g.{' '}
+                      <code className="font-mono text-xs">
+                        https://&lt;name&gt;.cognitiveservices.azure.com/
+                      </code>
+                      ).{' '}
+                      {providerStatuses[provider]?.host ? (
+                        <span className="text-green-600">
+                          ✓ {providerStatuses[provider].host}
+                        </span>
+                      ) : (
+                        <span className="text-amber-600">Not set — required to enable speech.</span>
+                      )}
+                    </p>
                   </div>
+                  {!isEditingEndpoint ? (
+                    <div className="flex gap-2 flex-wrap">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setEndpointValue(providerStatuses[provider]?.host ?? '');
+                          setIsEditingEndpoint(true);
+                        }}
+                      >
+                        {providerStatuses[provider]?.host ? 'Update Endpoint' : 'Add Endpoint'}
+                      </Button>
+                      {providerStatuses[provider]?.host && (
+                        <Button variant="destructive" size="sm" onClick={handleRemoveEndpoint}>
+                          Remove Endpoint
+                        </Button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <Input
+                        type="text"
+                        value={endpointValue}
+                        onChange={(e) => setEndpointValue(e.target.value)}
+                        placeholder="https://name.cognitiveservices.azure.com/"
+                        className="max-w-md"
+                        autoFocus
+                      />
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={handleSaveEndpoint}>
+                          {intl.formatMessage(i18n.save)}
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={handleCancelEndpointEdit}>
+                          {intl.formatMessage(i18n.cancel)}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
+
+              {/* ── API key field ── */}
+              <div>
+                <div className="mb-2">
+                  <h4 className="text-text-primary text-sm">
+                    {provider === 'azure_foundry'
+                      ? 'Azure AI Services Key'
+                      : intl.formatMessage(i18n.apiKey)}
+                  </h4>
+                  <p className="text-xs text-text-secondary mt-[2px]">
+                    {provider === 'azure_foundry' ? (
+                      <>
+                        Same key as your Azure AI Foundry API key (unified resource). Leave empty
+                        to authenticate via Entra ID (
+                        <code className="font-mono text-xs">az login</code>).
+                        {providerStatuses[provider]?.configured && (
+                          <span className="text-green-600 ml-2">
+                            {intl.formatMessage(i18n.configured)}
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        {intl.formatMessage(i18n.requiredForTranscription)}
+                        {providerStatuses[provider]?.configured && (
+                          <span className="text-green-600 ml-2">
+                            {intl.formatMessage(i18n.configured)}
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </p>
+                </div>
+
+                {!isEditingKey ? (
+                  <div className="flex gap-2 flex-wrap">
+                    <Button variant="outline" size="sm" onClick={() => setIsEditingKey(true)}>
+                      {providerStatuses[provider]?.configured
+                        ? intl.formatMessage(i18n.updateApiKey)
+                        : intl.formatMessage(i18n.addApiKey)}
+                    </Button>
+                    {providerStatuses[provider]?.configured && (
+                      <Button variant="destructive" size="sm" onClick={handleRemoveKey}>
+                        {intl.formatMessage(i18n.removeApiKey)}
+                      </Button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Input
+                      type="password"
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      placeholder={intl.formatMessage(i18n.enterApiKey)}
+                      className="max-w-md"
+                      autoFocus
+                    />
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={handleSaveKey}>
+                        {intl.formatMessage(i18n.save)}
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={handleCancelEdit}>
+                        {intl.formatMessage(i18n.cancel)}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

@@ -262,7 +262,7 @@ export type DeleteRecipeRequest = {
     id: string;
 };
 
-export type DictationProvider = 'openai' | 'elevenlabs' | 'groq' | 'local';
+export type DictationProvider = 'openai' | 'elevenlabs' | 'groq' | 'azure_foundry' | 'local';
 
 export type DictationProviderStatus = {
     /**

@@ -237,11 +237,29 @@ export const DictationSettings = () => {
           ) : (
             <div className="py-2 px-2 bg-background-secondary rounded-lg">
               <div className="mb-2">
-                <h4 className="text-text-primary text-sm">{intl.formatMessage(i18n.apiKey)}</h4>
+                <h4 className="text-text-primary text-sm">
+                  {provider === 'azure_foundry'
+                    ? 'Azure AI Services Key'
+                    : intl.formatMessage(i18n.apiKey)}
+                </h4>
                 <p className="text-xs text-text-secondary mt-[2px]">
-                  {intl.formatMessage(i18n.requiredForTranscription)}
-                  {providerStatuses[provider]?.configured && (
-                    <span className="text-green-600 ml-2">{intl.formatMessage(i18n.configured)}</span>
+                  {provider === 'azure_foundry' ? (
+                    <>
+                      Optional — leave empty to use Entra ID (
+                      <code className="font-mono">az login</code>). When set, use the{' '}
+                      <strong>Azure AI Services subscription key</strong> (not the AI Foundry
+                      project key).
+                      {providerStatuses[provider]?.configured && (
+                        <span className="text-green-600 ml-2">{intl.formatMessage(i18n.configured)}</span>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {intl.formatMessage(i18n.requiredForTranscription)}
+                      {providerStatuses[provider]?.configured && (
+                        <span className="text-green-600 ml-2">{intl.formatMessage(i18n.configured)}</span>
+                      )}
+                    </>
                   )}
                 </p>
               </div>

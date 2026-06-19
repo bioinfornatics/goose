@@ -2,9 +2,6 @@ use crate::config::Config;
 #[cfg(feature = "local-inference")]
 use crate::dictation::whisper::LOCAL_WHISPER_MODEL_CONFIG_KEY;
 use crate::providers::api_client::{ApiClient, AuthMethod};
-use crate::providers::azure_foundry::{
-    is_project_endpoint, AZURE_FOUNDRY_ENTRA_RESOURCE, AZURE_FOUNDRY_PROJECT_ENTRA_RESOURCE,
-};
 use crate::providers::azureauth::AzureAuth;
 use crate::providers::openai::parse_openai_base_url;
 use anyhow::Result;
@@ -82,13 +79,18 @@ pub const PROVIDERS: &[DictationProviderDef] = &[
     },
     DictationProviderDef {
         provider: DictationProvider::AzureFoundry,
-        config_key: "AZURE_FOUNDRY_API_KEY",
+        // AZURE_SPEECH_KEY is an Azure AI Services subscription key (Cognitive Services).
+        // This is DIFFERENT from AZURE_FOUNDRY_API_KEY (AI Foundry project key).
+        // Leave empty to authenticate via Entra ID (az login).
+        config_key: "AZURE_SPEECH_KEY",
         default_base_url: "",
         endpoint_path: "speechtotext/transcriptions:transcribe",
         host_key: Some("AZURE_FOUNDRY_ENDPOINT"),
-        description: "Uses Azure AI Foundry for speech-to-text via the Fast Transcription API. Configured via Azure AI Foundry provider settings.",
-        uses_provider_config: true,
-        settings_path: Some("Settings > Models > Azure AI Foundry"),
+        description: "Uses Azure AI Foundry for speech-to-text via the Fast Transcription API. \
+                      Set AZURE_SPEECH_KEY to an Azure AI Services subscription key, \
+                      or leave empty to authenticate via Entra ID (az login).",
+        uses_provider_config: false,
+        settings_path: None,
     },
 ];
 
@@ -265,14 +267,20 @@ fn derive_azure_foundry_speech_url(foundry_endpoint: &str) -> String {
 /// Response format: `{ "combinedPhrases": [{ "text": "..." }] }`
 /// Transcribes audio using the Azure AI Foundry Fast Transcription REST API.
 ///
-/// Authentication mirrors the inference provider:
-/// - **API key** (`AZURE_FOUNDRY_API_KEY`) → `api-key: <key>` header.
-/// - **No API key configured** → Entra ID Bearer token via `az account get-access-token`
-///   (DefaultAzureCredential), using the same resource scope as inference
-///   (`https://ai.azure.com` for project endpoints, `https://ml.azure.com` for MaaS).
+/// The speech endpoint (`{hub}/speechtotext/transcriptions:transcribe`) is an
+/// **Azure AI Services (Cognitive Services)** endpoint, NOT an AI Foundry project
+/// endpoint.  Authentication therefore requires either:
 ///
-/// The speech endpoint URL is derived from `AZURE_FOUNDRY_ENDPOINT` by stripping the
-/// project or `/models` suffix and appending the Fast Transcription path.
+/// - **`AZURE_SPEECH_KEY`** — an Azure AI Services subscription key.  This is the key
+///   shown in the Azure portal under your AI Services resource → "Keys and Endpoint".
+///   **This is different from `AZURE_FOUNDRY_API_KEY`** (the AI Foundry project key);
+///   using the project key here causes a 401.
+/// - **Entra ID** (fallback when no key is set) — Bearer token acquired via
+///   `az account get-access-token --resource https://cognitiveservices.azure.com`.
+///   Run `az login` once; tokens are refreshed automatically.
+///
+/// The speech URL is derived from `AZURE_FOUNDRY_ENDPOINT` by stripping the project
+/// or `/models` suffix and appending the Fast Transcription path.
 async fn transcribe_with_azure_foundry(
     audio_bytes: Vec<u8>,
     extension: &str,
@@ -284,22 +292,20 @@ async fn transcribe_with_azure_foundry(
         .get_param("AZURE_FOUNDRY_ENDPOINT")
         .map_err(|_| anyhow::anyhow!("AZURE_FOUNDRY_ENDPOINT not configured"))?;
 
-    // API key is optional — fall back to Entra ID when absent, matching the inference path.
-    let api_key = config
-        .get_secret("AZURE_FOUNDRY_API_KEY")
+    // The speech endpoint is a Cognitive Services API — it requires either an Azure AI
+    // Services subscription key (AZURE_SPEECH_KEY) or a Bearer token scoped to
+    // https://cognitiveservices.azure.com.  The AI Foundry project key
+    // (AZURE_FOUNDRY_API_KEY) is scoped to model inference and will be rejected here.
+    let speech_key = config
+        .get_secret("AZURE_SPEECH_KEY")
         .ok()
         .filter(|k: &String| !k.is_empty());
 
-    // Pick the Entra ID resource scope that matches the endpoint type, consistent
-    // with how AzureFoundryProvider::from_env() selects the inference scope.
-    let entra_resource = if is_project_endpoint(&foundry_endpoint) {
-        AZURE_FOUNDRY_PROJECT_ENTRA_RESOURCE.to_string()
-    } else {
-        AZURE_FOUNDRY_ENTRA_RESOURCE.to_string()
-    };
-
-    let auth =
-        AzureAuth::new_with_resource(api_key, entra_resource).map_err(anyhow::Error::from)?;
+    // AzureAuth::new() uses https://cognitiveservices.azure.com as the resource scope,
+    // which is exactly what the Azure Fast Transcription API requires.
+    // AzureAuth::new(key, ad_token): key → api-key header; None,None → DefaultCredential.
+    // The default resource is https://cognitiveservices.azure.com — correct for speech.
+    let auth = AzureAuth::new(speech_key, None).map_err(anyhow::Error::from)?;
 
     let (auth_header_name, auth_header_value) =
         auth.auth_header().await.map_err(anyhow::Error::from)?;

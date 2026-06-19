@@ -197,6 +197,15 @@ pub async fn transcribe_local(audio_bytes: Vec<u8>) -> Result<String> {
         }
 
         let (_, transcriber) = transcriber_lock.as_mut().unwrap();
+        // Apply DICTATION_LANGUAGE to local Whisper if configured.
+        if let Ok(lang) = Config::global().get_param::<String>("DICTATION_LANGUAGE") {
+            if !lang.is_empty() {
+                let iso = lang.split('-').next().unwrap_or(&lang);
+                if let Some(token) = super::whisper::whisper_language_token(iso) {
+                    transcriber.set_language_token(token);
+                }
+            }
+        }
         let text = transcriber.transcribe(&audio_bytes).map_err(|e| {
             tracing::error!("Transcription failed: {}", e);
             e
@@ -314,11 +323,28 @@ async fn transcribe_with_azure_foundry(
 ) -> Result<String> {
     let config = Config::global();
 
-    // Optional locale, e.g. "fr-FR", "en-US".  Empty string = Azure auto-detect.
+    // Locale resolution order:
+    //   1. AZURE_SPEECH_LOCALE  (explicit BCP-47, e.g. "fr-FR")
+    //   2. DICTATION_LANGUAGE   (ISO 639-1 "fr" → expanded to "fr-FR" as default region)
+    //   3. None                 (Azure auto-detect — can misidentify, e.g. fr→zh)
     let locale: Option<String> = config
         .get_param::<String>("AZURE_SPEECH_LOCALE")
         .ok()
-        .filter(|l: &String| !l.is_empty());
+        .filter(|l: &String| !l.is_empty())
+        .or_else(|| {
+            config
+                .get_param::<String>("DICTATION_LANGUAGE")
+                .ok()
+                .filter(|l: &String| !l.is_empty())
+                .map(|lang| {
+                    if lang.contains('-') {
+                        lang // already BCP-47
+                    } else {
+                        // "fr" → "fr-FR", "en" → "en-US" etc.  Upper-case == safest default region.
+                        format!("{}-{}", lang, lang.to_uppercase())
+                    }
+                })
+        });
 
     // Priority 1: explicit Azure AI Services (Cognitive Services) endpoint.
     // This is the endpoint shown in Azure portal → AI Foundry Hub → AI Services resource
@@ -623,6 +649,16 @@ pub async fn transcribe_with_provider(
 
     let (client, endpoint_path) = build_api_client(provider)?;
 
+    // DICTATION_LANGUAGE (ISO 639-1, e.g. "fr", "en", "de") forces the language on
+    // all API-based providers.  Without it each provider auto-detects the language,
+    // which works well for OpenAI/Groq (Whisper) but can fail for others.
+    let dictation_lang: Option<String> = Config::global()
+        .get_param::<String>("DICTATION_LANGUAGE")
+        .ok()
+        .filter(|l: &String| !l.is_empty())
+        // Normalise BCP-47 "fr-FR" → ISO-639-1 "fr" (OpenAI/Groq/ElevenLabs want 2-letter).
+        .map(|l| l.split('-').next().unwrap_or(&l).to_string());
+
     let part = reqwest::multipart::Part::bytes(audio_bytes)
         .file_name(format!("audio.{}", extension))
         .mime_str(mime_type)
@@ -631,9 +667,22 @@ pub async fn transcribe_with_provider(
             anyhow::anyhow!(e)
         })?;
 
-    let form = reqwest::multipart::Form::new()
+    let mut form = reqwest::multipart::Form::new()
         .part("file", part)
         .text(model_param, model_value);
+
+    // Inject language hint into the provider-specific field name.
+    if let Some(ref lang) = dictation_lang {
+        form = match provider {
+            // OpenAI & Groq: field "language", ISO 639-1 two-letter code.
+            DictationProvider::OpenAI | DictationProvider::Groq => {
+                form.text("language", lang.clone())
+            }
+            // ElevenLabs Scribe: field "language_code", same ISO 639-1 code.
+            DictationProvider::ElevenLabs => form.text("language_code", lang.clone()),
+            _ => form,
+        };
+    }
 
     let response = client
         .request(None, &endpoint_path)

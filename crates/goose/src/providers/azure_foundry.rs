@@ -673,7 +673,7 @@ impl ProviderDef for AzureFoundryProvider {
             // carry an explicit api-version query param when the user configures one.
             let (path_prefix, resolved_api_version) =
                 if is_project_endpoint(&endpoint) && api_version.is_none() {
-                    ("openai/v1".to_string(), None)
+                    ("openai/v1/".to_string(), None)
                 } else {
                     (String::new(), api_version.clone())
                 };
@@ -1346,6 +1346,23 @@ mod tests {
             "https://hub.services.ai.azure.com/models"
         ));
         assert!(!is_project_endpoint("https://hub.models.ai.azure.com"));
+    }
+
+    #[test]
+    fn project_endpoint_chat_prefix_has_trailing_slash() {
+        // Regression for Codex P1: the prefix was "openai/v1" (missing trailing
+        // slash), which produced "openai/v1chat/completions" (→ 404) instead of
+        // "openai/v1/chat/completions".
+        let endpoint = "https://hub.services.ai.azure.com/api/projects/proj";
+        let prefix = if is_project_endpoint(endpoint) {
+            "openai/v1/".to_string()
+        } else {
+            String::new()
+        };
+        assert_eq!(
+            format!("{}chat/completions", prefix),
+            "openai/v1/chat/completions"
+        );
     }
 
     // ── deployment override ───────────────────────────────────────────────────

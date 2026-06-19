@@ -2,6 +2,7 @@ use crate::config::Config;
 #[cfg(feature = "local-inference")]
 use crate::dictation::whisper::LOCAL_WHISPER_MODEL_CONFIG_KEY;
 use crate::providers::api_client::{ApiClient, AuthMethod};
+use crate::providers::azure_foundry::{is_project_endpoint, AZURE_FOUNDRY_PROJECT_ENTRA_RESOURCE};
 use crate::providers::azureauth::AzureAuth;
 use crate::providers::openai::parse_openai_base_url;
 use anyhow::Result;
@@ -86,9 +87,7 @@ pub const PROVIDERS: &[DictationProviderDef] = &[
         default_base_url: "",
         endpoint_path: "speechtotext/transcriptions:transcribe",
         host_key: Some("AZURE_FOUNDRY_ENDPOINT"),
-        description: "Uses Azure AI Foundry for speech-to-text via the Fast Transcription API. \
-                      Set AZURE_SPEECH_KEY to an Azure AI Services subscription key, \
-                      or leave empty to authenticate via Entra ID (az login).",
+        description: "Uses Azure AI Foundry for speech-to-text via the Fast Transcription API. For project endpoints: uses AZURE_FOUNDRY_API_KEY (same as inference). For MaaS/hub endpoints: set AZURE_SPEECH_KEY or use Entra ID (az login).",
         uses_provider_config: false,
         settings_path: None,
     },
@@ -231,19 +230,23 @@ const AZURE_FOUNDRY_SPEECH_API_VERSION: &str = "2024-11-15";
 ///
 /// Two endpoint formats are supported:
 ///
-/// - **MaaS** (`https://<hub>.services.ai.azure.com/models`): strip the `/models` suffix
-///   to obtain the hub base URL.
-/// - **Project** (`https://<hub>.services.ai.azure.com/api/projects/<project>`): the speech
-///   service lives at the hub level, so strip everything from `/api/projects/` onward.
+/// - **Project** (`https://<hub>.services.ai.azure.com/api/projects/<project>`):
+///   The `Azure-Speech-to-text` model is deployed within the project scope, so the
+///   speech endpoint is at the project level — the project API key is valid here.
+///   URL: `{project_endpoint}/speechtotext/transcriptions:transcribe?api-version=…`
 ///
-/// The resulting URL targets the Fast Transcription REST API:
-/// `{hub}/speechtotext/transcriptions:transcribe?api-version=<version>`
+/// - **MaaS** (`https://<hub>.services.ai.azure.com/models`): strip the `/models`
+///   suffix to obtain the hub base URL; the speech endpoint is at hub level and
+///   requires an Azure AI Services key (`AZURE_SPEECH_KEY`) or Entra ID with the
+///   `https://cognitiveservices.azure.com` scope.
 fn derive_azure_foundry_speech_url(foundry_endpoint: &str) -> String {
     let trimmed = foundry_endpoint.trim_end_matches('/');
 
     let base = if trimmed.contains("/api/projects/") {
-        // Project endpoint — speech lives at the hub, not the project scope.
-        trimmed.split("/api/projects/").next().unwrap_or(trimmed)
+        // Project endpoint — speech is available at the project scope because
+        // Azure-Speech-to-text is deployed within the project.
+        // Keep the full project path so that the project API key is valid.
+        trimmed
     } else {
         // MaaS endpoint — strip the trailing /models segment if present.
         trimmed
@@ -260,27 +263,18 @@ fn derive_azure_foundry_speech_url(foundry_endpoint: &str) -> String {
 
 /// Transcribes audio using the Azure AI Foundry Fast Transcription REST API.
 ///
-/// Authentication uses the `api-key` header with `AZURE_FOUNDRY_API_KEY`.
-/// The endpoint is derived from `AZURE_FOUNDRY_ENDPOINT` by stripping the `/models`
-/// suffix and appending the speech path.
+/// Authentication is endpoint-type aware:
 ///
-/// Response format: `{ "combinedPhrases": [{ "text": "..." }] }`
-/// Transcribes audio using the Azure AI Foundry Fast Transcription REST API.
+/// **Project endpoint** (`/api/projects/…`):
+/// The `Azure-Speech-to-text` model is deployed within the project, so the speech
+/// API lives at the project scope.  The AI Foundry project key
+/// (`AZURE_FOUNDRY_API_KEY`) is used — the same key as model inference.
+/// Falls back to Entra ID with `https://ai.azure.com` scope when no key is set.
 ///
-/// The speech endpoint (`{hub}/speechtotext/transcriptions:transcribe`) is an
-/// **Azure AI Services (Cognitive Services)** endpoint, NOT an AI Foundry project
-/// endpoint.  Authentication therefore requires either:
-///
-/// - **`AZURE_SPEECH_KEY`** — an Azure AI Services subscription key.  This is the key
-///   shown in the Azure portal under your AI Services resource → "Keys and Endpoint".
-///   **This is different from `AZURE_FOUNDRY_API_KEY`** (the AI Foundry project key);
-///   using the project key here causes a 401.
-/// - **Entra ID** (fallback when no key is set) — Bearer token acquired via
-///   `az account get-access-token --resource https://cognitiveservices.azure.com`.
-///   Run `az login` once; tokens are refreshed automatically.
-///
-/// The speech URL is derived from `AZURE_FOUNDRY_ENDPOINT` by stripping the project
-/// or `/models` suffix and appending the Fast Transcription path.
+/// **MaaS / hub endpoint**:
+/// Speech is at the hub level and requires `AZURE_SPEECH_KEY` (Azure AI Services
+/// subscription key) or an Entra ID Bearer token with
+/// `https://cognitiveservices.azure.com` scope (`az login`).
 async fn transcribe_with_azure_foundry(
     audio_bytes: Vec<u8>,
     extension: &str,
@@ -292,20 +286,33 @@ async fn transcribe_with_azure_foundry(
         .get_param("AZURE_FOUNDRY_ENDPOINT")
         .map_err(|_| anyhow::anyhow!("AZURE_FOUNDRY_ENDPOINT not configured"))?;
 
-    // The speech endpoint is a Cognitive Services API — it requires either an Azure AI
-    // Services subscription key (AZURE_SPEECH_KEY) or a Bearer token scoped to
-    // https://cognitiveservices.azure.com.  The AI Foundry project key
-    // (AZURE_FOUNDRY_API_KEY) is scoped to model inference and will be rejected here.
-    let speech_key = config
-        .get_secret("AZURE_SPEECH_KEY")
-        .ok()
-        .filter(|k: &String| !k.is_empty());
-
-    // AzureAuth::new() uses https://cognitiveservices.azure.com as the resource scope,
-    // which is exactly what the Azure Fast Transcription API requires.
-    // AzureAuth::new(key, ad_token): key → api-key header; None,None → DefaultCredential.
-    // The default resource is https://cognitiveservices.azure.com — correct for speech.
-    let auth = AzureAuth::new(speech_key, None).map_err(anyhow::Error::from)?;
+    // Authentication splits by endpoint type:
+    //
+    // • Project endpoint (`/api/projects/…`): the Azure-Speech-to-text model is
+    //   deployed inside the project, so the speech API is served at the project scope.
+    //   The AI Foundry project API key (`AZURE_FOUNDRY_API_KEY`) is valid here —
+    //   it is the same key used for model inference.  Falls back to Entra ID with the
+    //   `https://ai.azure.com` scope when no key is configured.
+    //
+    // • MaaS / hub endpoint: speech is at the hub level and requires either
+    //   `AZURE_SPEECH_KEY` (Azure AI Services subscription key) or an Entra ID
+    //   Bearer token scoped to `https://cognitiveservices.azure.com`.
+    let auth = if is_project_endpoint(&foundry_endpoint) {
+        let api_key = config
+            .get_secret("AZURE_FOUNDRY_API_KEY")
+            .ok()
+            .filter(|k: &String| !k.is_empty());
+        AzureAuth::new_with_resource(api_key, AZURE_FOUNDRY_PROJECT_ENTRA_RESOURCE.to_string())
+            .map_err(anyhow::Error::from)?
+    } else {
+        let speech_key = config
+            .get_secret("AZURE_SPEECH_KEY")
+            .ok()
+            .filter(|k: &String| !k.is_empty());
+        // AzureAuth::new() defaults to https://cognitiveservices.azure.com — correct
+        // for the hub-level Azure AI Services speech endpoint.
+        AzureAuth::new(speech_key, None).map_err(anyhow::Error::from)?
+    };
 
     let (auth_header_name, auth_header_value) =
         auth.auth_header().await.map_err(anyhow::Error::from)?;
@@ -586,15 +593,31 @@ mod tests {
     }
 
     #[test]
-    fn azure_foundry_speech_url_strips_project_path() {
-        // Project endpoint: speech lives at the hub level, not inside /api/projects/<proj>
+    fn azure_foundry_speech_url_keeps_project_scope() {
+        // Project endpoint: the Azure-Speech-to-text model is deployed within the
+        // project, so the speech API is at the project level (not hub level).
+        // The project API key is valid at this path.
         let url = derive_azure_foundry_speech_url(
             "https://myhub.services.ai.azure.com/api/projects/my-project",
         );
         assert_eq!(
             url,
             format!(
-                "https://myhub.services.ai.azure.com/speechtotext/transcriptions:transcribe?api-version={}",
+                "https://myhub.services.ai.azure.com/api/projects/my-project/speechtotext/transcriptions:transcribe?api-version={}",
+                AZURE_FOUNDRY_SPEECH_API_VERSION
+            )
+        );
+    }
+
+    #[test]
+    fn azure_foundry_speech_url_project_with_trailing_slash() {
+        let url = derive_azure_foundry_speech_url(
+            "https://myhub.services.ai.azure.com/api/projects/my-project/",
+        );
+        assert_eq!(
+            url,
+            format!(
+                "https://myhub.services.ai.azure.com/api/projects/my-project/speechtotext/transcriptions:transcribe?api-version={}",
                 AZURE_FOUNDRY_SPEECH_API_VERSION
             )
         );

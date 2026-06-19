@@ -245,14 +245,14 @@ export const DictationSettings = () => {
                 <p className="text-xs text-text-secondary mt-[2px]">
                   {provider === 'azure_foundry' ? (
                     <>
-                      Set <code className="font-mono">AZURE_SPEECH_KEY</code> to the Azure AI
-                      Services subscription key (Azure portal → AI Foundry Hub → AI Services
-                      resource → Keys and Endpoint). Also set{' '}
-                      <code className="font-mono">AZURE_SPEECH_ENDPOINT</code> (e.g.{' '}
+                      Set <code className="font-mono">AZURE_SPEECH_ENDPOINT</code> to the
+                      cognitiveservices URL (Azure portal → AI Foundry Hub → AI Services resource
+                      → Keys and Endpoint, e.g.{' '}
                       <code className="font-mono">
                         https://&lt;name&gt;.cognitiveservices.azure.com/
                       </code>
-                      ). Leave key empty to use Entra ID (
+                      ). The key is the <strong>same as your Azure AI Foundry API key</strong>{' '}
+                      — no extra configuration needed. Leave empty to use Entra ID (
                       <code className="font-mono">az login</code>).
                       {providerStatuses[provider]?.configured && (
                         <span className="text-green-600 ml-2">{intl.formatMessage(i18n.configured)}</span>

@@ -80,17 +80,18 @@ pub const PROVIDERS: &[DictationProviderDef] = &[
     },
     DictationProviderDef {
         provider: DictationProvider::AzureFoundry,
-        // AZURE_SPEECH_KEY is the Azure AI Services subscription key shown in Azure portal
-        // under your AI Foundry Hub → AI Services resource → Keys and Endpoint.
-        // This is DIFFERENT from AZURE_FOUNDRY_API_KEY (AI Foundry project key).
-        // Leave empty to fall back to Entra ID (az login).
+        // The Azure AI Foundry hub and the backing Azure AI Services resource share the
+        // same API key (unified resource). AZURE_FOUNDRY_API_KEY == the AI Services key.
+        // AZURE_SPEECH_KEY is an optional explicit override; code falls back to
+        // AZURE_FOUNDRY_API_KEY automatically when it is not set.
         config_key: "AZURE_SPEECH_KEY",
         default_base_url: "",
         endpoint_path: "speechtotext/transcriptions:transcribe",
         host_key: Some("AZURE_SPEECH_ENDPOINT"),
-        description: "Uses Azure AI Foundry speech-to-text (Fast Transcription API). \
-                      Configure AZURE_SPEECH_ENDPOINT (cognitiveservices URL) and AZURE_SPEECH_KEY \
-                      from your AI Services resource in Azure portal.",
+        description: "Uses Azure AI Foundry speech-to-text via the Fast Transcription API. \
+                      Set AZURE_SPEECH_ENDPOINT to the cognitiveservices URL (Azure portal → \
+                      AI Foundry Hub → AI Services resource → Keys and Endpoint). \
+                      The API key is the same as AZURE_FOUNDRY_API_KEY — no extra key needed.",
         uses_provider_config: false,
         settings_path: None,
     },
@@ -275,8 +276,10 @@ fn derive_azure_foundry_speech_url(foundry_endpoint: &str) -> String {
 /// The "Azure-Speech-to-text" model from registry `azureml-cogsvc` shows "Adjust"
 /// in the Foundry portal because it is built into the AI Services resource — no
 /// separate deployment is required.
-/// Auth: `AZURE_SPEECH_KEY` (Azure AI Services subscription key, different from
-/// `AZURE_FOUNDRY_API_KEY`) or Entra ID (`az login`,
+/// Auth: the Azure AI Foundry hub and the Azure AI Services resource are **unified**
+/// — `AZURE_FOUNDRY_API_KEY` and the AI Services key are the same key.
+/// Key resolution: `AZURE_SPEECH_KEY` (explicit override) → `AZURE_FOUNDRY_API_KEY`
+/// (automatic fallback, no extra configuration needed) → Entra ID (`az login`,
 /// `https://cognitiveservices.azure.com` scope).
 ///
 /// **Priority 2 — derive from `AZURE_FOUNDRY_ENDPOINT`** (legacy fallback):
@@ -295,10 +298,18 @@ async fn transcribe_with_azure_foundry(
     // The Azure-Speech-to-text model (azureml-cogsvc registry) is built into this
     // resource — no separate deployment is needed ("Adjust" action in the portal).
     if let Ok(speech_endpoint) = config.get_param::<String>("AZURE_SPEECH_ENDPOINT") {
+        // Key resolution: AZURE_SPEECH_KEY (explicit override) →
+        // AZURE_FOUNDRY_API_KEY (same unified key, automatic fallback) → Entra ID.
         let speech_key = config
             .get_secret("AZURE_SPEECH_KEY")
             .ok()
-            .filter(|k: &String| !k.is_empty());
+            .filter(|k: &String| !k.is_empty())
+            .or_else(|| {
+                config
+                    .get_secret("AZURE_FOUNDRY_API_KEY")
+                    .ok()
+                    .filter(|k: &String| !k.is_empty())
+            });
         // cognitiveservices endpoint — use cognitiveservices.azure.com Entra ID scope.
         let auth = AzureAuth::new(speech_key, None).map_err(anyhow::Error::from)?;
         let (header_name, header_value) = auth.auth_header().await.map_err(anyhow::Error::from)?;
@@ -334,11 +345,17 @@ async fn transcribe_with_azure_foundry(
         AzureAuth::new_with_resource(api_key, AZURE_FOUNDRY_PROJECT_ENTRA_RESOURCE.to_string())
             .map_err(anyhow::Error::from)?
     } else {
-        // MaaS/hub: use AZURE_SPEECH_KEY or Entra ID (cognitiveservices scope).
+        // MaaS/hub: AZURE_SPEECH_KEY → AZURE_FOUNDRY_API_KEY (same unified key) → Entra ID.
         let speech_key = config
             .get_secret("AZURE_SPEECH_KEY")
             .ok()
-            .filter(|k: &String| !k.is_empty());
+            .filter(|k: &String| !k.is_empty())
+            .or_else(|| {
+                config
+                    .get_secret("AZURE_FOUNDRY_API_KEY")
+                    .ok()
+                    .filter(|k: &String| !k.is_empty())
+            });
         AzureAuth::new(speech_key, None).map_err(anyhow::Error::from)?
     };
 

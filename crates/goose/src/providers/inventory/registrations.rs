@@ -1,10 +1,12 @@
 use super::{
-    config_secret_value, default_inventory_identity, default_inventory_identity_resolver,
-    serialize_string_map, InventoryIdentityInput, InventoryRegistration,
+    config_secret_value, default_inventory_configured, default_inventory_identity,
+    default_inventory_identity_resolver, serialize_string_map, InventoryIdentityInput,
+    InventoryRegistration,
 };
 use crate::config::Config;
 use crate::providers::acp_tooling::{acp_adapter_installed, resolved_acp_command};
 use crate::providers::amp_acp::{AMP_ACP_BINARY, AMP_ACP_PROVIDER_NAME};
+use crate::providers::azure_foundry::AzureFoundryProvider;
 use crate::providers::base::ProviderDef;
 use crate::providers::chatgpt_codex::TokenCache as ChatGptCodexTokenCache;
 use crate::providers::claude_acp::{CLAUDE_ACP_BINARY, CLAUDE_ACP_PROVIDER_NAME};
@@ -18,6 +20,22 @@ use crate::providers::ollama::{ollama_host_configured, OLLAMA_PROVIDER_NAME};
 use crate::providers::openai::{OPEN_AI_DEFAULT_BASE_PATH, OPEN_AI_PROVIDER_NAME};
 use crate::providers::pi_acp::{PI_ACP_BINARY, PI_ACP_PROVIDER_NAME};
 use crate::providers::xai_oauth::TokenCache as XaiOAuthTokenCache;
+
+pub fn azure_foundry_inventory() -> InventoryRegistration {
+    InventoryRegistration::new(true, || {
+        let metadata = AzureFoundryProvider::metadata();
+        Ok(default_inventory_identity(
+            &metadata.name,
+            &metadata.name,
+            &metadata.config_keys,
+            Config::global(),
+        ))
+    })
+    .with_configured(|| {
+        let metadata = AzureFoundryProvider::metadata();
+        default_inventory_configured(&metadata.config_keys, Config::global())
+    })
+}
 
 pub fn openai_inventory() -> InventoryRegistration {
     InventoryRegistration::new(true, || {

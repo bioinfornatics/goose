@@ -161,6 +161,7 @@ impl ProviderTestConfig {
         self
     }
 
+    #[allow(dead_code)] // only called inside #[cfg(feature = "aws-providers")] tests
     fn clear_env(mut self, vars: &'static [&'static str]) -> Self {
         self.clear_env = vars;
         self

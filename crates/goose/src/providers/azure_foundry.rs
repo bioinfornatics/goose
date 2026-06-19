@@ -473,14 +473,18 @@ impl AzureFoundryActualProvider {
 
 /// Identifies the publisher of a model deployed on Azure AI Foundry.
 ///
-/// The publisher is inferred from well-known model name prefixes.
-/// Anything not recognised defaults to [`ModelPublisher::OpenAI`] to honour the
-/// open-world principle: unknown future models are assumed OpenAI-family and
-/// routed to the Responses API.
+/// The variant is resolved from the authoritative `modelPublisher` field returned by
+/// `GET /deployments`.  The open-world default for unknown publisher strings is
+/// [`ModelPublisher::Unknown`] (→ chat/completions), **not** OpenAI: on Azure Foundry
+/// every partner publisher — including future ones — uses the OpenAI-compatible
+/// chat/completions path.  Only an explicit `"openai"` string from Azure maps to
+/// [`ModelPublisher::OpenAI`] and the Responses API.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelPublisher {
-    /// OpenAI models (gpt-*, o-series). The open-world default: unknown or
-    /// future models resolve to this variant and are routed to the Responses API.
+    /// OpenAI models (gpt-*, o-series). Routed to the Responses API
+    /// (`/openai/v1/responses`) on project endpoints.  Only assigned when Azure
+    /// returns `modelPublisher = "openai"` explicitly or the model name matches
+    /// a known gpt-*/o-series prefix.
     OpenAI,
     /// Anthropic Claude models. Routed to `/anthropic/v1/messages` on project
     /// endpoints to preserve prompt caching and extended thinking.
@@ -504,6 +508,16 @@ pub enum ModelPublisher {
     /// endpoint/provider. Verify API format compatibility for future GLM versions
     /// when Azure Foundry updates its model catalog.
     Zhipu,
+    /// DeepSeek models (DeepSeek-R1, DeepSeek-V3, …). Routed via OpenAI-compatible
+    /// `chat/completions` — see Microsoft's Azure Foundry DeepSeek-R1 quickstart which
+    /// uses `chat.completions.create` / `/chat/completions`.
+    DeepSeek,
+    /// A publisher string was present in the Azure deployments API response but is not
+    /// recognised by this client.  Routed to chat/completions (the safe default):
+    /// every Azure Foundry partner publisher except OpenAI uses the OpenAI-compatible
+    /// chat/completions path, so routing an unknown publisher to Responses API would
+    /// nearly always be wrong.
+    Unknown,
 }
 
 impl ModelPublisher {
@@ -514,6 +528,7 @@ impl ModelPublisher {
     /// independent of the user-defined deployment name.
     pub fn from_publisher_str(publisher: &str) -> Self {
         match publisher.to_lowercase().as_str() {
+            "openai" => Self::OpenAI,
             "anthropic" => Self::Anthropic,
             "meta" | "meta-llama" => Self::Meta,
             "microsoft" => Self::Microsoft,
@@ -521,8 +536,11 @@ impl ModelPublisher {
             "cohere" => Self::Cohere,
             "ai21" | "ai21 labs" | "ai21labs" => Self::AI21,
             "zhipu" | "zhipuai" => Self::Zhipu,
-            // Default to OpenAI for unknown publishers → Responses API (open-world)
-            _ => Self::OpenAI,
+            "deepseek" => Self::DeepSeek,
+            // Unknown publisher strings from Azure are routed to chat/completions,
+            // NOT Responses API: all Azure Foundry partner publishers use
+            // chat/completions; only an explicit "openai" string warrants Responses API.
+            _ => Self::Unknown,
         }
     }
 
@@ -597,6 +615,10 @@ pub fn is_known_completion_publisher(publisher: ModelPublisher) -> bool {
             | ModelPublisher::Cohere
             | ModelPublisher::AI21
             | ModelPublisher::Zhipu
+            | ModelPublisher::DeepSeek
+            // Unknown publisher strings default to chat/completions — see
+            // ModelPublisher::Unknown and from_publisher_str for rationale.
+            | ModelPublisher::Unknown
     )
 }
 
@@ -1446,6 +1468,50 @@ mod tests {
             "Cohere-command-r-plus-08-2024"
         ));
         assert!(!uses_responses_api_on_foundry("AI21-Jamba-1.5-Large"));
+    }
+
+    #[test]
+    fn detect_publisher_deepseek() {
+        assert_eq!(
+            ModelPublisher::from_publisher_str("deepseek"),
+            ModelPublisher::DeepSeek
+        );
+        assert!(!uses_responses_api_on_foundry_publisher(
+            ModelPublisher::DeepSeek
+        ));
+    }
+
+    #[test]
+    fn unknown_publisher_string_routes_to_chat_completions_not_responses() {
+        // Regression for Codex P2: unknown publisher strings must NOT fall through to
+        // OpenAI/Responses API — all Azure Foundry partner publishers use chat/completions.
+        assert_eq!(
+            ModelPublisher::from_publisher_str("stability"),
+            ModelPublisher::Unknown
+        );
+        assert_eq!(
+            ModelPublisher::from_publisher_str("snowflake"),
+            ModelPublisher::Unknown
+        );
+        assert_eq!(
+            ModelPublisher::from_publisher_str("future-partner-2027"),
+            ModelPublisher::Unknown
+        );
+        // None of these should route to Responses API
+        assert!(!uses_responses_api_on_foundry_publisher(
+            ModelPublisher::Unknown
+        ));
+    }
+
+    #[test]
+    fn only_explicit_openai_publisher_string_routes_to_responses() {
+        assert_eq!(
+            ModelPublisher::from_publisher_str("openai"),
+            ModelPublisher::OpenAI
+        );
+        assert!(uses_responses_api_on_foundry_publisher(
+            ModelPublisher::OpenAI
+        ));
     }
 
     #[test]

@@ -230,7 +230,11 @@ fn resolve_openai_base_url_target(raw_url: Option<&str>) -> Result<Option<OpenAi
 }
 
 /// Azure AI Foundry Fast Transcription API version.
+/// API version query-param for `*.services.ai.azure.com` endpoints (AI Foundry style).
 const AZURE_FOUNDRY_SPEECH_API_VERSION: &str = "2024-11-15";
+/// Path-versioned segment for `*.cognitiveservices.azure.com` endpoints (Cognitive Services style).
+/// cognitiveservices endpoints embed the version in the URL path; they do NOT accept ?api-version=.
+const AZURE_COGNITIVE_SERVICES_SPEECH_PATH: &str = "speechtotext/v3.2/transcriptions:transcribe";
 
 /// Derives the speech transcription URL from an Azure AI Foundry endpoint.
 ///
@@ -314,10 +318,16 @@ async fn transcribe_with_azure_foundry(
         let auth = AzureAuth::new(speech_key, None).map_err(anyhow::Error::from)?;
         let (header_name, header_value) = auth.auth_header().await.map_err(anyhow::Error::from)?;
         let base = speech_endpoint.trim_end_matches('/');
-        let speech_url = format!(
-            "{}/speechtotext/transcriptions:transcribe?api-version={}",
-            base, AZURE_FOUNDRY_SPEECH_API_VERSION
-        );
+        // cognitiveservices.azure.com uses path-versioned URLs (/v3.2/…), NOT ?api-version=.
+        // services.ai.azure.com uses query-param versioning (?api-version=2024-11-15).
+        let speech_url = if base.contains("cognitiveservices.azure.com") {
+            format!("{}/{}", base, AZURE_COGNITIVE_SERVICES_SPEECH_PATH)
+        } else {
+            format!(
+                "{}/speechtotext/transcriptions:transcribe?api-version={}",
+                base, AZURE_FOUNDRY_SPEECH_API_VERSION
+            )
+        };
         return transcribe_speech_request(
             &speech_url,
             &header_name,
@@ -577,7 +587,8 @@ pub async fn transcribe_with_provider(
 mod tests {
     use super::{
         derive_azure_foundry_speech_url, openai_dictation_target, resolve_openai_base_url_target,
-        AZURE_FOUNDRY_SPEECH_API_VERSION, OPENAI_VERSIONLESS_TRANSCRIPTIONS_PATH,
+        AZURE_COGNITIVE_SERVICES_SPEECH_PATH, AZURE_FOUNDRY_SPEECH_API_VERSION,
+        OPENAI_VERSIONLESS_TRANSCRIPTIONS_PATH,
     };
 
     #[test]
@@ -690,22 +701,56 @@ mod tests {
     // ── AZURE_SPEECH_ENDPOINT (cognitiveservices) URL construction ────────────
 
     #[test]
-    fn azure_speech_endpoint_url_no_trailing_slash() {
-        // The cognitiveservices URL from Azure portal has a trailing slash;
-        // we should normalise it before appending the speech path.
-        let base = "https://myresource.cognitiveservices.azure.com/";
-        let url = format!(
-            "{}/speechtotext/transcriptions:transcribe?api-version={}",
-            base.trim_end_matches('/'),
-            AZURE_FOUNDRY_SPEECH_API_VERSION
-        );
-        assert_eq!(
-            url,
+    fn cognitive_services_endpoint_uses_path_versioned_url() {
+        // *.cognitiveservices.azure.com uses /v3.2/ in the path, NOT ?api-version=
+        let base = "https://myresource.cognitiveservices.azure.com";
+        let url = if base.contains("cognitiveservices.azure.com") {
+            format!("{}/{}", base, AZURE_COGNITIVE_SERVICES_SPEECH_PATH)
+        } else {
             format!(
-                "https://myresource.cognitiveservices.azure.com/speechtotext/transcriptions:transcribe?api-version={}",
+                "{}/speechtotext/transcriptions:transcribe?api-version={}",
+                base, AZURE_FOUNDRY_SPEECH_API_VERSION
+            )
+        };
+        assert_eq!(url, "https://myresource.cognitiveservices.azure.com/speechtotext/v3.2/transcriptions:transcribe");
+    }
+
+    #[test]
+    fn services_ai_endpoint_uses_query_param_versioned_url() {
+        // *.services.ai.azure.com uses ?api-version= query param
+        let base = "https://myhub.services.ai.azure.com";
+        let url = if base.contains("cognitiveservices.azure.com") {
+            format!("{}/{}", base, AZURE_COGNITIVE_SERVICES_SPEECH_PATH)
+        } else {
+            format!(
+                "{}/speechtotext/transcriptions:transcribe?api-version={}",
+                base, AZURE_FOUNDRY_SPEECH_API_VERSION
+            )
+        };
+        assert_eq!(url, format!("https://myhub.services.ai.azure.com/speechtotext/transcriptions:transcribe?api-version={}", AZURE_FOUNDRY_SPEECH_API_VERSION));
+    }
+
+    #[test]
+    fn azure_speech_endpoint_url_no_trailing_slash() {
+        // cognitiveservices URL — trailing slash stripped before appending path.
+        let base = "https://myresource.cognitiveservices.azure.com/";
+        let url = if base
+            .trim_end_matches('/')
+            .contains("cognitiveservices.azure.com")
+        {
+            format!(
+                "{}/{}",
+                base.trim_end_matches('/'),
+                AZURE_COGNITIVE_SERVICES_SPEECH_PATH
+            )
+        } else {
+            format!(
+                "{}/speechtotext/transcriptions:transcribe?api-version={}",
+                base.trim_end_matches('/'),
                 AZURE_FOUNDRY_SPEECH_API_VERSION
             )
-        );
+        };
+        assert_eq!(url, "https://myresource.cognitiveservices.azure.com/speechtotext/v3.2/transcriptions:transcribe");
     }
 
     // ── Entra ID resource selection ───────────────────────────────────────────

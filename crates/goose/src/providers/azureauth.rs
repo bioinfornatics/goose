@@ -60,6 +60,7 @@ struct TokenResponse {
 pub struct AzureAuth {
     credentials: AzureCredentials,
     cached_token: Arc<RwLock<Option<CachedToken>>>,
+    resource: String,
 }
 
 impl AzureAuth {
@@ -82,12 +83,52 @@ impl AzureAuth {
         Ok(Self {
             credentials,
             cached_token: Arc::new(RwLock::new(None)),
+            resource: "https://cognitiveservices.azure.com".to_string(),
+        })
+    }
+
+    /// Creates a new Azure authentication handler targeting a specific Entra ID resource scope.
+    ///
+    /// Use this variant when connecting to endpoints that require a non-default resource
+    /// scope — for example, Azure AI Foundry serverless (MaaS) endpoints use
+    /// `https://ml.azure.com` instead of the default Cognitive Services scope.
+    pub fn new_with_resource(api_key: Option<String>, resource: String) -> Result<Self, AuthError> {
+        let credentials = match api_key {
+            Some(key) => AzureCredentials::ApiKey(key),
+            None => AzureCredentials::DefaultCredential,
+        };
+
+        Ok(Self {
+            credentials,
+            cached_token: Arc::new(RwLock::new(None)),
+            resource,
         })
     }
 
     /// Returns the type of credentials being used.
     pub fn credential_type(&self) -> &AzureCredentials {
         &self.credentials
+    }
+
+    /// Returns the authentication header `(header_name, header_value)` for the
+    /// current credential type. Centralises the `AzureCredentials` → header
+    /// mapping so callers never need to duplicate it.
+    pub async fn auth_header(&self) -> Result<(String, String), AuthError> {
+        let token = self.get_token().await?;
+        Ok(match &self.credentials {
+            AzureCredentials::ApiKey(_) => ("api-key".to_string(), token.token_value),
+            AzureCredentials::BearerToken(_) | AzureCredentials::DefaultCredential => (
+                "Authorization".to_string(),
+                format!("Bearer {}", token.token_value),
+            ),
+        })
+    }
+
+    /// Invalidates the cached Entra ID token, forcing a fresh acquisition on the
+    /// next call to [`get_token`]. No-op for `ApiKey` and `BearerToken` credentials
+    /// (they have no cache to invalidate).
+    pub async fn invalidate_token(&self) {
+        *self.cached_token.write().await = None;
     }
 
     /// Retrieves a valid authentication token.
@@ -141,7 +182,7 @@ impl AzureAuth {
                 "account",
                 "get-access-token",
                 "--resource",
-                "https://cognitiveservices.azure.com",
+                self.resource.as_str(),
             ])
             .set_no_window()
             .output()

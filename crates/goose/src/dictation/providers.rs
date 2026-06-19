@@ -314,6 +314,12 @@ async fn transcribe_with_azure_foundry(
 ) -> Result<String> {
     let config = Config::global();
 
+    // Optional locale, e.g. "fr-FR", "en-US".  Empty string = Azure auto-detect.
+    let locale: Option<String> = config
+        .get_param::<String>("AZURE_SPEECH_LOCALE")
+        .ok()
+        .filter(|l: &String| !l.is_empty());
+
     // Priority 1: explicit Azure AI Services (Cognitive Services) endpoint.
     // This is the endpoint shown in Azure portal → AI Foundry Hub → AI Services resource
     // → "Keys and Endpoint" (e.g. https://<name>.cognitiveservices.azure.com/).
@@ -360,6 +366,7 @@ async fn transcribe_with_azure_foundry(
             audio_bytes,
             extension,
             mime_type,
+            locale.as_deref(),
         )
         .await;
     }
@@ -409,6 +416,7 @@ async fn transcribe_with_azure_foundry(
             audio_bytes,
             extension,
             mime_type,
+            locale.as_deref(),
         )
         .await;
     }
@@ -451,6 +459,7 @@ async fn transcribe_with_azure_foundry(
         audio_bytes,
         extension,
         mime_type,
+        locale.as_deref(),
     )
     .await
 }
@@ -464,15 +473,24 @@ async fn transcribe_speech_request(
     audio_bytes: Vec<u8>,
     extension: &str,
     mime_type: &str,
+    locale: Option<&str>,
 ) -> Result<String> {
     let audio_part = reqwest::multipart::Part::bytes(audio_bytes)
         .file_name(format!("audio.{}", extension))
         .mime_str(mime_type)
         .map_err(|e| anyhow::anyhow!("Failed to set audio MIME type: {}", e))?;
 
+    // Azure Fast Transcription definition JSON.
+    // Specifying locales prevents wrong-language detection (e.g. French → Chinese).
+    let definition = match locale {
+        Some(loc) => format!(r#"{{"locales":["{}"]}}"#, loc),
+        None => "{}".to_string(),
+    };
+    tracing::debug!(speech_url, locale = ?locale, "azure_foundry dictation: definition");
+
     let form = reqwest::multipart::Form::new()
         .part("audio", audio_part)
-        .text("definition", "{}");
+        .text("definition", definition);
 
     let client = reqwest::Client::builder()
         .timeout(REQUEST_TIMEOUT)

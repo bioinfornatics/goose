@@ -33,14 +33,14 @@ const AZURE_FOUNDRY_DOC_URL: &str = "https://learn.microsoft.com/en-us/azure/ai-
 
 /// Entra ID resource scope for Azure AI Foundry serverless (MaaS) endpoints.
 /// MaaS endpoints (`*.models.ai.azure.com` / `.../models`) use the ML workspace scope.
-const AZURE_FOUNDRY_ENTRA_RESOURCE: &str = "https://ml.azure.com";
+pub const AZURE_FOUNDRY_ENTRA_RESOURCE: &str = "https://ml.azure.com";
 /// Required by the Anthropic Messages API on Azure Foundry (hub-level endpoint).
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 
 /// Project endpoints (`…/api/projects/…`) use the AI Foundry scope.
 /// This matches the scope used by the Azure AI Projects TypeScript SDK:
 /// `scopes: ["https://ai.azure.com/.default"]`
-const AZURE_FOUNDRY_PROJECT_ENTRA_RESOURCE: &str = "https://ai.azure.com";
+pub const AZURE_FOUNDRY_PROJECT_ENTRA_RESOURCE: &str = "https://ai.azure.com";
 
 pub const AZURE_FOUNDRY_KNOWN_MODELS: &[&str] = &[
     // Microsoft
@@ -75,7 +75,7 @@ pub const AZURE_FOUNDRY_KNOWN_MODELS: &[&str] = &[
 /// Projects endpoints differ from MaaS endpoints in two ways relevant to inference:
 /// - They expose `/openai/v1/chat/completions` (version embedded in path).
 /// - They do NOT require an `api-version` query parameter for inference.
-fn is_project_endpoint(endpoint: &str) -> bool {
+pub fn is_project_endpoint(endpoint: &str) -> bool {
     endpoint.contains("/api/projects/")
 }
 

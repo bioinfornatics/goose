@@ -2,6 +2,10 @@ use crate::config::Config;
 #[cfg(feature = "local-inference")]
 use crate::dictation::whisper::LOCAL_WHISPER_MODEL_CONFIG_KEY;
 use crate::providers::api_client::{ApiClient, AuthMethod};
+use crate::providers::azure_foundry::{
+    is_project_endpoint, AZURE_FOUNDRY_ENTRA_RESOURCE, AZURE_FOUNDRY_PROJECT_ENTRA_RESOURCE,
+};
+use crate::providers::azureauth::AzureAuth;
 use crate::providers::openai::parse_openai_base_url;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -137,11 +141,10 @@ pub fn is_configured(provider: DictationProvider) -> bool {
             .and_then(|id| super::whisper::get_model(&id))
             .is_some_and(|m| m.is_downloaded()),
         DictationProvider::AzureFoundry => {
+            // API key is optional — the provider falls back to Entra ID (az CLI /
+            // managed identity) when none is configured, exactly like inference does.
+            // Require only the endpoint.
             config.get_param::<String>("AZURE_FOUNDRY_ENDPOINT").is_ok()
-                && config
-                    .get_secret::<String>("AZURE_FOUNDRY_API_KEY")
-                    .map(|k| !k.is_empty())
-                    .unwrap_or(false)
         }
         _ => {
             let def = get_provider_def(provider);
@@ -260,6 +263,16 @@ fn derive_azure_foundry_speech_url(foundry_endpoint: &str) -> String {
 /// suffix and appending the speech path.
 ///
 /// Response format: `{ "combinedPhrases": [{ "text": "..." }] }`
+/// Transcribes audio using the Azure AI Foundry Fast Transcription REST API.
+///
+/// Authentication mirrors the inference provider:
+/// - **API key** (`AZURE_FOUNDRY_API_KEY`) → `api-key: <key>` header.
+/// - **No API key configured** → Entra ID Bearer token via `az account get-access-token`
+///   (DefaultAzureCredential), using the same resource scope as inference
+///   (`https://ai.azure.com` for project endpoints, `https://ml.azure.com` for MaaS).
+///
+/// The speech endpoint URL is derived from `AZURE_FOUNDRY_ENDPOINT` by stripping the
+/// project or `/models` suffix and appending the Fast Transcription path.
 async fn transcribe_with_azure_foundry(
     audio_bytes: Vec<u8>,
     extension: &str,
@@ -271,11 +284,25 @@ async fn transcribe_with_azure_foundry(
         .get_param("AZURE_FOUNDRY_ENDPOINT")
         .map_err(|_| anyhow::anyhow!("AZURE_FOUNDRY_ENDPOINT not configured"))?;
 
-    let api_key: String = config
+    // API key is optional — fall back to Entra ID when absent, matching the inference path.
+    let api_key = config
         .get_secret("AZURE_FOUNDRY_API_KEY")
         .ok()
-        .filter(|k: &String| !k.is_empty())
-        .ok_or_else(|| anyhow::anyhow!("AZURE_FOUNDRY_API_KEY not configured"))?;
+        .filter(|k: &String| !k.is_empty());
+
+    // Pick the Entra ID resource scope that matches the endpoint type, consistent
+    // with how AzureFoundryProvider::from_env() selects the inference scope.
+    let entra_resource = if is_project_endpoint(&foundry_endpoint) {
+        AZURE_FOUNDRY_PROJECT_ENTRA_RESOURCE.to_string()
+    } else {
+        AZURE_FOUNDRY_ENTRA_RESOURCE.to_string()
+    };
+
+    let auth =
+        AzureAuth::new_with_resource(api_key, entra_resource).map_err(anyhow::Error::from)?;
+
+    let (auth_header_name, auth_header_value) =
+        auth.auth_header().await.map_err(anyhow::Error::from)?;
 
     let speech_url = derive_azure_foundry_speech_url(&foundry_endpoint);
 
@@ -290,12 +317,14 @@ async fn transcribe_with_azure_foundry(
         .part("audio", audio_part)
         .text("definition", "{}");
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()?;
+
     let response = client
         .post(&speech_url)
-        .header("api-key", &api_key)
+        .header(auth_header_name.as_str(), auth_header_value.as_str())
         .multipart(form)
-        .timeout(REQUEST_TIMEOUT)
         .send()
         .await
         .map_err(|e| {
@@ -306,8 +335,12 @@ async fn transcribe_with_azure_foundry(
     if !response.status().is_success() {
         let status = response.status();
         let error_text = response.text().await.unwrap_or_default();
-        if status == 401 || error_text.contains("Invalid API key") {
-            anyhow::bail!("Invalid API key");
+        if status == 401 || status == 403 {
+            anyhow::bail!(
+                "Invalid API key: Azure speech returned {} — {}",
+                status,
+                error_text
+            );
         } else if status == 429 {
             anyhow::bail!("Rate limit exceeded");
         } else if error_text.contains("too short") {
@@ -559,5 +592,24 @@ mod tests {
                 AZURE_FOUNDRY_SPEECH_API_VERSION
             )
         );
+    }
+
+    // ── Entra ID resource selection ───────────────────────────────────────────
+
+    #[test]
+    fn azure_foundry_project_endpoint_uses_ai_azure_com_resource() {
+        use crate::providers::azure_foundry::is_project_endpoint;
+        // is_project_endpoint is re-used for the speech auth resource selection.
+        assert!(is_project_endpoint(
+            "https://myhub.services.ai.azure.com/api/projects/proj"
+        ));
+    }
+
+    #[test]
+    fn azure_foundry_maas_endpoint_does_not_match_project() {
+        use crate::providers::azure_foundry::is_project_endpoint;
+        assert!(!is_project_endpoint(
+            "https://myhub.services.ai.azure.com/models"
+        ));
     }
 }

@@ -288,12 +288,39 @@ impl Provider for AzureFoundryActualProvider {
         // Resolve the publisher for this deployment.
         //
         // Priority:
-        //   1. deployment_cache (populated at startup from GET /deployments)
-        //      → authoritative: uses Azure's `modelPublisher` field, independent
-        //        of the user-defined deployment name ("my-prod-llm", etc.)
-        //   2. ModelPublisher::from_model_name (heuristic fallback)
-        //      → only reliable when the deployment name happens to match the
-        //        model name prefix; unreliable for arbitrary deployment names.
+        //   1. deployment_cache hit → authoritative publisher from Azure's
+        //      `modelPublisher` field, independent of the user-defined deployment
+        //      name ("my-prod-llm", "prod-claude", etc.)
+        //   2. Lazy fetch on project endpoints when cache is empty → prevents
+        //      mis-routing a custom-named deployment on the very first stream()
+        //      call that precedes any fetch_supported_models() invocation.
+        //      Errors are silently ignored; the heuristic fallback is still used.
+        //   3. ModelPublisher::from_model_name heuristic → reliable only when the
+        //      deployment name contains a recognisable model-name prefix.
+        let cache_empty = self
+            .deployment_cache
+            .lock()
+            .ok()
+            .map(|c| c.is_empty())
+            .unwrap_or(true);
+
+        // Only project endpoints have per-publisher routing (responses_client /
+        // anthropic_client).  MaaS endpoints always use chat/completions regardless
+        // of publisher, so a network round-trip on every cold first stream() would
+        // add latency with no routing benefit.
+        if cache_empty && self.responses_client.is_some() {
+            if let Ok((_, publishers)) = self.fetch_deployments_and_publishers().await {
+                if let Ok(mut cache) = self.deployment_cache.lock() {
+                    *cache = publishers;
+                }
+            } else {
+                tracing::debug!(
+                    "azure_foundry: could not pre-populate deployment cache; \
+                     falling back to name heuristic for routing"
+                );
+            }
+        }
+
         let publisher = self
             .deployment_cache
             .lock()
@@ -1825,6 +1852,94 @@ mod tests {
     ///
     /// Both the `inner` (chat/completions) and `responses_client` point at
     /// `server_uri` so the mock server can intercept either path.
+    /// Regression test for the codex P2 finding: when `deployment_cache` is empty
+    /// (first `stream()` call before any `fetch_supported_models()` invocation),
+    /// the provider must lazy-fetch deployment metadata and route by the authoritative
+    /// `modelPublisher` field rather than by the user-defined deployment name.
+    ///
+    /// Scenario: user created a deployment named "my-prod-llm" backed by Anthropic
+    /// Claude.  Without the lazy fetch the heuristic classifies "my-prod-llm" as
+    /// OpenAI → wrong route.  With the lazy fetch the deployments endpoint returns
+    /// `modelPublisher = "Anthropic"` → correct Anthropic Messages API route.
+    #[tokio::test]
+    async fn custom_deployment_name_fetches_publisher_on_first_stream() {
+        let server = MockServer::start().await;
+
+        // The deployments endpoint declares "my-prod-llm" as Anthropic.
+        let deployments_body = json!({
+            "value": [{
+                "type": "ModelDeployment",
+                "name": "my-prod-llm",
+                "modelName": "claude-sonnet-4-6",
+                "modelPublisher": "Anthropic",
+                "modelVersion": "1"
+            }]
+        });
+        Mock::given(method("GET"))
+            .and(path("/deployments"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(deployments_body))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        // The Anthropic Messages API endpoint must receive exactly one request.
+        Mock::given(method("POST"))
+            .and(path("/anthropic/v1/messages"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string(sse_anthropic_body())
+                    .append_header("content-type", "text/event-stream"),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        // Provider starts with an empty deployment_cache (as from_env() leaves it).
+        let provider = make_project_azure_foundry_provider(&server.uri());
+        let model = ModelConfig::new_or_fail("my-prod-llm");
+        provider
+            .complete(&model, "s", "system", &[], &[])
+            .await
+            .expect("custom-named Claude deployment should route to /anthropic/v1/messages");
+        // wiremock verifies that GET /deployments was called once and
+        // POST /anthropic/v1/messages was called once (not /openai/v1/responses).
+    }
+
+    /// Complement: the lazy fetch must NOT run on MaaS endpoints because they
+    /// have no per-publisher routing (responses_client is None).
+    #[tokio::test]
+    async fn maas_endpoint_does_not_lazy_fetch_deployments_on_stream() {
+        let server = MockServer::start().await;
+
+        // This mock must NOT be called (expect(0)).
+        Mock::given(method("GET"))
+            .and(path("/deployments"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(0)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string(sse_success_body())
+                    .append_header("content-type", "text/event-stream"),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let provider = make_maas_azure_foundry_provider(&server.uri());
+        let model = ModelConfig::new_or_fail("Phi-4");
+        provider
+            .complete(&model, "s", "system", &[], &[])
+            .await
+            .expect(
+                "MaaS endpoint should stream via chat/completions without fetching deployments",
+            );
+    }
+
     fn make_project_azure_foundry_provider(server_uri: &str) -> AzureFoundryActualProvider {
         let auth = Arc::new(
             AzureAuth::new_with_resource(

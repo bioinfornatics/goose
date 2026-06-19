@@ -1,5 +1,12 @@
 # Justfile
 
+# Prepend the hermit-managed tool bin directory to PATH so that cmake, cargo,
+# rustc, pnpm, node, etc. are always found even when `just` is invoked from a
+# shell that has NOT sourced `bin/activate-hermit`.
+# This is the equivalent of running `source bin/activate-hermit` before every
+# recipe.  The hermit bin dir is always present at <repo-root>/bin/.
+export PATH := justfile_directory() + "/bin:" + env_var_or_default("PATH", "")
+
 # list all tasks
 default:
   @just --list
@@ -109,6 +116,26 @@ run-ui-playwright:
 
 run-ui-only:
     @echo "Running UI..."
+    cd ui/desktop && pnpm install && pnpm run start-gui
+
+# Fast dev cycle: debug binary, no cmake / local-inference required.
+# ~10× faster than run-ui. Safe to use without a GPU or llama.cpp toolchain.
+# Switch to run-ui (release + all features) before cutting a release build.
+run-ui-dev:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    FEATURES="code-mode,aws-providers,telemetry,otel,rustls-tls,system-keyring"
+    echo "Building debug binaries (features: ${FEATURES}, no local-inference)..."
+    cargo build -p goose-server -p goose-cli \
+        --no-default-features --features "${FEATURES}"
+    mkdir -p ui/desktop/src/bin
+    cp target/debug/goosed ui/desktop/src/bin/goosed
+    # goose CLI may not exist if the workspace excludes it — skip silently
+    cp target/debug/goose ui/desktop/src/bin/goose 2>/dev/null || true
+    echo "Generating OpenAPI schema..."
+    cargo run --bin generate_schema -p goose-server \
+        --no-default-features --features "${FEATURES}"
+    echo "Running UI..."
     cd ui/desktop && pnpm install && pnpm run start-gui
 
 debug-ui:

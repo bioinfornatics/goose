@@ -21,9 +21,9 @@ use crate::providers::formats::anthropic::{
     create_request_with_options_for_provider as create_anthropic_request, AnthropicFormatOptions,
 };
 use crate::providers::formats::openai_responses::create_responses_request;
-use crate::providers::utils::RequestLog;
 use goose_providers::errors::ProviderError;
 use goose_providers::model::ModelConfig;
+use goose_providers::request_log::{start_log, LoggerHandleExt, RequestLogHandle};
 
 use rmcp::model::Tool;
 
@@ -376,7 +376,7 @@ impl AzureFoundryActualProvider {
         .map_err(|e| ProviderError::RequestFailed(e.to_string()))?;
         payload["stream"] = serde_json::Value::Bool(true);
 
-        let mut log = RequestLog::start(model_config, &payload)
+        let mut log = start_log(model_config, &payload)
             .map_err(|e| ProviderError::RequestFailed(e.to_string()))?;
 
         let response = self
@@ -422,7 +422,7 @@ impl AzureFoundryActualProvider {
             .map_err(|e| ProviderError::RequestFailed(e.to_string()))?;
         payload["stream"] = serde_json::Value::Bool(true);
 
-        let mut log = RequestLog::start(model_config, &payload)
+        let mut log = start_log(model_config, &payload)
             .map_err(|e| ProviderError::RequestFailed(e.to_string()))?;
 
         let response = self
@@ -606,6 +606,7 @@ impl ProviderDef for AzureFoundryProvider {
     fn from_env(
         model: ModelConfig,
         _extensions: Vec<crate::config::ExtensionConfig>,
+        tls_config: Option<crate::providers::api_client::TlsConfig>,
     ) -> BoxFuture<'static, Result<Self::Provider>> {
         Box::pin(async move {
             let config = crate::config::Config::global();
@@ -651,7 +652,11 @@ impl ProviderDef for AzureFoundryProvider {
                 };
 
             let host = endpoint.trim_end_matches('/').to_string();
-            let mut api_client = ApiClient::new(host, AuthMethod::Custom(Box::new(auth_provider)))?;
+            let mut api_client = ApiClient::new_with_tls(
+                host,
+                AuthMethod::Custom(Box::new(auth_provider)),
+                tls_config.clone(),
+            )?;
             if let Some(ref version) = resolved_api_version {
                 api_client =
                     api_client.with_query(vec![("api-version".to_string(), version.clone())]);
@@ -702,9 +707,10 @@ impl ProviderDef for AzureFoundryProvider {
                         auth: Arc::clone(&auth),
                     };
                     // Responses API: project-scoped (same base as OpenAI inference)
-                    let rc = ApiClient::new(
+                    let rc = ApiClient::new_with_tls(
                         project_host.clone(),
                         AuthMethod::Custom(Box::new(auth_resp)),
+                        tls_config.clone(),
                     )
                     .ok();
                     // Anthropic API: hub-level, uses Anthropic wire format.
@@ -721,9 +727,13 @@ impl ProviderDef for AzureFoundryProvider {
                         },
                         _ => AuthMethod::Custom(Box::new(auth_anth)),
                     };
-                    let ac = ApiClient::new(hub_host.clone(), anthropic_auth)
-                        .and_then(|c| c.with_header("anthropic-version", ANTHROPIC_VERSION))
-                        .ok();
+                    let ac = ApiClient::new_with_tls(
+                        hub_host.clone(),
+                        anthropic_auth,
+                        tls_config.clone(),
+                    )
+                    .and_then(|c| c.with_header("anthropic-version", ANTHROPIC_VERSION))
+                    .ok();
                     (
                         rc,
                         "openai/v1/responses".to_string(),
@@ -744,9 +754,10 @@ impl ProviderDef for AzureFoundryProvider {
             let auth_deploy = AzureFoundryAuthProvider {
                 auth: Arc::clone(&auth),
             };
-            let deployments_client = ApiClient::new(
+            let deployments_client = ApiClient::new_with_tls(
                 project_host.clone(),
                 AuthMethod::Custom(Box::new(auth_deploy)),
+                tls_config,
             )?;
 
             Ok(AzureFoundryActualProvider {
@@ -773,7 +784,7 @@ impl ProviderDef for AzureFoundryProvider {
 /// format.  Defined here (not in `openai_compatible`) because only this provider calls it.
 fn stream_anthropic_compat(
     response: Response,
-    mut log: RequestLog,
+    mut log: Option<Box<dyn RequestLogHandle>>,
 ) -> Result<MessageStream, ProviderError> {
     use crate::providers::formats::anthropic::response_to_streaming_message as anthropic_stream;
 
@@ -810,7 +821,7 @@ mod tests {
     fn make_inference_provider(server_uri: &str) -> OpenAiCompatibleProvider {
         OpenAiCompatibleProvider::new(
             AZURE_FOUNDRY_PROVIDER_NAME.to_string(),
-            ApiClient::new(server_uri.to_string(), AuthMethod::NoAuth).unwrap(),
+            ApiClient::new_with_tls(server_uri.to_string(), AuthMethod::NoAuth, None).unwrap(),
             ModelConfig::new_or_fail("Phi-4"),
             String::new(),
         )
@@ -994,7 +1005,8 @@ mod tests {
             api_version: None,
             auth,
             deployment_cache: Arc::new(Mutex::new(HashMap::new())),
-            deployments_client: ApiClient::new(server.uri(), AuthMethod::NoAuth).unwrap(),
+            deployments_client: ApiClient::new_with_tls(server.uri(), AuthMethod::NoAuth, None)
+                .unwrap(),
         };
 
         let models = provider
@@ -1047,7 +1059,8 @@ mod tests {
             api_version: None,
             auth,
             deployment_cache: Arc::new(Mutex::new(HashMap::new())),
-            deployments_client: ApiClient::new(server.uri(), AuthMethod::NoAuth).unwrap(),
+            deployments_client: ApiClient::new_with_tls(server.uri(), AuthMethod::NoAuth, None)
+                .unwrap(),
         };
 
         let _ = page2_url; // used in mock setup above
@@ -1087,7 +1100,8 @@ mod tests {
             api_version: None,
             auth,
             deployment_cache: Arc::new(Mutex::new(HashMap::new())),
-            deployments_client: ApiClient::new(server.uri(), AuthMethod::NoAuth).unwrap(),
+            deployments_client: ApiClient::new_with_tls(server.uri(), AuthMethod::NoAuth, None)
+                .unwrap(),
         };
 
         let models = provider
@@ -1129,7 +1143,8 @@ mod tests {
             api_version: Some("2025-01-01".to_string()),
             auth,
             deployment_cache: Arc::new(Mutex::new(HashMap::new())),
-            deployments_client: ApiClient::new(server.uri(), AuthMethod::NoAuth).unwrap(),
+            deployments_client: ApiClient::new_with_tls(server.uri(), AuthMethod::NoAuth, None)
+                .unwrap(),
         };
 
         let models = provider
@@ -1279,7 +1294,7 @@ mod tests {
             return;
         }
         let model = ModelConfig::new_or_fail("Phi-4");
-        let result = AzureFoundryProvider::from_env(model, vec![]).await;
+        let result = AzureFoundryProvider::from_env(model, vec![], None).await;
         assert!(
             result.is_err(),
             "from_env should fail when AZURE_FOUNDRY_ENDPOINT is not configured"
@@ -1319,7 +1334,7 @@ mod tests {
 
         let provider = OpenAiCompatibleProvider::new(
             AZURE_FOUNDRY_PROVIDER_NAME.to_string(),
-            ApiClient::new(server.uri(), AuthMethod::NoAuth).unwrap(),
+            ApiClient::new_with_tls(server.uri(), AuthMethod::NoAuth, None).unwrap(),
             ModelConfig::new_or_fail("overridden-deployment"),
             String::new(),
         )
@@ -1820,12 +1835,14 @@ mod tests {
         );
         let inner = OpenAiCompatibleProvider::new(
             AZURE_FOUNDRY_PROVIDER_NAME.to_string(),
-            ApiClient::new(server_uri.to_string(), AuthMethod::NoAuth).unwrap(),
+            ApiClient::new_with_tls(server_uri.to_string(), AuthMethod::NoAuth, None).unwrap(),
             ModelConfig::new_or_fail("placeholder"),
             "openai/v1/".to_string(), // project endpoint prefix → /openai/v1/chat/completions
         );
-        let responses_client = ApiClient::new(server_uri.to_string(), AuthMethod::NoAuth).ok();
-        let anthropic_client = ApiClient::new(server_uri.to_string(), AuthMethod::NoAuth).ok();
+        let responses_client =
+            ApiClient::new_with_tls(server_uri.to_string(), AuthMethod::NoAuth, None).ok();
+        let anthropic_client =
+            ApiClient::new_with_tls(server_uri.to_string(), AuthMethod::NoAuth, None).ok();
         AzureFoundryActualProvider {
             inner,
             responses_client,
@@ -1836,7 +1853,12 @@ mod tests {
             api_version: None,
             auth,
             deployment_cache: Arc::new(Mutex::new(HashMap::new())),
-            deployments_client: ApiClient::new(server_uri.to_string(), AuthMethod::NoAuth).unwrap(),
+            deployments_client: ApiClient::new_with_tls(
+                server_uri.to_string(),
+                AuthMethod::NoAuth,
+                None,
+            )
+            .unwrap(),
         }
     }
 
@@ -1854,7 +1876,7 @@ mod tests {
         );
         let inner = OpenAiCompatibleProvider::new(
             AZURE_FOUNDRY_PROVIDER_NAME.to_string(),
-            ApiClient::new(server_uri.to_string(), AuthMethod::NoAuth).unwrap(),
+            ApiClient::new_with_tls(server_uri.to_string(), AuthMethod::NoAuth, None).unwrap(),
             ModelConfig::new_or_fail("placeholder"),
             String::new(),
         );
@@ -1868,7 +1890,12 @@ mod tests {
             api_version: None,
             auth,
             deployment_cache: Arc::new(Mutex::new(HashMap::new())),
-            deployments_client: ApiClient::new(server_uri.to_string(), AuthMethod::NoAuth).unwrap(),
+            deployments_client: ApiClient::new_with_tls(
+                server_uri.to_string(),
+                AuthMethod::NoAuth,
+                None,
+            )
+            .unwrap(),
         }
     }
 }

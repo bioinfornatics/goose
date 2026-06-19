@@ -1,3 +1,4 @@
+use super::api_client::TlsConfig;
 use anyhow::Result;
 use futures::future::BoxFuture;
 pub use goose_providers::conversation::token_usage::{
@@ -12,7 +13,6 @@ pub const DEFAULT_PROVIDER_TIMEOUT_SECS: u64 = 600;
 
 use crate::config::base::ConfigValue;
 use crate::config::ExtensionConfig;
-use goose_providers::conversation::message::Message;
 use goose_providers::model::ModelConfig;
 use utoipa::ToSchema;
 
@@ -246,6 +246,7 @@ pub trait ProviderDef: Send + Sync {
     fn from_env(
         model: ModelConfig,
         extensions: Vec<ExtensionConfig>,
+        tls_config: Option<TlsConfig>,
     ) -> BoxFuture<'static, Result<Self::Provider>>
     where
         Self: Sized;
@@ -254,19 +255,15 @@ pub trait ProviderDef: Send + Sync {
         model: ModelConfig,
         extensions: Vec<ExtensionConfig>,
         _working_dir: PathBuf,
+        tls_config: Option<TlsConfig>,
     ) -> BoxFuture<'static, Result<Self::Provider>>
     where
         Self: Sized,
     {
         // ACP subprocess providers must override this so session cwd is preserved.
         // Non-subprocess providers can rely on the default because cwd is irrelevant.
-        Self::from_env(model, extensions)
+        Self::from_env(model, extensions, tls_config)
     }
-}
-
-pub fn stream_from_single_message(message: Message, usage: ProviderUsage) -> MessageStream {
-    let stream = futures::stream::once(async move { Ok((Some(message), Some(usage))) });
-    Box::pin(stream)
 }
 
 #[cfg(test)]

@@ -1,3 +1,4 @@
+pub mod api_client;
 pub mod base;
 pub mod canonical;
 pub mod conversation;
@@ -9,6 +10,7 @@ pub mod json;
 pub(crate) mod mcp_utils;
 pub mod model;
 pub mod permission;
+pub mod request_log;
 pub mod retry;
 pub mod thinking;
 pub mod utils;

@@ -866,8 +866,23 @@
   "dictationSettings.addApiKey": {
     "defaultMessage": "API कुंजी जोड़ें"
   },
+  "dictationSettings.addEndpoint": {
+    "defaultMessage": "Add Endpoint"
+  },
   "dictationSettings.apiKey": {
     "defaultMessage": "API कुंजी"
+  },
+  "dictationSettings.azureSpeechEndpoint": {
+    "defaultMessage": "Speech Endpoint"
+  },
+  "dictationSettings.azureSpeechEndpointDescription": {
+    "defaultMessage": "Cognitive services URL from Azure portal → AI Foundry Hub → AI Services resource → Keys and Endpoint"
+  },
+  "dictationSettings.azureSpeechKey": {
+    "defaultMessage": "Azure Speech Key"
+  },
+  "dictationSettings.azureSpeechKeyDescription": {
+    "defaultMessage": "Optional Speech-specific key. Compatible unified Foundry credentials are used automatically; otherwise leave empty to authenticate with the Azure CLI."
   },
   "dictationSettings.cancel": {
     "defaultMessage": "रद्द करें"
@@ -881,11 +896,23 @@
   "dictationSettings.configured": {
     "defaultMessage": "(कॉन्फ़िगर)"
   },
+  "dictationSettings.configuredFromEnvironment": {
+    "defaultMessage": "Configured by an environment variable. Change it outside Goose."
+  },
   "dictationSettings.configuredIn": {
     "defaultMessage": "✓ {settingsPath} में कॉन्फ़िगर किया गया"
   },
   "dictationSettings.disabled": {
     "defaultMessage": "विकलांग"
+  },
+  "dictationSettings.endpointConfigured": {
+    "defaultMessage": "Configured: {endpoint}"
+  },
+  "dictationSettings.endpointDerived": {
+    "defaultMessage": "Derived from the Azure Foundry endpoint. You can override it here."
+  },
+  "dictationSettings.endpointRequired": {
+    "defaultMessage": "Not set — required to enable speech."
   },
   "dictationSettings.enterApiKey": {
     "defaultMessage": "अपनी API कुंजी दर्ज करें"
@@ -896,6 +923,9 @@
   "dictationSettings.removeApiKey": {
     "defaultMessage": "API कुंजी हटाएँ"
   },
+  "dictationSettings.removeEndpoint": {
+    "defaultMessage": "Remove Endpoint"
+  },
   "dictationSettings.requiredForTranscription": {
     "defaultMessage": "प्रतिलेखन के लिए आवश्यक है"
   },
@@ -904,6 +934,9 @@
   },
   "dictationSettings.updateApiKey": {
     "defaultMessage": "अद्यतन करें API कुंजी"
+  },
+  "dictationSettings.updateEndpoint": {
+    "defaultMessage": "Update Endpoint"
   },
   "dictationSettings.voiceDictationProvider": {
     "defaultMessage": "वॉयस डिक्टेशन प्रदाता"
@@ -4606,5 +4639,11 @@
   },
   "userMessage.forkSessionTitle": {
     "defaultMessage": "संपादित संदेश के साथ एक नया सत्र बनाएं"
+  },
+  "dictationSettings.removeStoredApiKey": {
+    "defaultMessage": "Remove Stored API Key"
+  },
+  "dictationSettings.removeStoredEndpoint": {
+    "defaultMessage": "Remove Stored Endpoint"
   }
 }

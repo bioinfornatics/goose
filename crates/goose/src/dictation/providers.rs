@@ -1,13 +1,13 @@
 use crate::config::tls::provider_tls_config_from_config;
-use crate::config::Config;
+use crate::config::{Config, ConfigError};
 #[cfg(feature = "local-inference")]
 use crate::dictation::whisper::LOCAL_WHISPER_MODEL_CONFIG_KEY;
-use crate::providers::api_client::{ApiClient, AuthMethod};
+use crate::providers::api_client::{ApiClient, AuthMethod, TlsConfig};
+use crate::providers::azureauth::AzureAuth;
 use crate::providers::openai::parse_openai_base_url;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "local-inference")]
-use std::sync::Mutex;
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -28,6 +28,8 @@ pub enum DictationProvider {
     OpenAI,
     ElevenLabs,
     Groq,
+    #[serde(rename = "azure_foundry")]
+    AzureFoundry,
     #[cfg(feature = "local-inference")]
     Local,
 }
@@ -71,6 +73,19 @@ pub const PROVIDERS: &[DictationProviderDef] = &[
         endpoint_path: "v1/speech-to-text",
         host_key: None,
         description: "Uses ElevenLabs speech-to-text API for advanced voice processing.",
+        uses_provider_config: false,
+        settings_path: None,
+    },
+    DictationProviderDef {
+        provider: DictationProvider::AzureFoundry,
+        config_key: "AZURE_SPEECH_KEY",
+        default_base_url: "",
+        endpoint_path: "speechtotext/transcriptions:transcribe",
+        host_key: Some("AZURE_SPEECH_ENDPOINT"),
+        description: "Uses the Azure AI Speech Fast Transcription API. Set \
+                      AZURE_SPEECH_ENDPOINT to your Speech resource endpoint, or use a unified \
+                      Foundry resource whose Speech endpoint can be derived. Foundry credentials \
+                      are reused only when both endpoints identify that unified resource.",
         uses_provider_config: false,
         settings_path: None,
     },
@@ -124,6 +139,7 @@ pub fn is_configured(provider: DictationProvider) -> bool {
             .and_then(|v| v.as_str().map(|s| s.to_string()))
             .and_then(|id| super::whisper::get_model(&id))
             .is_some_and(|m| m.is_downloaded()),
+        DictationProvider::AzureFoundry => azure_speech_endpoint(config).is_ok(),
         _ => {
             let def = get_provider_def(provider);
             config.get_secret::<String>(def.config_key).is_ok()
@@ -200,6 +216,275 @@ fn resolve_openai_base_url_target(raw_url: Option<&str>) -> Result<Option<OpenAi
         .transpose()
 }
 
+const AZURE_SPEECH_API_VERSION: &str = "2024-11-15";
+const AZURE_SPEECH_PATH: &str = "speechtotext/transcriptions:transcribe";
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum AzureSpeechEndpointKind {
+    Explicit,
+    DerivedFromFoundry,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct AzureSpeechEndpoint {
+    pub url: String,
+    pub kind: AzureSpeechEndpointKind,
+    pub matches_foundry_resource: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum AzureSpeechCredential {
+    BearerToken(String),
+    ApiKey(String),
+    DefaultCredential,
+}
+
+type CachedAzureSpeechAuth = Option<(AzureSpeechCredential, Arc<AzureAuth>)>;
+
+static AZURE_SPEECH_AUTH: LazyLock<Mutex<CachedAzureSpeechAuth>> =
+    LazyLock::new(|| Mutex::new(None));
+
+fn endpoint_origin(endpoint: &str) -> Option<String> {
+    let url = url::Url::parse(endpoint).ok()?;
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || !matches!(url.path(), "" | "/")
+    {
+        return None;
+    }
+    Some(url.origin().ascii_serialization())
+}
+
+fn derive_cognitive_services_from_foundry(foundry_endpoint: &str) -> Option<String> {
+    let url = url::Url::parse(foundry_endpoint).ok()?;
+    if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
+        return None;
+    }
+    let name = url.host_str()?.strip_suffix(".services.ai.azure.com")?;
+    Some(format!("https://{name}.cognitiveservices.azure.com"))
+}
+
+fn resolve_azure_speech_endpoint(
+    speech_endpoint: Option<&str>,
+    foundry_endpoint: Option<&str>,
+) -> Result<AzureSpeechEndpoint> {
+    let derived = foundry_endpoint.and_then(derive_cognitive_services_from_foundry);
+    if let Some(endpoint) = speech_endpoint
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let url = endpoint_origin(endpoint).ok_or_else(|| {
+            anyhow::anyhow!(
+                "AZURE_SPEECH_ENDPOINT must be an HTTPS resource origin without a path, query, fragment, or credentials"
+            )
+        })?;
+        return Ok(AzureSpeechEndpoint {
+            matches_foundry_resource: derived.as_deref() == Some(url.as_str()),
+            url,
+            kind: AzureSpeechEndpointKind::Explicit,
+        });
+    }
+
+    derived
+        .map(|url| AzureSpeechEndpoint {
+            url,
+            kind: AzureSpeechEndpointKind::DerivedFromFoundry,
+            matches_foundry_resource: true,
+        })
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Configure AZURE_SPEECH_ENDPOINT or an AZURE_FOUNDRY_ENDPOINT whose host ends in .services.ai.azure.com"
+            )
+        })
+}
+
+fn azure_speech_url(endpoint: &str) -> String {
+    format!(
+        "{}/{AZURE_SPEECH_PATH}?api-version={AZURE_SPEECH_API_VERSION}",
+        endpoint.trim_end_matches('/')
+    )
+}
+
+fn optional_param(config: &Config, key: &str) -> Result<Option<String>> {
+    match config.get_param(key) {
+        Ok(value) => Ok(Some(value)),
+        Err(ConfigError::NotFound(_)) => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+pub(crate) fn azure_speech_endpoint(config: &Config) -> Result<AzureSpeechEndpoint> {
+    let speech_endpoint = optional_param(config, "AZURE_SPEECH_ENDPOINT")?;
+    let foundry_endpoint = optional_param(config, "AZURE_FOUNDRY_ENDPOINT")?;
+    resolve_azure_speech_endpoint(speech_endpoint.as_deref(), foundry_endpoint.as_deref())
+}
+
+fn nonempty_secret(config: &Config, key: &str) -> Option<String> {
+    config
+        .get_secret::<String>(key)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn select_azure_speech_credential(
+    endpoint: &AzureSpeechEndpoint,
+    speech_ad_token: Option<String>,
+    speech_key: Option<String>,
+    foundry_ad_token: Option<String>,
+    foundry_key: Option<String>,
+) -> AzureSpeechCredential {
+    speech_ad_token
+        .map(AzureSpeechCredential::BearerToken)
+        .or_else(|| speech_key.map(AzureSpeechCredential::ApiKey))
+        .or_else(|| {
+            endpoint
+                .matches_foundry_resource
+                .then(|| foundry_ad_token.map(AzureSpeechCredential::BearerToken))
+                .flatten()
+        })
+        .or_else(|| {
+            endpoint
+                .matches_foundry_resource
+                .then(|| foundry_key.map(AzureSpeechCredential::ApiKey))
+                .flatten()
+        })
+        .unwrap_or(AzureSpeechCredential::DefaultCredential)
+}
+
+fn azure_speech_auth(config: &Config, endpoint: &AzureSpeechEndpoint) -> Result<Arc<AzureAuth>> {
+    let credential = select_azure_speech_credential(
+        endpoint,
+        nonempty_secret(config, "AZURE_SPEECH_AD_TOKEN"),
+        nonempty_secret(config, "AZURE_SPEECH_KEY"),
+        nonempty_secret(config, "AZURE_FOUNDRY_AD_TOKEN"),
+        nonempty_secret(config, "AZURE_FOUNDRY_API_KEY"),
+    );
+    let mut cached = AZURE_SPEECH_AUTH
+        .lock()
+        .map_err(|error| anyhow::anyhow!("Azure speech auth cache poisoned: {error}"))?;
+    if let Some((cached_credential, auth)) = cached.as_ref() {
+        if cached_credential == &credential {
+            return Ok(Arc::clone(auth));
+        }
+    }
+
+    let auth = Arc::new(
+        match &credential {
+            AzureSpeechCredential::BearerToken(token) => AzureAuth::new(None, Some(token.clone())),
+            AzureSpeechCredential::ApiKey(key) => AzureAuth::new(Some(key.clone()), None),
+            AzureSpeechCredential::DefaultCredential => AzureAuth::new(None, None),
+        }
+        .map_err(anyhow::Error::from)?,
+    );
+    *cached = Some((credential, Arc::clone(&auth)));
+    Ok(auth)
+}
+
+async fn azure_auth_header(auth: &AzureAuth) -> Result<(String, String)> {
+    let token = auth.get_token().await.map_err(anyhow::Error::from)?;
+    Ok(match auth.credential_type() {
+        crate::providers::azureauth::AzureCredentials::ApiKey(_) => {
+            ("Ocp-Apim-Subscription-Key".to_string(), token.token_value)
+        }
+        crate::providers::azureauth::AzureCredentials::BearerToken(_)
+        | crate::providers::azureauth::AzureCredentials::DefaultCredential => (
+            "Authorization".to_string(),
+            format!("Bearer {}", token.token_value),
+        ),
+    })
+}
+
+async fn transcribe_with_azure_foundry(
+    audio_bytes: Vec<u8>,
+    extension: &str,
+    mime_type: &str,
+) -> Result<String> {
+    let config = Config::global();
+    let endpoint = azure_speech_endpoint(config)?;
+    let auth = azure_speech_auth(config, &endpoint)?;
+    let (auth_header_name, auth_header_value) = azure_auth_header(&auth).await?;
+    let locale = config
+        .get_param::<String>("AZURE_SPEECH_LOCALE")
+        .ok()
+        .filter(|locale| !locale.trim().is_empty());
+
+    transcribe_speech_request(
+        &azure_speech_url(&endpoint.url),
+        &auth_header_name,
+        &auth_header_value,
+        audio_bytes,
+        extension,
+        mime_type,
+        locale.as_deref(),
+        provider_tls_config_from_config(config)?,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn transcribe_speech_request(
+    speech_url: &str,
+    auth_header_name: &str,
+    auth_header_value: &str,
+    audio_bytes: Vec<u8>,
+    extension: &str,
+    mime_type: &str,
+    locale: Option<&str>,
+    tls_config: Option<TlsConfig>,
+) -> Result<String> {
+    let audio_part = reqwest::multipart::Part::bytes(audio_bytes)
+        .file_name(format!("audio.{extension}"))
+        .mime_str(mime_type)?;
+    let definition = match locale {
+        Some(locale) => serde_json::json!({ "locales": [locale] }).to_string(),
+        None => "{}".to_string(),
+    };
+    let form = reqwest::multipart::Form::new()
+        .part("audio", audio_part)
+        .text("definition", definition);
+    let speech_url = url::Url::parse(speech_url)?;
+    let host = speech_url.origin().ascii_serialization();
+    let mut path = speech_url.path().trim_start_matches('/').to_string();
+    if let Some(query) = speech_url.query() {
+        path.push('?');
+        path.push_str(query);
+    }
+    let client =
+        ApiClient::with_timeout_and_tls(host, AuthMethod::NoAuth, REQUEST_TIMEOUT, tls_config)?;
+    let response = client
+        .request(&path)
+        .header(auth_header_name, auth_header_value)?
+        .multipart_post(form)
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        if status == 401 || status == 403 {
+            anyhow::bail!("Azure speech authentication failed ({status}): {body}");
+        }
+        if status == 429 {
+            anyhow::bail!("Azure speech rate limit exceeded");
+        }
+        if body.contains("too short") {
+            return Ok(String::new());
+        }
+        anyhow::bail!("Azure speech API error ({status}): {body}");
+    }
+
+    let data: serde_json::Value = response.json().await?;
+    Ok(data["combinedPhrases"]
+        .as_array()
+        .and_then(|phrases| phrases.first())
+        .and_then(|phrase| phrase["text"].as_str())
+        .unwrap_or_default()
+        .to_string())
+}
+
 fn build_api_client(provider: DictationProvider) -> Result<(ApiClient, String)> {
     let config = Config::global();
     let def = get_provider_def(provider);
@@ -247,6 +532,9 @@ fn build_api_client(provider: DictationProvider) -> Result<(ApiClient, String)> 
             header_name: "xi-api-key".to_string(),
             key: api_key,
         },
+        DictationProvider::AzureFoundry => {
+            anyhow::bail!("Azure Foundry uses a dedicated transcription path")
+        }
         #[cfg(feature = "local-inference")]
         DictationProvider::Local => anyhow::bail!("Local provider should not use API client"),
     };
@@ -271,6 +559,10 @@ pub async fn transcribe_with_provider(
     extension: &str,
     mime_type: &str,
 ) -> Result<String> {
+    if provider == DictationProvider::AzureFoundry {
+        return transcribe_with_azure_foundry(audio_bytes, extension, mime_type).await;
+    }
+
     let (client, endpoint_path) = build_api_client(provider)?;
 
     let part = reqwest::multipart::Part::bytes(audio_bytes)
@@ -325,9 +617,15 @@ pub async fn transcribe_with_provider(
 #[cfg(test)]
 mod tests {
     use super::{
-        openai_dictation_target, resolve_openai_base_url_target,
-        OPENAI_VERSIONLESS_TRANSCRIPTIONS_PATH,
+        azure_auth_header, azure_speech_url, derive_cognitive_services_from_foundry,
+        openai_dictation_target, resolve_azure_speech_endpoint, resolve_openai_base_url_target,
+        select_azure_speech_credential, transcribe_speech_request, AzureSpeechCredential,
+        AzureSpeechEndpointKind, OPENAI_VERSIONLESS_TRANSCRIPTIONS_PATH,
     };
+    use crate::providers::azureauth::AzureAuth;
+    use serde_json::json;
+    use wiremock::matchers::{header, method, path, query_param};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[test]
     fn openai_dictation_target_preserves_prefix_and_query_params() {
@@ -366,5 +664,185 @@ mod tests {
         assert!(resolve_openai_base_url_target(Some("   "))
             .unwrap()
             .is_none());
+    }
+
+    #[tokio::test]
+    async fn azure_api_key_uses_subscription_key_header() {
+        let auth = AzureAuth::new(Some("key".to_string()), None).unwrap();
+        assert_eq!(
+            azure_auth_header(&auth).await.unwrap(),
+            ("Ocp-Apim-Subscription-Key".to_string(), "key".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn azure_entra_token_uses_bearer_header() {
+        let auth = AzureAuth::new(None, Some("token".to_string())).unwrap();
+        assert_eq!(
+            azure_auth_header(&auth).await.unwrap(),
+            ("Authorization".to_string(), "Bearer token".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn parses_fast_transcription_response() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/speechtotext/transcriptions:transcribe"))
+            .and(query_param("api-version", "2024-11-15"))
+            .and(header("Ocp-Apim-Subscription-Key", "key"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "combinedPhrases": [{"text": "Bonjour goose"}]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let text = transcribe_speech_request(
+            &azure_speech_url(&server.uri()),
+            "Ocp-Apim-Subscription-Key",
+            "key",
+            vec![0, 1, 2],
+            "wav",
+            "audio/wav",
+            Some("fr-FR"),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(text, "Bonjour goose");
+    }
+
+    #[test]
+    fn derives_cognitive_services_endpoint_from_project_url() {
+        assert_eq!(
+            derive_cognitive_services_from_foundry(
+                "https://my-hub.services.ai.azure.com/api/projects/project"
+            ),
+            Some("https://my-hub.cognitiveservices.azure.com".to_string())
+        );
+    }
+
+    #[test]
+    fn does_not_derive_endpoint_from_maas_url() {
+        assert_eq!(
+            derive_cognitive_services_from_foundry("https://deployment.models.ai.azure.com/models"),
+            None
+        );
+    }
+
+    #[test]
+    fn resolves_derived_speech_endpoint() {
+        let endpoint = resolve_azure_speech_endpoint(
+            None,
+            Some("https://shared.services.ai.azure.com/api/projects/project"),
+        )
+        .unwrap();
+        assert_eq!(endpoint.url, "https://shared.cognitiveservices.azure.com");
+        assert_eq!(endpoint.kind, AzureSpeechEndpointKind::DerivedFromFoundry);
+        assert!(endpoint.matches_foundry_resource);
+    }
+
+    #[test]
+    fn recognizes_explicit_endpoint_for_same_foundry_resource() {
+        let endpoint = resolve_azure_speech_endpoint(
+            Some("https://shared.cognitiveservices.azure.com/"),
+            Some("https://shared.services.ai.azure.com/api/projects/project"),
+        )
+        .unwrap();
+        assert_eq!(endpoint.kind, AzureSpeechEndpointKind::Explicit);
+        assert!(endpoint.matches_foundry_resource);
+    }
+
+    #[test]
+    fn recognizes_separate_explicit_speech_resource() {
+        let endpoint = resolve_azure_speech_endpoint(
+            Some("https://speech-only.cognitiveservices.azure.com"),
+            Some("https://foundry.services.ai.azure.com/api/projects/project"),
+        )
+        .unwrap();
+        assert_eq!(endpoint.kind, AzureSpeechEndpointKind::Explicit);
+        assert!(!endpoint.matches_foundry_resource);
+    }
+
+    #[test]
+    fn rejects_speech_endpoint_with_path_or_query() {
+        for endpoint in [
+            "https://shared.cognitiveservices.azure.com/custom",
+            "https://shared.cognitiveservices.azure.com?api-version=v1",
+            "http://shared.cognitiveservices.azure.com",
+        ] {
+            assert!(resolve_azure_speech_endpoint(Some(endpoint), None).is_err());
+        }
+    }
+
+    #[test]
+    fn speech_credentials_precede_compatible_foundry_credentials() {
+        let endpoint = resolve_azure_speech_endpoint(
+            None,
+            Some("https://shared.services.ai.azure.com/api/projects/project"),
+        )
+        .unwrap();
+        assert_eq!(
+            select_azure_speech_credential(
+                &endpoint,
+                Some("speech-token".into()),
+                Some("speech-key".into()),
+                Some("foundry-token".into()),
+                Some("foundry-key".into()),
+            ),
+            AzureSpeechCredential::BearerToken("speech-token".into())
+        );
+        assert_eq!(
+            select_azure_speech_credential(
+                &endpoint,
+                None,
+                Some("speech-key".into()),
+                Some("foundry-token".into()),
+                Some("foundry-key".into()),
+            ),
+            AzureSpeechCredential::ApiKey("speech-key".into())
+        );
+        assert_eq!(
+            select_azure_speech_credential(
+                &endpoint,
+                None,
+                None,
+                Some("foundry-token".into()),
+                Some("foundry-key".into()),
+            ),
+            AzureSpeechCredential::BearerToken("foundry-token".into())
+        );
+        assert_eq!(
+            select_azure_speech_credential(&endpoint, None, None, None, Some("foundry-key".into()),),
+            AzureSpeechCredential::ApiKey("foundry-key".into())
+        );
+    }
+
+    #[test]
+    fn separate_resource_ignores_foundry_credentials() {
+        let endpoint = resolve_azure_speech_endpoint(
+            Some("https://speech-only.cognitiveservices.azure.com"),
+            Some("https://foundry.services.ai.azure.com/api/projects/project"),
+        )
+        .unwrap();
+        assert_eq!(
+            select_azure_speech_credential(
+                &endpoint,
+                None,
+                None,
+                Some("foundry-token".into()),
+                Some("foundry-key".into()),
+            ),
+            AzureSpeechCredential::DefaultCredential
+        );
+    }
+
+    #[test]
+    fn builds_fast_transcription_url() {
+        assert_eq!(
+            azure_speech_url("https://my-hub.cognitiveservices.azure.com/"),
+            "https://my-hub.cognitiveservices.azure.com/speechtotext/transcriptions:transcribe?api-version=2024-11-15"
+        );
     }
 }

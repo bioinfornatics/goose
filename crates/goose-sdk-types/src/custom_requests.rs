@@ -1592,7 +1592,7 @@ pub struct DictationTranscribeRequest {
     pub audio: String,
     /// MIME type (e.g. "audio/wav", "audio/webm")
     pub mime_type: String,
-    /// Provider to use: "openai", "groq", "elevenlabs", or "local"
+    /// Provider to use: "openai", "groq", "elevenlabs", "azure_foundry", or "local"
     pub provider: String,
 }
 
@@ -1621,6 +1621,16 @@ pub struct DictationProviderStatusEntry {
     pub configured: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host_can_override: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host_can_remove: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secret_configured: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secret_can_override: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secret_can_remove: Option<bool>,
     pub description: String,
     pub uses_provider_config: bool,
     #[serde(skip_serializing_if = "Option::is_none")]

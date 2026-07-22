@@ -866,8 +866,23 @@
   "dictationSettings.addApiKey": {
     "defaultMessage": "Adicionar chave de API"
   },
+  "dictationSettings.addEndpoint": {
+    "defaultMessage": "Add Endpoint"
+  },
   "dictationSettings.apiKey": {
     "defaultMessage": "Chave de API"
+  },
+  "dictationSettings.azureSpeechEndpoint": {
+    "defaultMessage": "Speech Endpoint"
+  },
+  "dictationSettings.azureSpeechEndpointDescription": {
+    "defaultMessage": "Cognitive services URL from Azure portal → AI Foundry Hub → AI Services resource → Keys and Endpoint"
+  },
+  "dictationSettings.azureSpeechKey": {
+    "defaultMessage": "Azure Speech Key"
+  },
+  "dictationSettings.azureSpeechKeyDescription": {
+    "defaultMessage": "Optional Speech-specific key. Compatible unified Foundry credentials are used automatically; otherwise leave empty to authenticate with the Azure CLI."
   },
   "dictationSettings.cancel": {
     "defaultMessage": "Cancelar"
@@ -881,11 +896,23 @@
   "dictationSettings.configured": {
     "defaultMessage": "(Configurado)"
   },
+  "dictationSettings.configuredFromEnvironment": {
+    "defaultMessage": "Configured by an environment variable. Change it outside Goose."
+  },
   "dictationSettings.configuredIn": {
     "defaultMessage": "✓ Configurado em {settingsPath}"
   },
   "dictationSettings.disabled": {
     "defaultMessage": "Desativado"
+  },
+  "dictationSettings.endpointConfigured": {
+    "defaultMessage": "Configured: {endpoint}"
+  },
+  "dictationSettings.endpointDerived": {
+    "defaultMessage": "Derived from the Azure Foundry endpoint. You can override it here."
+  },
+  "dictationSettings.endpointRequired": {
+    "defaultMessage": "Not set — required to enable speech."
   },
   "dictationSettings.enterApiKey": {
     "defaultMessage": "Insira sua chave de API"
@@ -896,6 +923,9 @@
   "dictationSettings.removeApiKey": {
     "defaultMessage": "Remover chave de API"
   },
+  "dictationSettings.removeEndpoint": {
+    "defaultMessage": "Remove Endpoint"
+  },
   "dictationSettings.requiredForTranscription": {
     "defaultMessage": "Necessário para transcrição"
   },
@@ -904,6 +934,9 @@
   },
   "dictationSettings.updateApiKey": {
     "defaultMessage": "Atualizar chave de API"
+  },
+  "dictationSettings.updateEndpoint": {
+    "defaultMessage": "Update Endpoint"
   },
   "dictationSettings.voiceDictationProvider": {
     "defaultMessage": "Provedor de ditado por voz"
@@ -4606,5 +4639,11 @@
   },
   "userMessage.forkSessionTitle": {
     "defaultMessage": "Criar uma nova sessão com a mensagem editada"
+  },
+  "dictationSettings.removeStoredApiKey": {
+    "defaultMessage": "Remove Stored API Key"
+  },
+  "dictationSettings.removeStoredEndpoint": {
+    "defaultMessage": "Remove Stored Endpoint"
   }
 }

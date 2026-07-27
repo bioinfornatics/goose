@@ -39,8 +39,32 @@ pub const AZURE_FOUNDRY_KNOWN_MODELS: &[&str] = &[
     "o3",
 ];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EndpointKind {
+    Maas,
+    Resource,
+    Project,
+}
+
+pub fn endpoint_kind(endpoint: &str) -> EndpointKind {
+    if endpoint.contains("/api/projects/") {
+        EndpointKind::Project
+    } else if endpoint
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(endpoint)
+        .split('/')
+        .next()
+        .is_some_and(|host| host.ends_with(".services.ai.azure.com"))
+    {
+        EndpointKind::Resource
+    } else {
+        EndpointKind::Maas
+    }
+}
+
 pub fn is_project_endpoint(endpoint: &str) -> bool {
-    endpoint.contains("/api/projects/")
+    endpoint_kind(endpoint) == EndpointKind::Project
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,6 +133,7 @@ pub struct AzureFoundryProvider {
     deployments_client: ApiClient,
     endpoint: String,
     api_version: Option<String>,
+    maas_model: Option<String>,
     deployments: Mutex<HashMap<String, DeploymentMetadata>>,
 }
 
@@ -125,6 +150,7 @@ impl ProviderDescriptor for AzureFoundryProvider {
                 ConfigKey::new("AZURE_FOUNDRY_ENDPOINT", true, false, None, true),
                 ConfigKey::new("AZURE_FOUNDRY_API_KEY", false, true, Some(""), true),
                 ConfigKey::new("AZURE_FOUNDRY_AD_TOKEN", false, true, Some(""), false),
+                ConfigKey::new("AZURE_FOUNDRY_MODEL", false, false, None, true),
                 ConfigKey::new("AZURE_FOUNDRY_API_VERSION", false, false, None, false),
             ],
         )
@@ -136,6 +162,7 @@ impl AzureFoundryProvider {
     pub fn create(
         endpoint: String,
         api_version: Option<String>,
+        maas_model: Option<String>,
         chat_auth: AuthMethod,
         responses_auth: AuthMethod,
         anthropic_auth: AuthMethod,
@@ -144,8 +171,26 @@ impl AzureFoundryProvider {
         request_builder: Option<RequestBuilderDecorator>,
     ) -> Result<Self> {
         let endpoint = endpoint.trim_end_matches('/').to_string();
-        let project = is_project_endpoint(&endpoint);
-        let chat_prefix = if project { "openai/v1/" } else { "" };
+        let endpoint_kind = endpoint_kind(&endpoint);
+        let native_inference = endpoint_kind != EndpointKind::Maas;
+        let maas_model = if native_inference {
+            None
+        } else {
+            Some(
+                maas_model
+                    .filter(|model| !model.trim().is_empty())
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("AZURE_FOUNDRY_MODEL is required for MaaS endpoints")
+                    })?
+                    .trim()
+                    .to_string(),
+            )
+        };
+        let chat_prefix = if native_inference {
+            "openai/v1/"
+        } else {
+            "v1/"
+        };
 
         let chat_client = configured_client(
             endpoint.clone(),
@@ -159,7 +204,7 @@ impl AzureFoundryProvider {
             chat_prefix.to_string(),
         );
 
-        let (responses, anthropic) = if project {
+        let (responses, anthropic) = if native_inference {
             let responses_client = configured_client(
                 endpoint.clone(),
                 responses_auth,
@@ -203,6 +248,7 @@ impl AzureFoundryProvider {
             deployments_client,
             endpoint,
             api_version,
+            maas_model,
             deployments: Mutex::new(HashMap::new()),
         })
     }
@@ -351,6 +397,9 @@ impl Provider for AzureFoundryProvider {
     }
 
     async fn fetch_supported_models(&self) -> Result<Vec<String>, ProviderError> {
+        if let Some(model) = &self.maas_model {
+            return Ok(vec![model.clone()]);
+        }
         if !is_project_endpoint(&self.endpoint) {
             return Ok(AZURE_FOUNDRY_KNOWN_MODELS
                 .iter()
@@ -366,6 +415,9 @@ impl Provider for AzureFoundryProvider {
     }
 
     async fn fetch_supported_model_info(&self) -> Result<Vec<ModelInfo>, ProviderError> {
+        if let Some(model) = &self.maas_model {
+            return Ok(vec![model_info_for_deployment(model, model)]);
+        }
         if !is_project_endpoint(&self.endpoint) {
             return Ok(AZURE_FOUNDRY_KNOWN_MODELS
                 .iter()
@@ -389,7 +441,9 @@ impl Provider for AzureFoundryProvider {
     }
 
     async fn fetch_model_info(&self, model_name: &str) -> Result<ModelInfo, ProviderError> {
-        let resolved_model = if is_project_endpoint(&self.endpoint) {
+        let resolved_model = if let Some(model) = &self.maas_model {
+            model.clone()
+        } else if is_project_endpoint(&self.endpoint) {
             self.deployment_for(model_name)
                 .await
                 .map(|deployment| deployment.model_name)
@@ -417,7 +471,13 @@ impl Provider for AzureFoundryProvider {
         messages: &[Message],
         tools: &[Tool],
     ) -> Result<MessageStream, ProviderError> {
-        let deployment = if self.responses.is_some() {
+        let maas_config = self.maas_model.as_ref().map(|model| {
+            let mut config = model_config.clone();
+            config.model_name = model.clone();
+            config
+        });
+        let model_config = maas_config.as_ref().unwrap_or(model_config);
+        let deployment = if is_project_endpoint(&self.endpoint) {
             self.deployment_for(&model_config.model_name).await
         } else {
             None
@@ -478,6 +538,7 @@ mod tests {
     fn project_provider(server: &MockServer) -> AzureFoundryProvider {
         AzureFoundryProvider::create(
             project_endpoint(server),
+            None,
             None,
             AuthMethod::NoAuth,
             AuthMethod::NoAuth,
@@ -554,6 +615,37 @@ mod tests {
     }
 
     #[test]
+    fn resource_endpoint_routes_declared_models_to_native_surfaces() {
+        let resource = endpoint_kind("https://hub.services.ai.azure.com");
+        let native_inference = resource != EndpointKind::Maas;
+
+        assert_eq!(
+            inference_route(
+                native_inference,
+                ModelPublisher::from_model_name("gpt-5.6-sol"),
+                "gpt-5.6-sol",
+            ),
+            InferenceRoute::ProjectResponses
+        );
+        assert_eq!(
+            inference_route(
+                native_inference,
+                ModelPublisher::from_model_name("claude-sonnet-4-6"),
+                "claude-sonnet-4-6",
+            ),
+            InferenceRoute::AnthropicMessages
+        );
+        assert_eq!(
+            inference_route(
+                native_inference,
+                ModelPublisher::from_model_name("Mistral-large"),
+                "Mistral-large",
+            ),
+            InferenceRoute::ProjectChatCompletions
+        );
+    }
+
+    #[test]
     fn model_fallback_only_routes_known_native_families() {
         assert_eq!(
             ModelPublisher::from_model_name("gpt-5"),
@@ -583,12 +675,22 @@ mod tests {
 
     #[test]
     fn endpoint_type_is_detected() {
+        assert_eq!(
+            endpoint_kind("https://hub.services.ai.azure.com/api/projects/project"),
+            EndpointKind::Project
+        );
+        assert_eq!(
+            endpoint_kind("https://hub.services.ai.azure.com"),
+            EndpointKind::Resource
+        );
+        assert_eq!(
+            endpoint_kind("https://deployment.eastus.models.ai.azure.com"),
+            EndpointKind::Maas
+        );
         assert!(is_project_endpoint(
             "https://hub.services.ai.azure.com/api/projects/project"
         ));
-        assert!(!is_project_endpoint(
-            "https://deployment.eastus.models.ai.azure.com"
-        ));
+        assert!(!is_project_endpoint("https://hub.services.ai.azure.com"));
     }
 
     #[test]
@@ -614,6 +716,14 @@ mod tests {
         assert_eq!(info.context_limit, 400_000);
         assert_eq!(info.input_token_cost, None);
         assert_eq!(info.output_token_cost, None);
+    }
+
+    #[test]
+    fn gpt_5_6_sol_uses_its_full_context_window() {
+        let info = model_info_for_deployment("gpt-5.6-sol", "gpt-5.6-sol");
+
+        assert_eq!(info.context_limit, 1_050_000);
+        assert!(info.reasoning);
     }
 
     #[tokio::test]
@@ -755,10 +865,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn maas_uses_root_chat_completions_path() {
+    async fn maas_uses_v1_chat_completions_path_and_bound_model() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
-            .and(path("/chat/completions"))
+            .and(path("/v1/chat/completions"))
             .respond_with(
                 ResponseTemplate::new(200)
                     .set_body_string(chat_stream())
@@ -770,6 +880,7 @@ mod tests {
         let provider = AzureFoundryProvider::create(
             server.uri(),
             None,
+            Some("bound-model".to_string()),
             AuthMethod::NoAuth,
             AuthMethod::NoAuth,
             AuthMethod::NoAuth,
@@ -779,9 +890,18 @@ mod tests {
         )
         .unwrap();
         provider
-            .complete(&ModelConfig::new("Phi-4"), "system", &[], &[])
+            .complete(&ModelConfig::new("wrong-model"), "system", &[], &[])
             .await
             .unwrap();
+        let request = server.received_requests().await.unwrap().pop().unwrap();
+        assert_eq!(
+            request.body_json::<serde_json::Value>().unwrap()["model"],
+            "bound-model"
+        );
+        assert_eq!(
+            provider.fetch_supported_models().await.unwrap(),
+            vec!["bound-model"]
+        );
     }
 
     #[tokio::test]

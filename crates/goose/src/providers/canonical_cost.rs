@@ -27,7 +27,7 @@ use crate::config::declarative_providers::{
 };
 use crate::providers::base::ModelInfo;
 use goose_providers::canonical::{maybe_get_canonical_model, Pricing};
-use goose_providers::conversation::token_usage::Usage;
+use goose_providers::conversation::token_usage::{CostSource, ProviderUsage, Usage};
 use std::sync::OnceLock;
 use tracing::warn;
 
@@ -36,6 +36,19 @@ const DEFAULT_CURRENCY: &str = "$";
 /// Estimate the USD cost of a model invocation.
 pub fn estimate_model_cost(provider: &str, model: &str, usage: &Usage) -> Option<f64> {
     resolve_pricing(provider, model).and_then(|pricing| pricing.estimate_cost(usage))
+}
+
+pub(crate) fn resolve_usage_cost(
+    provider: Option<&str>,
+    usage: &ProviderUsage,
+) -> (Option<f64>, Option<CostSource>) {
+    if let Some(cost) = usage.cost {
+        return (Some(cost), Some(CostSource::ProviderReported));
+    }
+    match provider.and_then(|provider| estimate_model_cost(provider, &usage.model, &usage.usage)) {
+        Some(cost) => (Some(cost), Some(CostSource::Estimated)),
+        None => (None, None),
+    }
 }
 
 /// Resolve the pricing for a provider/model honoring the precedence described
@@ -194,19 +207,72 @@ mod tests {
     /// `CostSource::Estimated` when it returns `Some` — `reply_parts::resolve_chunk_cost` for
     /// the legacy path, `state_machine::usage::enrich` for the new one. Pinning the shared
     /// helper covers the behaviour both paths inherit.
-    #[test]
-    fn azure_foundry_estimates_from_the_azure_catalog_rate() {
+    fn assert_cost(provider: &str, model: &str, expected: f64) {
         let used = usage(Some(1_000_000), Some(1_000_000), None);
+        let actual = estimate_model_cost(provider, model, &used)
+            .unwrap_or_else(|| panic!("{provider}/{model} should have public pricing"));
+        assert!((actual - expected).abs() < 1e-9, "got {actual}");
+    }
 
-        let gpt5 = estimate_model_cost("azure_foundry", "gpt-5", &used)
-            .expect("gpt-5 prices through the Azure catalog");
-        assert!(gpt5 > 0.0);
+    #[test]
+    fn provider_reported_cost_takes_precedence_over_public_estimate() {
+        let usage = ProviderUsage::new(
+            "gpt-5.6-sol".to_string(),
+            usage(Some(1_000_000), Some(1_000_000), None),
+        )
+        .with_cost(7.0, CostSource::ProviderReported);
 
-        // Priced from azure/llama-3.3-70b-instruct ($0.71/M in and out), not from the
-        // meta-llama publisher row that lists the open weights at 0.0/0.0.
-        let llama = estimate_model_cost("azure_foundry", "llama-3.3-70b-instruct", &used)
-            .expect("llama-3.3-70b-instruct prices through the Azure catalog");
-        assert!((llama - 1.42).abs() < 1e-9, "got {llama}");
+        assert_eq!(
+            resolve_usage_cost(Some("chatgpt_codex"), &usage),
+            (Some(7.0), Some(CostSource::ProviderReported))
+        );
+    }
+
+    #[test]
+    fn chatgpt_codex_uses_openai_public_rates() {
+        for (model, expected) in [
+            ("gpt-5.6-sol", 35.0),
+            ("gpt-5.6-luna", 1.4),
+            ("gpt-5.6-terra", 14.0),
+        ] {
+            assert_cost("chatgpt_codex", model, expected);
+            let codex = resolve_pricing("chatgpt_codex", model).unwrap();
+            let openai = resolve_pricing("openai", model).unwrap();
+            assert_eq!(codex.input, openai.input);
+            assert_eq!(codex.output, openai.output);
+            assert_eq!(codex.cache_read, openai.cache_read);
+            assert_eq!(codex.cache_write, openai.cache_write);
+        }
+    }
+
+    #[test]
+    fn azure_foundry_estimates_representative_publisher_rates() {
+        for (model, expected) in [
+            ("gpt-5", 11.25),
+            ("claude-sonnet-4-6", 18.0),
+            ("deepseek-v3.2", 2.26),
+            ("mistral-large", 2.0),
+        ] {
+            assert_cost("azure_foundry", model, expected);
+        }
+    }
+
+    #[test]
+    fn azure_foundry_uses_host_rates_for_azure_and_open_weight_models() {
+        assert_cost("azure_foundry", "Phi-4", 0.625);
+
+        // The upstream Meta row describes free weights; Azure's host row prices inference.
+        assert_cost("azure_foundry", "llama-3.3-70b-instruct", 1.42);
+    }
+
+    #[test]
+    fn azure_foundry_unknown_model_has_no_estimate() {
+        assert!(estimate_model_cost(
+            "azure_foundry",
+            "private-deployment-without-metadata",
+            &usage(Some(1_000_000), Some(1_000_000), None),
+        )
+        .is_none());
     }
 
     #[test]

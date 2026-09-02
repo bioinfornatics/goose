@@ -32,6 +32,7 @@ const KEYRING_SERVICE: &str = "goose";
 #[cfg(feature = "system-keyring")]
 const KEYRING_USERNAME: &str = "secrets";
 pub const CONFIG_YAML_NAME: &str = "config.yaml";
+pub const PRICING_YAML_NAME: &str = "pricing.yaml";
 
 #[derive(Error, Debug)]
 pub enum ConfigError {
@@ -82,7 +83,10 @@ impl From<keyring::Error> for ConfigError {
 ///
 /// Configuration values are loaded with the following precedence:
 /// 1. Environment variables (exact key match)
-/// 2. Configuration file (~/.config/goose/config.yaml by default)
+/// 2. User configuration (~/.config/goose/config.yaml by default)
+/// 3. Pricing configuration (~/.config/goose/pricing.yaml by default)
+/// 4. Additional configuration files from GOOSE_ADDITIONAL_CONFIG_FILES
+/// 5. System configuration
 ///
 /// Secrets are loaded with the following precedence:
 /// 1. Environment variables (exact key match)
@@ -188,10 +192,12 @@ fn metadata_is_symlink_or_reparse_point(metadata: &std::fs::Metadata) -> bool {
 impl Default for Config {
     fn default() -> Self {
         let config_dir = Paths::config_dir();
+        let pricing_config_path = config_dir.join(PRICING_YAML_NAME);
         let user_config_path = config_dir.join(CONFIG_YAML_NAME);
 
         let mut config_paths = vec![system_config_path()];
         config_paths.extend(additional_config_paths_from_env());
+        config_paths.push(pricing_config_path);
         config_paths.push(user_config_path.clone());
 
         let no_secrets_config = Self {
@@ -2468,6 +2474,69 @@ mod tests {
         assert_eq!(provider, "openai");
 
         Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn default_config_discovers_pricing_yaml_without_additional_config_env() {
+        let root = TempDir::new().unwrap();
+        let root_path = root.path().to_str().unwrap();
+        let _guard = env_lock::lock_env([
+            ("GOOSE_PATH_ROOT", Some(root_path)),
+            ("GOOSE_ADDITIONAL_CONFIG_FILES", None::<&str>),
+        ]);
+        let config_dir = Paths::config_dir();
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::write(
+            config_dir.join(PRICING_YAML_NAME),
+            "GOOSE_PRICING_OVERRIDES:\n  - { provider: openai, model: negotiated, input: 1, output: 2 }\n",
+        )
+        .unwrap();
+
+        let overrides: Vec<serde_yaml::Value> = Config::default()
+            .get_param("GOOSE_PRICING_OVERRIDES")
+            .unwrap();
+        assert_eq!(overrides[0]["model"], "negotiated");
+    }
+
+    #[test]
+    #[serial]
+    fn user_config_keeps_precedence_over_pricing_yaml() {
+        let root = TempDir::new().unwrap();
+        let root_path = root.path().to_str().unwrap();
+        let _guard = env_lock::lock_env([
+            ("GOOSE_PATH_ROOT", Some(root_path)),
+            ("GOOSE_ADDITIONAL_CONFIG_FILES", None::<&str>),
+        ]);
+        let config_dir = Paths::config_dir();
+        std::fs::create_dir_all(&config_dir).unwrap();
+        let pricing_yaml = config_dir.join(PRICING_YAML_NAME);
+        std::fs::write(
+            &pricing_yaml,
+            "GOOSE_PRICING_OVERRIDES:\n  - { provider: openai, model: dedicated, input: 1, output: 2 }\n",
+        )
+        .unwrap();
+        let additional_yaml = root.path().join("additional.yaml");
+        std::fs::write(
+            &additional_yaml,
+            "GOOSE_PRICING_OVERRIDES:\n  - { provider: openai, model: additional, input: 2, output: 3 }\n",
+        )
+        .unwrap();
+        std::env::set_var("GOOSE_ADDITIONAL_CONFIG_FILES", &additional_yaml);
+
+        let config = Config::default();
+        let overrides: Vec<serde_yaml::Value> =
+            config.get_param("GOOSE_PRICING_OVERRIDES").unwrap();
+        assert_eq!(overrides[0]["model"], "dedicated");
+
+        std::fs::write(
+            config_dir.join(CONFIG_YAML_NAME),
+            "GOOSE_PRICING_OVERRIDES:\n  - { provider: openai, model: user, input: 3, output: 4 }\n",
+        )
+        .unwrap();
+        let overrides: Vec<serde_yaml::Value> =
+            config.get_param("GOOSE_PRICING_OVERRIDES").unwrap();
+        assert_eq!(overrides[0]["model"], "user");
     }
 
     #[test]

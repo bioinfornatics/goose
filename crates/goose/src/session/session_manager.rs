@@ -875,6 +875,7 @@ async fn insert_usage_ledger_row(
 ) -> Result<()> {
     let cost_source = usage.cost_source.map(|cs| match cs {
         CostSource::ProviderReported => "provider_reported",
+        CostSource::UserConfigured => "user_configured",
         CostSource::Estimated => "estimated",
     });
 

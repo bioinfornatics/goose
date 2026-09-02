@@ -788,15 +788,7 @@ impl Agent {
         usage: &ProviderUsage,
         provider_name: Option<&str>,
     ) -> (Option<f64>, Option<CostSource>) {
-        if let Some(cost) = usage.cost {
-            return (Some(cost), Some(CostSource::ProviderReported));
-        }
-        match provider_name.and_then(|pn| {
-            crate::providers::canonical_cost::estimate_model_cost(pn, &usage.model, &usage.usage)
-        }) {
-            Some(cost) => (Some(cost), Some(CostSource::Estimated)),
-            None => (None, None),
-        }
+        crate::providers::canonical_cost::resolve_usage_cost(provider_name, usage)
     }
 }
 

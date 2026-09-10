@@ -4547,6 +4547,12 @@
   "toolConfirmation.gooseWouldLikeToCallWithName": {
     "defaultMessage": "Goose desidera richiamare {toolName}. Consentire?"
   },
+  "toolTurnSummary.running": {
+    "defaultMessage": "Esecuzione di {tool}"
+  },
+  "toolTurnSummary.toolCallCount": {
+    "defaultMessage": "{count, plural, =0 {Ragionamento: {thinking}} other {{thinking, plural, =0 {Chiamate agli strumenti: {count}} other {Chiamate agli strumenti: {count} · ragionamento: {thinking}}}}}"
+  },
   "updateSection.autoDownload": {
     "defaultMessage": "Goose scaricherà l'aggiornamento in background e lo installerà al prossimo arresto o riavvio."
   },

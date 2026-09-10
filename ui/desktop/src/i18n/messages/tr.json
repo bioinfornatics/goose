@@ -4547,6 +4547,12 @@
   "toolConfirmation.gooseWouldLikeToCallWithName": {
     "defaultMessage": "Goose, {toolName}'yi aramak istiyor. İzin vermek?"
   },
+  "toolTurnSummary.running": {
+    "defaultMessage": "{tool} çalıştırılıyor"
+  },
+  "toolTurnSummary.toolCallCount": {
+    "defaultMessage": "{count, plural, =0 {Düşünme: {thinking}} other {{thinking, plural, =0 {Araç çağrıları: {count}} other {Araç çağrıları: {count} · düşünme: {thinking}}}}}"
+  },
   "updateSection.autoDownload": {
     "defaultMessage": "Güncelleme arka planda otomatik olarak indirilecektir."
   },

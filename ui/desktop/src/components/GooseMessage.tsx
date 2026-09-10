@@ -42,6 +42,15 @@ interface GooseMessageProps {
     elicitationId: string,
     userData: Record<string, unknown>
   ) => Promise<boolean>;
+  // Tool call cards and thinking blocks are rendered by the turn's summary line
+  // instead (see ToolTurnSummary.tsx), so that expanding the group shows them
+  // below the line rather than scattered back at their original positions.
+  // Tool calls awaiting user approval are always shown in place regardless of this flag.
+  collapseToolCalls?: boolean;
+  // Intermediate replies inside a turn read as a running log, so
+  // only the reply that ends the turn carries the timestamp and usage footer.
+  // Defaults to true: callers that do not collapse turns keep upstream behaviour.
+  isTurnFinal?: boolean;
 }
 
 function GooseMessage({
@@ -54,6 +63,8 @@ function GooseMessage({
   append,
   isStreaming,
   submitElicitationResponse,
+  collapseToolCalls = false,
+  isTurnFinal = true,
 }: GooseMessageProps) {
   const contentRef = useRef<HTMLDivElement | null>(null);
 
@@ -94,10 +105,36 @@ function GooseMessage({
         })
       : undefined;
 
+  // See `collapseToolCalls` above. Kept per call rather than per message: a
+  // message can carry one call awaiting approval next to one already resolved,
+  // and only the former belongs here — the summary holds the rest.
+  const visibleToolIndices = toolRequests
+    .map((_, toolIndex) => toolIndex)
+    .filter((toolIndex) => !collapseToolCalls || toolStates[toolIndex].isPending);
+  const showToolCalls = visibleToolIndices.length > 0;
+  const showThinking = thinkingContent !== null && !collapseToolCalls;
+  const hasOwnContent =
+    showToolCalls ||
+    showThinking ||
+    displayText.trim().length > 0 ||
+    imagePaths.length > 0 ||
+    outputTokenLimitReached ||
+    hasToolConfirmation ||
+    hasElicitation;
+  // A turn can end on a message that carries nothing but collapsed calls - an
+  // interrupted turn does. Its timestamp and token usage are the turn's, so the
+  // footer is kept even though everything above it moved into the summary.
+  const showFooterOnly = isTurnFinal && !isStreaming && !hasOwnContent && toolRequests.length > 0;
+  // Without this a message carrying only hidden tool calls would still render its
+  // container and leave a tall empty gap in the conversation.
+  const hasVisibleContent = hasOwnContent || showFooterOnly;
+
+  if (!hasVisibleContent) return null;
+
   return (
     <div className="goose-message flex w-[90%] justify-start min-w-0">
       <div className="flex flex-col w-full min-w-0">
-        {thinkingContent && (
+        {showThinking && thinkingContent && (
           <ThinkingContent
             content={thinkingContent}
             isExpanded={
@@ -109,7 +146,7 @@ function GooseMessage({
           />
         )}
 
-        {(displayText.trim() || imagePaths.length > 0) && (
+        {(displayText.trim() || imagePaths.length > 0 || showFooterOnly) && (
           <div className="flex flex-col group">
             {displayText.trim() && (
               <div ref={contentRef} className="agent-message-bubble w-full" dir={messageDir}>
@@ -125,7 +162,11 @@ function GooseMessage({
               </div>
             )}
 
-            {toolRequests.length === 0 && (
+            {/* Upstream leaves the footer to the tool call block below whenever the
+                message has calls; when those are collapsed that block is gone, so the
+                condition asks whether it actually renders. `isTurnFinal` gates the
+                footer on top of that, see the prop above. */}
+            {!showToolCalls && isTurnFinal && (
               <div className="relative flex items-center justify-between">
                 {!isStreaming && (
                   <div className="text-xs font-mono text-text-secondary pt-1 transition-all duration-200 group-hover:-translate-y-4 group-hover:opacity-0">
@@ -147,11 +188,12 @@ function GooseMessage({
           </div>
         )}
 
-        {toolRequests.length > 0 && (
+        {showToolCalls && (
           <div className={cn(displayText && 'mt-2')}>
             <div className="relative flex flex-col w-full group">
               <div className="flex flex-col gap-3">
-                {toolRequests.map((toolRequest, toolIndex) => {
+                {visibleToolIndices.map((toolIndex) => {
+                  const toolRequest = toolRequests[toolIndex];
                   const toolState = toolStates[toolIndex];
                   const hasResponse = toolState.response !== undefined;
                   const isApprovalClicked = Boolean(

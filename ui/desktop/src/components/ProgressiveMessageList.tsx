@@ -18,6 +18,11 @@ import type {
   SystemNotificationContent,
 } from '../types/message';
 import LoadingGoose from './LoadingGoose';
+import ToolTurnSummary, {
+  turnEndIndex,
+  turnStartIndex,
+  useToolTurnCollapse,
+} from './ToolTurnSummary';
 import { getModelDisplayName } from './settings/models/predefinedModelsUtils';
 import { deriveMessageRowContexts, type MessageRowContext } from './messageRowContext';
 
@@ -63,6 +68,10 @@ interface MessageRowProps {
   append: (value: string) => void;
   index: number;
   isStreaming: boolean;
+  // Spacing and the footer follow different rules: whether an earlier reply in
+  // the turn came before this one vs. whether this one ends the turn.
+  isTurnContinuation: boolean;
+  isTurnFinal: boolean;
   isUser: boolean;
   message: Message;
   modelChangeMessage: string | null;
@@ -85,6 +94,8 @@ function MessageRowComponent({
   append,
   index,
   isStreaming,
+  isTurnContinuation,
+  isTurnFinal,
   isUser,
   message,
   modelChangeMessage,
@@ -120,7 +131,11 @@ function MessageRowComponent({
         />
       )}
       <div
-        className={`relative ${index === 0 ? 'mt-0' : 'mt-4'} ${isUser ? 'user' : 'assistant'} ${rowContext.isInToolCallChain ? 'in-chain' : ''}`}
+        // `empty:hidden` keeps messages whose only content is a
+        // collapsed tool call from leaving an empty gap in the conversation;
+        // intermediate replies of one turn sit tight (`mt-1`) instead of being
+        // spaced like separate answers.
+        className={`relative empty:hidden empty:mt-0 ${index === 0 ? 'mt-0' : isTurnContinuation ? 'mt-1' : 'mt-4'} ${isUser ? 'user' : 'assistant'} ${rowContext.isInToolCallChain ? 'in-chain' : ''}`}
         data-testid="message-container"
       >
         {isUser ? (
@@ -138,6 +153,8 @@ function MessageRowComponent({
             append={append}
             isStreaming={isStreaming}
             submitElicitationResponse={submitElicitationResponse}
+            collapseToolCalls
+            isTurnFinal={isTurnFinal}
           />
         )}
       </div>
@@ -240,6 +257,11 @@ export default function ProgressiveMessageList({
 
   const rowContexts = useMemo(() => deriveMessageRowContexts(messages), [messages]);
   const messagesToRender = messages.slice(0, renderedCount);
+  // `summarizedTurns` holds the turns whose summary line has already been
+  // placed; it is filled as the map walks the list in order.
+  const { isTurnExpanded, toggleTurn } = useToolTurnCollapse(messages);
+  const activeTurnStart = turnStartIndex(messagesToRender, messagesToRender.length - 1);
+  const summarizedTurns = new Set<number>();
   const messageRows = messagesToRender
     .map((message, index) => {
       if (!message.metadata.userVisible) return null;
@@ -265,26 +287,56 @@ export default function ProgressiveMessageList({
         toolCallNotifications.get(toolState.requestId)
       );
 
+      // The summary is anchored above the turn's first message,
+      // so it keeps its place while the turn produces more replies below.
+      const turnStart = turnStartIndex(messagesToRender, index);
+      // The turn gets marked on its first reply, so an already
+      // marked turn means this reply is not the first. Read before the add below.
+      const isTurnContinuation = !isUser && summarizedTurns.has(turnStart);
+      // The footer belongs under the answer, not under an
+      // intermediate "let me check that" line.
+      const isTurnFinal = turnEndIndex(messagesToRender, index) === index;
+      const showTurnSummary = !isUser && !summarizedTurns.has(turnStart);
+      if (showTurnSummary) summarizedTurns.add(turnStart);
+
       return (
-        <MessageRow
-          key={messageKey}
-          append={append}
-          index={index}
-          isStreaming={
-            isStreamingMessage &&
-            !isUser &&
-            index === messagesToRender.length - 1 &&
-            message.role === 'assistant'
-          }
-          isUser={isUser}
-          message={message}
-          modelChangeMessage={modelChangeMessage}
-          onMessageUpdate={onMessageUpdate}
-          rowContext={rowContext}
-          sessionId={sessionId}
-          submitElicitationResponse={submitElicitationResponse}
-          toolNotifications={toolNotifications}
-        />
+        <Fragment key={messageKey}>
+          {showTurnSummary && (
+            <ToolTurnSummary
+              messages={messages}
+              turnMessages={messagesToRender.slice(
+                turnStart,
+                turnEndIndex(messagesToRender, index) + 1
+              )}
+              sessionId={sessionId}
+              toolCallNotifications={toolCallNotifications}
+              append={append}
+              isExpanded={isTurnExpanded(index)}
+              isStreaming={isStreamingMessage && turnStart === activeTurnStart}
+              onToggle={() => toggleTurn(turnStart)}
+            />
+          )}
+          <MessageRow
+            append={append}
+            index={index}
+            isStreaming={
+              isStreamingMessage &&
+              !isUser &&
+              index === messagesToRender.length - 1 &&
+              message.role === 'assistant'
+            }
+            isTurnContinuation={isTurnContinuation}
+            isTurnFinal={isTurnFinal}
+            isUser={isUser}
+            message={message}
+            modelChangeMessage={modelChangeMessage}
+            onMessageUpdate={onMessageUpdate}
+            rowContext={rowContext}
+            sessionId={sessionId}
+            submitElicitationResponse={submitElicitationResponse}
+            toolNotifications={toolNotifications}
+          />
+        </Fragment>
       );
     })
     .filter(Boolean);

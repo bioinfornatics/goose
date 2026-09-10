@@ -37,6 +37,7 @@ import { isAcpRecovering, subscribeToAcpRecovery } from '../acp/acpConnection';
 import type { LiveVoiceAvailabilityResponse_unstable } from '@aaif/goose-acp-client';
 import { acpGetLiveVoiceAvailability } from '../acp/liveVoice';
 import type { LiveVoiceController } from '../liveVoice/useLiveVoice';
+import { useRunningToolLabel } from './ToolTurnSummary';
 
 const NEW_LIVE_VOICE_GREETING = 'Hello! What can I help you with?';
 
@@ -240,6 +241,10 @@ export default function BaseChat({
     sessionId,
     sessionLoaded,
   ]);
+
+  // Tool call cards are collapsed, so the running tool is announced in the
+  // single status line at the bottom instead.
+  const runningTool = useRunningToolLabel(messages);
 
   const handleWorkingDirChange = useCallback(
     async (newDir: string) => {
@@ -570,7 +575,7 @@ export default function BaseChat({
 
           {chatState !== ChatState.Idle && (
             <div className="absolute bottom-1 left-4 z-20 pointer-events-none">
-              <LoadingGoose chatState={chatState} message={progressMessage} />
+              <LoadingGoose chatState={chatState} message={runningTool ?? progressMessage} />
             </div>
           )}
         </div>

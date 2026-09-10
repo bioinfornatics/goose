@@ -4547,6 +4547,12 @@
   "toolConfirmation.gooseWouldLikeToCallWithName": {
     "defaultMessage": "Goose {toolName} को कॉल करना चाहेंगे। अनुमति दें?"
   },
+  "toolTurnSummary.running": {
+    "defaultMessage": "{tool} चल रहा है"
+  },
+  "toolTurnSummary.toolCallCount": {
+    "defaultMessage": "{count, plural, =0 {विचार: {thinking}} other {{thinking, plural, =0 {टूल कॉल: {count}} other {टूल कॉल: {count} · विचार: {thinking}}}}}"
+  },
   "updateSection.autoDownload": {
     "defaultMessage": "अपडेट बैकग्राउंड में अपने आप डाउनलोड हो जाएगा."
   },

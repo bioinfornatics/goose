@@ -4547,6 +4547,12 @@
   "toolConfirmation.gooseWouldLikeToCallWithName": {
     "defaultMessage": "Goose хочет вызвать {toolName}. Разрешить?"
   },
+  "toolTurnSummary.running": {
+    "defaultMessage": "Выполняется {tool}"
+  },
+  "toolTurnSummary.toolCallCount": {
+    "defaultMessage": "{count, plural, =0 {Размышления: {thinking}} other {{thinking, plural, =0 {Вызовы инструментов: {count}} other {Вызовы инструментов: {count} · размышления: {thinking}}}}}"
+  },
   "updateSection.autoDownload": {
     "defaultMessage": "Обновление будет автоматически скачано в фоновом режиме."
   },

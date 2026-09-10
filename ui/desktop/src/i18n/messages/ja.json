@@ -4547,6 +4547,12 @@
   "toolConfirmation.gooseWouldLikeToCallWithName": {
     "defaultMessage": "Gooseが{toolName}を実行しようとしています。許可しますか？"
   },
+  "toolTurnSummary.running": {
+    "defaultMessage": "{tool} を実行中"
+  },
+  "toolTurnSummary.toolCallCount": {
+    "defaultMessage": "{count, plural, =0 {思考: {thinking}件} other {{thinking, plural, =0 {ツール呼び出し: {count}件} other {ツール呼び出し: {count}件 · 思考: {thinking}件}}}}"
+  },
   "updateSection.autoDownload": {
     "defaultMessage": "アップデートはバックグラウンドで自動的にダウンロードされます。"
   },

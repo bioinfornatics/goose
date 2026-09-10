@@ -4547,6 +4547,12 @@
   "toolConfirmation.gooseWouldLikeToCallWithName": {
     "defaultMessage": "Goose ingin memanggil {toolName}. Benarkan?"
   },
+  "toolTurnSummary.running": {
+    "defaultMessage": "Menjalankan {tool}"
+  },
+  "toolTurnSummary.toolCallCount": {
+    "defaultMessage": "{count, plural, =0 {Pemikiran: {thinking}} other {{thinking, plural, =0 {Panggilan alat: {count}} other {Panggilan alat: {count} · pemikiran: {thinking}}}}}"
+  },
   "updateSection.autoDownload": {
     "defaultMessage": "Goose akan memuat turun kemas kini di latar belakang dan memasangnya pada kali seterusnya anda keluar atau mula semula."
   },

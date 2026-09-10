@@ -20,10 +20,13 @@ const messageUpdateCallbacks = vi.hoisted(
     >()
 );
 
+const turnFinalByMessageId = vi.hoisted(() => new Map<string, boolean | undefined>());
+
 vi.mock('./GooseMessage', () => ({
-  default: ({ message }: { message: Message }) => {
+  default: ({ message, isTurnFinal }: { message: Message; isTurnFinal?: boolean }) => {
     const id = message.id ?? 'missing-id';
     renderCounts.set(id, (renderCounts.get(id) ?? 0) + 1);
+    turnFinalByMessageId.set(id, isTurnFinal);
     return <div>{id}</div>;
   },
 }));
@@ -252,5 +255,100 @@ describe('ProgressiveMessageList batching', () => {
 
     act(() => vi.advanceTimersByTime(50));
     expect(onRenderingComplete).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Tool calls are collapsed per turn, see ToolTurnSummary.
+// A turn runs from one real user message to the next; spacing asks whether an
+// earlier reply of the turn was rendered, the timestamp/usage footer asks
+// whether this reply ends the turn.
+describe('ProgressiveMessageList turn grouping', () => {
+  beforeEach(() => {
+    renderCounts.clear();
+    turnFinalByMessageId.clear();
+    append.mockClear();
+  });
+
+  function containerClasses(): string[] {
+    return screen.getAllByTestId('message-container').map((row) => row.className);
+  }
+
+  it('does not treat the first reply of a turn as a continuation', () => {
+    renderList([
+      message('user-1', 'user', [{ type: 'text', text: 'Do X' }]),
+      message('assistant-1', 'assistant', [{ type: 'text', text: 'Done' }]),
+    ]);
+
+    const [, firstReply] = containerClasses();
+    expect(firstReply).toContain('mt-4');
+    expect(firstReply).not.toContain('mt-1');
+    expect(turnFinalByMessageId.get('assistant-1')).toBe(true);
+  });
+
+  it('keeps intermediate replies tight and gives the footer to the last one', () => {
+    renderList([
+      message('user-1', 'user', [{ type: 'text', text: 'Do X' }]),
+      message('assistant-1', 'assistant', [{ type: 'text', text: 'Let me check' }]),
+      message('assistant-2', 'assistant', [{ type: 'text', text: 'Done' }]),
+    ]);
+
+    const [, firstReply, secondReply] = containerClasses();
+    expect(firstReply).toContain('mt-4');
+    expect(secondReply).toContain('mt-1');
+    expect(turnFinalByMessageId.get('assistant-1')).toBe(false);
+    expect(turnFinalByMessageId.get('assistant-2')).toBe(true);
+  });
+
+  it('starts a new turn on the next user message', () => {
+    renderList([
+      message('user-1', 'user', [{ type: 'text', text: 'First question' }]),
+      message('assistant-1', 'assistant', [{ type: 'text', text: 'First answer' }]),
+      message('user-2', 'user', [{ type: 'text', text: 'Second question' }]),
+      message('assistant-2', 'assistant', [{ type: 'text', text: 'Second answer' }]),
+    ]);
+
+    const [, , secondQuestion, secondReply] = containerClasses();
+    expect(secondQuestion).toContain('mt-4');
+    expect(secondReply).toContain('mt-4');
+    expect(turnFinalByMessageId.get('assistant-1')).toBe(true);
+    expect(turnFinalByMessageId.get('assistant-2')).toBe(true);
+  });
+
+  it('does not end a turn on a tool response carrying the user role', () => {
+    renderList([
+      message('user-1', 'user', [{ type: 'text', text: 'Do X' }]),
+      message('assistant-1', 'assistant', [toolRequest('call-1')]),
+      message('tool-response-1', 'user', [toolResponse('call-1')]),
+      message('assistant-2', 'assistant', [{ type: 'text', text: 'Done' }]),
+    ]);
+
+    expect(turnFinalByMessageId.get('assistant-1')).toBe(false);
+    expect(turnFinalByMessageId.get('assistant-2')).toBe(true);
+  });
+
+  it('summarises a call made after the turn opened with a plain reply', () => {
+    renderList([
+      message('user-1', 'user', [{ type: 'text', text: 'Do X' }]),
+      message('assistant-1', 'assistant', [{ type: 'text', text: 'Let me check' }]),
+      message('assistant-2', 'assistant', [toolRequest('call-1')]),
+      message('tool-response-1', 'user', [toolResponse('call-1')]),
+      message('assistant-3', 'assistant', [{ type: 'text', text: 'Done' }]),
+    ]);
+
+    expect(screen.getByText('Tool calls: 1')).toBeTruthy();
+  });
+
+  it('summarises a call made after a status notification opened the turn', () => {
+    renderList([
+      message('user-1', 'user', [{ type: 'text', text: 'Do X' }]),
+      message('status-1', 'assistant', [
+        { type: 'systemNotification', notificationType: 'inlineMessage', msg: 'Compacting' },
+      ]),
+      message('assistant-1', 'assistant', [toolRequest('call-1')]),
+      message('tool-response-1', 'user', [toolResponse('call-1')]),
+      message('assistant-2', 'assistant', [{ type: 'text', text: 'Done' }]),
+    ]);
+
+    expect(screen.getByText('Tool calls: 1')).toBeTruthy();
   });
 });

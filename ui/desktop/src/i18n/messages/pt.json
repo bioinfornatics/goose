@@ -4547,6 +4547,12 @@
   "toolConfirmation.gooseWouldLikeToCallWithName": {
     "defaultMessage": "O Goose gostaria de invocar {toolName}. Permitir?"
   },
+  "toolTurnSummary.running": {
+    "defaultMessage": "Executando {tool}"
+  },
+  "toolTurnSummary.toolCallCount": {
+    "defaultMessage": "{count, plural, =0 {Raciocínio: {thinking}} other {{thinking, plural, =0 {Chamadas de ferramentas: {count}} other {Chamadas de ferramentas: {count} · raciocínio: {thinking}}}}}"
+  },
   "updateSection.autoDownload": {
     "defaultMessage": "O Goose transferirá a atualização em segundo plano e instalá-la-á da próxima vez que sair ou reiniciar."
   },

@@ -4547,6 +4547,12 @@
   "toolConfirmation.gooseWouldLikeToCallWithName": {
     "defaultMessage": "Goose 想要呼叫 {toolName}。要允許嗎？"
   },
+  "toolTurnSummary.running": {
+    "defaultMessage": "正在執行 {tool}"
+  },
+  "toolTurnSummary.toolCallCount": {
+    "defaultMessage": "{count, plural, =0 {思考：{thinking}} other {{thinking, plural, =0 {工具呼叫：{count}} other {工具呼叫：{count} · 思考：{thinking}}}}}"
+  },
   "updateSection.autoDownload": {
     "defaultMessage": "Goose 會在背景下載更新，並於您下次結束或重新啟動時安裝。"
   },

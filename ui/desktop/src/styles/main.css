@@ -637,7 +637,10 @@ pre:has(> code.bg-inline-code) {
   scrollbar-width: thin;
 }
 
-.assistant:has(+ .user):not(.in-chain) .goose-message {
+/* `:not(:empty)` — tool response messages also carry the `.user`
+   class and are hidden as empty containers, but they stay in the DOM, so without
+   this the padding fires between two intermediate agent replies. */
+.assistant:has(+ .user:not(:empty)):not(.in-chain) .goose-message {
   padding-bottom: 24px;
 }
 

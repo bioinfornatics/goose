@@ -4547,6 +4547,12 @@
   "toolConfirmation.gooseWouldLikeToCallWithName": {
     "defaultMessage": "goose가 {toolName}을 호출하려고 합니다. 허용하시겠습니까?"
   },
+  "toolTurnSummary.running": {
+    "defaultMessage": "{tool} 실행 중"
+  },
+  "toolTurnSummary.toolCallCount": {
+    "defaultMessage": "{count, plural, =0 {생각: {thinking}} other {{thinking, plural, =0 {도구 호출: {count}} other {도구 호출: {count} · 생각: {thinking}}}}}"
+  },
   "updateSection.autoDownload": {
     "defaultMessage": "goose가 백그라운드에서 업데이트를 다운로드하며, 종료하거나 다시 시작할 때 설치합니다."
   },

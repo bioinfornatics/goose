@@ -306,7 +306,7 @@ export default function ToolTurnSummary({
         onClick={onToggle}
         aria-expanded={isExpanded}
         aria-controls={detailsId}
-        className="group flex min-h-8 w-full items-center gap-2 text-left text-sm text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-primary motion-reduce:transition-none"
+        className="group inline-flex min-h-8 max-w-full items-center gap-2 text-left text-sm text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-primary motion-reduce:transition-none"
       >
         <Brain
           className={cn(
@@ -315,7 +315,7 @@ export default function ToolTurnSummary({
           )}
           aria-hidden="true"
         />
-        <span className="min-w-0 flex-1 truncate">{summary}</span>
+        <span className="min-w-0 truncate">{summary}</span>
         <span aria-hidden="true" className="shrink-0 text-xs tabular-nums">
           {isStreaming && intl.formatMessage(i18n.elapsed, { duration })}
         </span>

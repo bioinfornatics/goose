@@ -355,7 +355,13 @@ export default function ToolTurnSummary({
                   <details key={item.key} className="group/activity py-1">
                     <summary className="flex cursor-pointer list-none items-center gap-2 text-xs text-text-secondary hover:text-text-primary">
                       <Brain className="h-3 w-3 shrink-0" aria-hidden="true" />
-                      <span>{intl.formatMessage(i18n.thinking)}</span>
+                      <span className="min-w-0 flex-1 truncate">
+                        {intl.formatMessage(i18n.thinking)}
+                      </span>
+                      <ChevronRight
+                        className="h-3 w-3 shrink-0 transition-transform group-open/activity:rotate-90 motion-reduce:transition-none rtl:-scale-x-100"
+                        aria-hidden="true"
+                      />
                     </summary>
                     <div className="ml-5 mt-1 text-xs text-text-secondary">
                       <MarkdownContent content={item.content} />
@@ -379,9 +385,13 @@ export default function ToolTurnSummary({
                 <details key={item.key} className="group/activity py-1">
                   <summary className="flex cursor-pointer list-none items-center gap-2 text-xs text-text-secondary hover:text-text-primary">
                     <ToolIconWithStatus ToolIcon={ToolIcon} status={status} />
-                    <span className="truncate">
+                    <span className="min-w-0 flex-1 truncate">
                       {titleOf(item.request) ?? intl.formatMessage(i18n.thinking)}
                     </span>
+                    <ChevronRight
+                      className="h-3 w-3 shrink-0 transition-transform group-open/activity:rotate-90 motion-reduce:transition-none rtl:-scale-x-100"
+                      aria-hidden="true"
+                    />
                   </summary>
                   <div className="mt-1">
                     <ToolCallWithResponse

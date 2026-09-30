@@ -208,7 +208,7 @@ describe('ToolTurnSummary thinking preview', () => {
     expect(screen.queryByRole('button', { name: `Thinking: ${previous}` })).toBeNull();
   });
 
-  it('removes the preview as soon as a response text block starts', () => {
+  it('keeps the preview while an empty response text block is waiting for content', () => {
     const thinking = 'Reasoning before the response';
     render(
       <Harness
@@ -221,7 +221,7 @@ describe('ToolTurnSummary thinking preview', () => {
       { wrapper: IntlTestWrapper }
     );
 
-    expect(screen.queryByRole('button', { name: `Thinking: ${thinking}` })).toBeNull();
+    expect(screen.getByRole('button', { name: `Thinking: ${thinking}` })).toBeTruthy();
   });
 
   it('removes the preview when response content starts', () => {

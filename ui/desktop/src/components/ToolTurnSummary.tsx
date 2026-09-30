@@ -71,7 +71,7 @@ function latestThinkingContent(turnMessages: Message[]): LatestThinking | null {
           key: `${messageKey}-thinking-${contentIndex}`,
         };
       }
-      if (block.type === 'text') return null;
+      if (block.type === 'text' && block.text.trim()) return null;
     }
   }
   return null;

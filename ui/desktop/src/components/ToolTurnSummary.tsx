@@ -353,11 +353,9 @@ export default function ToolTurnSummary({
               if (item.kind === 'thinking') {
                 return (
                   <details key={item.key} className="group/activity py-1">
-                    <summary className="flex cursor-pointer list-none items-center gap-2 text-xs text-text-secondary hover:text-text-primary">
+                    <summary className="inline-flex max-w-full cursor-pointer list-none items-center gap-2 text-xs text-text-secondary hover:text-text-primary">
                       <Brain className="h-3 w-3 shrink-0" aria-hidden="true" />
-                      <span className="min-w-0 flex-1 truncate">
-                        {intl.formatMessage(i18n.thinking)}
-                      </span>
+                      <span className="min-w-0 truncate">{intl.formatMessage(i18n.thinking)}</span>
                       <ChevronRight
                         className="h-3 w-3 shrink-0 transition-transform group-open/activity:rotate-90 motion-reduce:transition-none rtl:-scale-x-100"
                         aria-hidden="true"
@@ -383,9 +381,9 @@ export default function ToolTurnSummary({
 
               return (
                 <details key={item.key} className="group/activity py-1">
-                  <summary className="flex cursor-pointer list-none items-center gap-2 text-xs text-text-secondary hover:text-text-primary">
+                  <summary className="inline-flex max-w-full cursor-pointer list-none items-center gap-2 text-xs text-text-secondary hover:text-text-primary">
                     <ToolIconWithStatus ToolIcon={ToolIcon} status={status} />
-                    <span className="min-w-0 flex-1 truncate">
+                    <span className="min-w-0 truncate">
                       {titleOf(item.request) ?? intl.formatMessage(i18n.thinking)}
                     </span>
                     <ChevronRight

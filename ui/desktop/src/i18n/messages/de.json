@@ -4553,11 +4553,20 @@
   "toolTurnSummary.completed": {
     "defaultMessage": "Abgeschlossen in {duration}"
   },
+  "toolTurnSummary.completedWithoutDuration": {
+    "defaultMessage": "Abgeschlossen"
+  },
   "toolTurnSummary.elapsed": {
     "defaultMessage": "{duration} verstrichen"
   },
   "toolTurnSummary.failed": {
     "defaultMessage": "Fehlgeschlagen nach {duration}"
+  },
+  "toolTurnSummary.failedWithoutDuration": {
+    "defaultMessage": "Fehlgeschlagen"
+  },
+  "toolTurnSummary.incomplete": {
+    "defaultMessage": "Unvollständig"
   },
   "toolTurnSummary.minutesSeconds": {
     "defaultMessage": "{minutes, plural, one {# Min.} other {# Min.}} {seconds, plural, one {# Sek.} other {# Sek.}}"

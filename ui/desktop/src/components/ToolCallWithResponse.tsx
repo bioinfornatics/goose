@@ -16,10 +16,10 @@ import { cn, snakeToTitleCase } from '../utils';
 import { getToolDescription, getToolName } from '../utils/toolPresentation';
 import { ChevronRight, ExternalLink } from 'lucide-react';
 import { TooltipWrapper } from './settings/providers/subcomponents/buttons/TooltipWrapper';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { ContentBlock } from '../types/message';
 
-import McpAppRenderer from './McpApps/McpAppRenderer';
+import McpAppWrapper from './McpApps/McpAppWrapper';
+import type { ToolResultValue, ToolResultWithMeta } from './McpApps/mcpAppMetadata';
 import ToolApprovalButtons from './ToolApprovalButtons';
 import { defineMessages, useIntl } from '../i18n';
 
@@ -66,41 +66,6 @@ interface ToolGraphNode {
   depends_on: number[];
 }
 
-type UiMeta = {
-  ui?: {
-    resourceUri?: string;
-  };
-  extensionName?: string;
-  toolName?: string;
-  toolNameIsActual?: boolean;
-  subagent_session_id?: string;
-};
-
-type ToolResultValue = {
-  content: ContentBlock[];
-  structuredContent?: unknown;
-  isError: boolean;
-  _meta?: UiMeta;
-};
-
-type ToolResultWithMeta = {
-  status?: string;
-  value?: ToolResultValue & {
-    _meta?: UiMeta;
-  };
-};
-
-type ToolRequestWithMeta = ToolRequestMessageContent & {
-  _meta?: UiMeta;
-  toolCall: {
-    status: 'success';
-    value: {
-      name: string;
-      arguments?: Record<string, unknown>;
-    };
-  };
-};
-
 interface ToolCallWithResponseProps {
   sessionId?: string;
   isCancelledMessage: boolean;
@@ -112,6 +77,7 @@ interface ToolCallWithResponseProps {
   append?: (value: string) => void;
   confirmationContent?: ToolConfirmationData;
   isApprovalClicked?: boolean;
+  hideMcpApp?: boolean;
 }
 
 function getSubagentSessionId(
@@ -155,80 +121,6 @@ function getToolResultContent(toolResult: Record<string, unknown>): ContentBlock
   });
 }
 
-interface McpAppWrapperProps {
-  toolRequest: ToolRequestMessageContent;
-  toolResponse?: ToolResponseMessageContent;
-  sessionId: string;
-  append?: (value: string) => void;
-}
-
-export function resolveMcpAppMetadata(
-  responseMeta: UiMeta | undefined
-): { resourceUri: string; extensionName: string; toolName: string } | null {
-  const resourceUri = responseMeta?.ui?.resourceUri;
-  const extensionName = responseMeta?.extensionName;
-  const toolName = responseMeta?.toolName;
-  if (resourceUri && extensionName && toolName) {
-    const legacyPrefix = `${extensionName}__`;
-    const actualToolName = responseMeta.toolNameIsActual
-      ? toolName
-      : toolName.startsWith(legacyPrefix)
-        ? toolName.slice(legacyPrefix.length)
-        : toolName;
-    if (actualToolName) {
-      return { resourceUri, extensionName, toolName: actualToolName };
-    }
-  }
-
-  return null;
-}
-
-function McpAppWrapper({
-  toolRequest,
-  toolResponse,
-  sessionId,
-  append,
-}: McpAppWrapperProps): React.ReactNode {
-  const requestWithMeta = toolRequest as ToolRequestWithMeta;
-  const resultWithMeta = toolResponse?.toolResult as ToolResultWithMeta | undefined;
-  const responseMeta =
-    resultWithMeta?.status === 'success' && resultWithMeta.value
-      ? resultWithMeta.value._meta
-      : undefined;
-  const appMetadata = resolveMcpAppMetadata(responseMeta);
-
-  const toolArguments =
-    requestWithMeta.toolCall.status === 'success'
-      ? requestWithMeta.toolCall.value.arguments
-      : undefined;
-
-  const toolInput = { arguments: toolArguments || {} };
-
-  const toolResult =
-    resultWithMeta?.status === 'success' && resultWithMeta.value
-      ? (resultWithMeta.value as unknown as CallToolResult)
-      : undefined;
-
-  if (!appMetadata) return null;
-  if (requestWithMeta.toolCall.status !== 'success') return null;
-
-  const { resourceUri, extensionName, toolName } = appMetadata;
-
-  return (
-    <div className="mt-3">
-      <McpAppRenderer
-        resourceUri={resourceUri}
-        toolInput={toolInput}
-        toolResult={toolResult}
-        extensionName={extensionName}
-        toolName={toolName}
-        sessionId={sessionId}
-        append={append}
-      />
-    </div>
-  );
-}
-
 export default function ToolCallWithResponse({
   sessionId,
   isCancelledMessage,
@@ -240,6 +132,7 @@ export default function ToolCallWithResponse({
   append,
   confirmationContent,
   isApprovalClicked,
+  hideMcpApp = false,
 }: ToolCallWithResponseProps) {
   // Handle both the wrapped ToolResult format and the unwrapped format
   // The server serializes ToolResult<T> as { status: "success", value: T } or { status: "error", error: string }
@@ -256,7 +149,7 @@ export default function ToolCallWithResponse({
   const resultWithMeta = toolResponse?.toolResult as ToolResultWithMeta;
   const hasMcpAppResourceURI = Boolean(resultWithMeta?.value?._meta?.ui?.resourceUri);
 
-  const shouldShowMcpContent = !isPendingApproval;
+  const shouldShowMcpContent = !isPendingApproval && !hideMcpApp;
 
   const showInlineApproval = isPendingApproval && confirmationContent && sessionId;
 

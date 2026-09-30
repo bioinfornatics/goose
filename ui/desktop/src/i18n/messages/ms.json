@@ -4553,11 +4553,20 @@
   "toolTurnSummary.completed": {
     "defaultMessage": "Selesai dalam {duration}"
   },
+  "toolTurnSummary.completedWithoutDuration": {
+    "defaultMessage": "Selesai"
+  },
   "toolTurnSummary.elapsed": {
     "defaultMessage": "{duration} berlalu"
   },
   "toolTurnSummary.failed": {
     "defaultMessage": "Gagal selepas {duration}"
+  },
+  "toolTurnSummary.failedWithoutDuration": {
+    "defaultMessage": "Gagal"
+  },
+  "toolTurnSummary.incomplete": {
+    "defaultMessage": "Belum selesai"
   },
   "toolTurnSummary.minutesSeconds": {
     "defaultMessage": "{minutes, plural, one {# min} other {# min}} {seconds, plural, one {# saat} other {# saat}}"

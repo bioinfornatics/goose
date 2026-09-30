@@ -4553,11 +4553,20 @@
   "toolTurnSummary.completed": {
     "defaultMessage": "Завершено за {duration}"
   },
+  "toolTurnSummary.completedWithoutDuration": {
+    "defaultMessage": "Завершено"
+  },
   "toolTurnSummary.elapsed": {
     "defaultMessage": "Прошло: {duration}"
   },
   "toolTurnSummary.failed": {
     "defaultMessage": "Ошибка через {duration}"
+  },
+  "toolTurnSummary.failedWithoutDuration": {
+    "defaultMessage": "Ошибка"
+  },
+  "toolTurnSummary.incomplete": {
+    "defaultMessage": "Не завершено"
   },
   "toolTurnSummary.minutesSeconds": {
     "defaultMessage": "{minutes, plural, one {# мин} few {# мин} many {# мин} other {# мин}} {seconds, plural, one {# с} few {# с} many {# с} other {# с}}"

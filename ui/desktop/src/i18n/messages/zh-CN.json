@@ -4553,11 +4553,20 @@
   "toolTurnSummary.completed": {
     "defaultMessage": "在 {duration} 内完成"
   },
+  "toolTurnSummary.completedWithoutDuration": {
+    "defaultMessage": "已完成"
+  },
   "toolTurnSummary.elapsed": {
     "defaultMessage": "已用时 {duration}"
   },
   "toolTurnSummary.failed": {
     "defaultMessage": "在 {duration} 后失败"
+  },
+  "toolTurnSummary.failedWithoutDuration": {
+    "defaultMessage": "失败"
+  },
+  "toolTurnSummary.incomplete": {
+    "defaultMessage": "未完成"
   },
   "toolTurnSummary.minutesSeconds": {
     "defaultMessage": "{minutes, plural, one {# 分钟} other {# 分钟}} {seconds, plural, one {# 秒} other {# 秒}}"

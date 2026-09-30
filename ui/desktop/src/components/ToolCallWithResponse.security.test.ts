@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveMcpAppMetadata } from './ToolCallWithResponse';
+import { resolveMcpAppMetadata } from './McpApps/mcpAppMetadata';
 
 describe('MCP app metadata binding', () => {
   it('preserves authoritative ownership when a tool name contains the delimiter', () => {

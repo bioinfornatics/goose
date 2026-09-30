@@ -45,7 +45,9 @@ vi.mock('./GooseMessage', () => ({
       <div>
         {id}
         {message.content.map((content, index) => {
-          if (content.type === 'text') return <span key={index}>{content.text}</span>;
+          if (content.type === 'text' && (!collapseToolCalls || isTurnFinal)) {
+            return <span key={index}>{content.text}</span>;
+          }
           if (content.type === 'thinking' && !collapseToolCalls) {
             return <span key={index}>inline-thinking:{content.thinking}</span>;
           }
@@ -383,14 +385,14 @@ describe('ProgressiveMessageList turn grouping', () => {
       message('assistant-2', 'assistant', [{ type: 'text', text: 'Final assistant response' }]),
     ]);
 
-    expect(screen.getAllByText('Completed in 0 sec')).toHaveLength(1);
+    expect(screen.getAllByText('Completed')).toHaveLength(1);
     expect(screen.queryByText('inline-thinking:inspect logs')).toBeNull();
     expect(screen.queryByText('inline-tool:call-1')).toBeNull();
     expect(screen.queryByText('summary-thinking:inspect logs')).toBeNull();
     expect(screen.queryByText('summary-tool:call-1:streaming:false')).toBeNull();
     expect(screen.getByText('Final assistant response')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Completed in 0 sec' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Completed' }));
     expect(screen.getByText('Thinking')).toBeTruthy();
     expect(screen.getByText('inspect logs')).toBeTruthy();
     expect(screen.getAllByText('summary-tool:call-1:streaming:false')).toHaveLength(1);
@@ -429,7 +431,7 @@ describe('ProgressiveMessageList turn grouping', () => {
       message('assistant-4', 'assistant', [{ type: 'text', text: 'Second done' }]),
     ]);
 
-    expect(screen.getAllByText('Completed in 0 sec')).toHaveLength(2);
+    expect(screen.getAllByText('Completed')).toHaveLength(2);
   });
 
   it('applies streaming only to the active last turn and preserves historical rows', () => {
@@ -467,7 +469,7 @@ describe('ProgressiveMessageList turn grouping', () => {
     );
 
     expect(renderCounts.get('assistant-1')).toBe(historicalRenderCount);
-    const summaries = screen.getAllByRole('button', { name: /Completed in 0 sec|Test Tool/ });
+    const summaries = screen.getAllByRole('button', { name: /Completed|Test Tool/ });
     fireEvent.click(summaries[0]);
     expect(summaries[1]).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('summary-tool:call-1:streaming:false')).toBeTruthy();
@@ -483,7 +485,7 @@ describe('ProgressiveMessageList turn grouping', () => {
       message('assistant-3', 'assistant', [{ type: 'text', text: 'Done' }]),
     ]);
 
-    expect(screen.getByText('Completed in 0 sec')).toBeTruthy();
+    expect(screen.getByText('Completed')).toBeTruthy();
   });
 
   it('summarises a call made after a status notification opened the turn', () => {
@@ -497,6 +499,6 @@ describe('ProgressiveMessageList turn grouping', () => {
       message('assistant-2', 'assistant', [{ type: 'text', text: 'Done' }]),
     ]);
 
-    expect(screen.getByText('Completed in 0 sec')).toBeTruthy();
+    expect(screen.getByText('Completed')).toBeTruthy();
   });
 });

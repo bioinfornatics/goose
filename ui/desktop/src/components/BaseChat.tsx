@@ -37,7 +37,7 @@ import { isAcpRecovering, subscribeToAcpRecovery } from '../acp/acpConnection';
 import type { LiveVoiceAvailabilityResponse_unstable } from '@aaif/goose-acp-client';
 import { acpGetLiveVoiceAvailability } from '../acp/liveVoice';
 import type { LiveVoiceController } from '../liveVoice/useLiveVoice';
-import { useRunningToolLabel } from './ToolTurnSummary';
+import { useRunningToolLabel } from '../hooks/useToolTurn';
 
 const NEW_LIVE_VOICE_GREETING = 'Hello! What can I help you with?';
 
@@ -137,10 +137,7 @@ export default function BaseChat({
         setQuoteButtonPos(null);
         return;
       }
-      if (
-        !conversationRef.current ||
-        !conversationRef.current.contains(sel.anchorNode)
-      ) {
+      if (!conversationRef.current || !conversationRef.current.contains(sel.anchorNode)) {
         setQuoteButtonPos(null);
         return;
       }
@@ -554,17 +551,17 @@ export default function BaseChat({
               <>
                 <SearchView>
                   <div ref={conversationRef}>
-                  <ProgressiveMessageList
-                    messages={messages}
-                    sessionId={sessionId}
-                    toolCallNotifications={toolCallNotifications}
-                    append={appendToChat}
-                    isUserMessage={isUserMessage}
-                    isStreamingMessage={chatState !== ChatState.Idle}
-                    onRenderingComplete={handleRenderingComplete}
-                    onMessageUpdate={onMessageUpdate}
-                    submitElicitationResponse={submitElicitationResponse}
-                  />
+                    <ProgressiveMessageList
+                      messages={messages}
+                      sessionId={sessionId}
+                      toolCallNotifications={toolCallNotifications}
+                      append={appendToChat}
+                      isUserMessage={isUserMessage}
+                      isStreamingMessage={chatState !== ChatState.Idle}
+                      onRenderingComplete={handleRenderingComplete}
+                      onMessageUpdate={onMessageUpdate}
+                      submitElicitationResponse={submitElicitationResponse}
+                    />
                   </div>
                 </SearchView>
 

@@ -4553,11 +4553,20 @@
   "toolTurnSummary.completed": {
     "defaultMessage": "Hoàn tất trong {duration}"
   },
+  "toolTurnSummary.completedWithoutDuration": {
+    "defaultMessage": "Đã hoàn tất"
+  },
   "toolTurnSummary.elapsed": {
     "defaultMessage": "Đã trôi qua {duration}"
   },
   "toolTurnSummary.failed": {
     "defaultMessage": "Thất bại sau {duration}"
+  },
+  "toolTurnSummary.failedWithoutDuration": {
+    "defaultMessage": "Thất bại"
+  },
+  "toolTurnSummary.incomplete": {
+    "defaultMessage": "Chưa hoàn tất"
   },
   "toolTurnSummary.minutesSeconds": {
     "defaultMessage": "{minutes, plural, one {# phút} other {# phút}} {seconds, plural, one {# giây} other {# giây}}"

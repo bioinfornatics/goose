@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Message, MessageContent } from '../types/message';
-import { buildTurnItems } from './ToolTurnSummary';
+import { buildTurnItems } from './toolTurnUtils';
 
 function assistantMessage(id: string, content: MessageContent[]): Message {
   return {

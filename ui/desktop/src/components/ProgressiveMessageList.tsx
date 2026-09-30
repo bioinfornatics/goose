@@ -20,12 +20,14 @@ import {
   type SystemNotificationContent,
 } from '../types/message';
 import LoadingGoose from './LoadingGoose';
-import ToolTurnSummary, {
+import ToolTurnSummary from './ToolTurnSummary';
+import {
   buildTurnItems,
   deriveTurnBoundaries,
+  findTurnFinalMessageIndex,
   turnStartIndex,
-  useToolTurnCollapse,
-} from './ToolTurnSummary';
+} from './toolTurnUtils';
+import { useToolTurnCollapse } from '../hooks/useToolTurn';
 import { getModelDisplayName } from './settings/models/predefinedModelsUtils';
 import { deriveMessageRowContexts, type MessageRowContext } from './messageRowContext';
 
@@ -259,7 +261,10 @@ export default function ProgressiveMessageList({
   }, [isLoading, messages.length]);
 
   const rowContexts = useMemo(() => deriveMessageRowContexts(messages), [messages]);
-  const messagesToRender = messages.slice(0, renderedCount);
+  const messagesToRender = useMemo(
+    () => messages.slice(0, renderedCount),
+    [messages, renderedCount]
+  );
   // `summarizedTurns` holds the turns whose summary line has already been
   // placed; it is filled as the map walks the list in order.
   const { isTurnExpanded, toggleTurn } = useToolTurnCollapse(messages);
@@ -290,6 +295,16 @@ export default function ProgressiveMessageList({
     }
     return items;
   }, [endByIndex, messages, messagesToRender, pendingApprovalIds, startByIndex]);
+  const finalMessageByStart = useMemo(() => {
+    const finalMessages = new Map<number, number>();
+    for (const turnStart of new Set(startByIndex)) {
+      const finalIndex = findTurnFinalMessageIndex(
+        messagesToRender.slice(turnStart, endByIndex[turnStart] + 1)
+      );
+      if (finalIndex !== -1) finalMessages.set(turnStart, turnStart + finalIndex);
+    }
+    return finalMessages;
+  }, [endByIndex, messagesToRender, startByIndex]);
   const summarizedTurns = new Set<number>();
   const messageRows = messagesToRender
     .map((message, index) => {
@@ -324,7 +339,7 @@ export default function ProgressiveMessageList({
       const isTurnContinuation = !isUser && summarizedTurns.has(turnStart);
       // The footer belongs under the answer, not under an
       // intermediate "let me check that" line.
-      const isTurnFinal = endByIndex[index] === index;
+      const isTurnFinal = finalMessageByStart.get(turnStart) === index;
       const showTurnSummary =
         !isUser &&
         !summarizedTurns.has(turnStart) &&

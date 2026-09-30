@@ -4553,11 +4553,20 @@
   "toolTurnSummary.completed": {
     "defaultMessage": "{duration} में पूर्ण"
   },
+  "toolTurnSummary.completedWithoutDuration": {
+    "defaultMessage": "पूर्ण"
+  },
   "toolTurnSummary.elapsed": {
     "defaultMessage": "{duration} बीते"
   },
   "toolTurnSummary.failed": {
     "defaultMessage": "{duration} के बाद विफल"
+  },
+  "toolTurnSummary.failedWithoutDuration": {
+    "defaultMessage": "विफल"
+  },
+  "toolTurnSummary.incomplete": {
+    "defaultMessage": "अपूर्ण"
   },
   "toolTurnSummary.minutesSeconds": {
     "defaultMessage": "{minutes, plural, one {# मिनट} other {# मिनट}} {seconds, plural, one {# सेकंड} other {# सेकंड}}"

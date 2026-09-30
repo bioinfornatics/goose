@@ -4553,11 +4553,20 @@
   "toolTurnSummary.completed": {
     "defaultMessage": "{duration} 만에 완료"
   },
+  "toolTurnSummary.completedWithoutDuration": {
+    "defaultMessage": "완료"
+  },
   "toolTurnSummary.elapsed": {
     "defaultMessage": "경과 시간: {duration}"
   },
   "toolTurnSummary.failed": {
     "defaultMessage": "{duration} 후 실패"
+  },
+  "toolTurnSummary.failedWithoutDuration": {
+    "defaultMessage": "실패"
+  },
+  "toolTurnSummary.incomplete": {
+    "defaultMessage": "미완료"
   },
   "toolTurnSummary.minutesSeconds": {
     "defaultMessage": "{minutes, plural, one {#분} other {#분}} {seconds, plural, one {#초} other {#초}}"

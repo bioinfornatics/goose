@@ -4553,11 +4553,20 @@
   "toolTurnSummary.completed": {
     "defaultMessage": "{duration} içinde tamamlandı"
   },
+  "toolTurnSummary.completedWithoutDuration": {
+    "defaultMessage": "Tamamlandı"
+  },
   "toolTurnSummary.elapsed": {
     "defaultMessage": "Geçen süre: {duration}"
   },
   "toolTurnSummary.failed": {
     "defaultMessage": "{duration} sonra başarısız oldu"
+  },
+  "toolTurnSummary.failedWithoutDuration": {
+    "defaultMessage": "Başarısız"
+  },
+  "toolTurnSummary.incomplete": {
+    "defaultMessage": "Tamamlanmadı"
   },
   "toolTurnSummary.minutesSeconds": {
     "defaultMessage": "{minutes, plural, one {# dk} other {# dk}} {seconds, plural, one {# sn} other {# sn}}"

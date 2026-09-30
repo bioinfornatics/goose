@@ -5,6 +5,7 @@ import { formatMessageTimestamp } from '../utils/timeUtils';
 import MarkdownContent from './MarkdownContent';
 import ThinkingContent from './ThinkingContent';
 import ToolCallWithResponse from './ToolCallWithResponse';
+import McpAppWrapper from './McpApps/McpAppWrapper';
 import {
   getTextAndImageContent,
   getThinkingContent,
@@ -112,9 +113,22 @@ function GooseMessage({
   const visibleToolIndices = toolRequests
     .map((_, toolIndex) => toolIndex)
     .filter((toolIndex) => !collapseToolCalls || toolStates[toolIndex].isPending);
+  const inlineAppIndices = collapseToolCalls
+    ? toolRequests.flatMap((_, index) => {
+        const state = toolStates[index];
+        const result = state.response?.toolResult as
+          { status?: string; value?: { _meta?: { ui?: { resourceUri?: string } } } } | undefined;
+        return !state.isPending &&
+          result?.status === 'success' &&
+          result.value?._meta?.ui?.resourceUri
+          ? [index]
+          : [];
+      })
+    : [];
   const showToolCalls = visibleToolIndices.length > 0;
   const showThinking = thinkingContent !== null && !collapseToolCalls;
   const hasOwnContent =
+    inlineAppIndices.length > 0 ||
     showToolCalls ||
     showThinking ||
     displayText.trim().length > 0 ||
@@ -237,6 +251,16 @@ function GooseMessage({
             </div>
           </div>
         )}
+
+        {inlineAppIndices.map((index) => (
+          <McpAppWrapper
+            key={toolRequests[index].id}
+            sessionId={sessionId}
+            toolRequest={toolRequests[index]}
+            toolResponse={toolStates[index].response}
+            append={append}
+          />
+        ))}
 
         {outputTokenLimitReached && (
           <div className="mt-2 flex items-start gap-1.5 text-xs text-text-secondary">

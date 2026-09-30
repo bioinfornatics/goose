@@ -1,4 +1,25 @@
 {
+  "acpReadinessPanel.adapterFound": {
+    "defaultMessage": "Адаптер ACP найден"
+  },
+  "acpReadinessPanel.adapterNotFound": {
+    "defaultMessage": "Адаптер ACP не найден"
+  },
+  "acpReadinessPanel.authenticationHelp": {
+    "defaultMessage": "Войдите через CLI провайдера, затем повторите проверку."
+  },
+  "acpReadinessPanel.checkAgain": {
+    "defaultMessage": "Проверить снова"
+  },
+  "acpReadinessPanel.checking": {
+    "defaultMessage": "Проверка..."
+  },
+  "acpReadinessPanel.connected": {
+    "defaultMessage": "Подключение выполнено"
+  },
+  "acpReadinessPanel.connectionNotChecked": {
+    "defaultMessage": "Проверьте подключение учетной записи, прежде чем продолжить."
+  },
   "alertBox.autoCompactAt": {
     "defaultMessage": "Автосжимать при"
   },
@@ -923,11 +944,11 @@
   "dirSwitcher.enterPath": {
     "defaultMessage": "Enter path"
   },
-  "dirSwitcher.enterPathPlaceholder": {
-    "defaultMessage": "Enter an absolute path (e.g. /home/goose/workspace)"
-  },
   "dirSwitcher.enterPathInvalid": {
     "defaultMessage": "Working directory must be an absolute path"
+  },
+  "dirSwitcher.enterPathPlaceholder": {
+    "defaultMessage": "Enter an absolute path (e.g. /home/goose/workspace)"
   },
   "dirSwitcher.failedToUpdateWorkingDir": {
     "defaultMessage": "Не удалось обновить рабочий каталог"
@@ -943,18 +964,6 @@
   },
   "dirSwitcher.recentDirectories": {
     "defaultMessage": "Недавние каталоги"
-  },
-  "gitBranchIndicator.failedToSwitch": {
-    "defaultMessage": "Не удалось переключиться на {branch}"
-  },
-  "gitBranchIndicator.noBranchesFound": {
-    "defaultMessage": "Ветки не найдены"
-  },
-  "gitBranchIndicator.searchBranches": {
-    "defaultMessage": "Поиск веток…"
-  },
-  "gitBranchIndicator.uncommittedChanges": {
-    "defaultMessage": "Возможно, у вас есть незакоммиченные изменения."
   },
   "elicitationRequest.accept": {
     "defaultMessage": "Принять"
@@ -1258,6 +1267,18 @@
   },
   "externalBackendSection.workingDirPlaceholder": {
     "defaultMessage": "/home/goose/workspace"
+  },
+  "gitBranchIndicator.failedToSwitch": {
+    "defaultMessage": "Не удалось переключиться на {branch}"
+  },
+  "gitBranchIndicator.noBranchesFound": {
+    "defaultMessage": "Ветки не найдены"
+  },
+  "gitBranchIndicator.searchBranches": {
+    "defaultMessage": "Поиск веток…"
+  },
+  "gitBranchIndicator.uncommittedChanges": {
+    "defaultMessage": "Возможно, у вас есть незакоммиченные изменения."
   },
   "goosehintsModal.close": {
     "defaultMessage": "Закрыть"
@@ -2345,6 +2366,9 @@
   "modelsBottomBar.localModelSettingsTitle": {
     "defaultMessage": "Настройки локальной модели — {modelName}"
   },
+  "modelsBottomBar.recentModels": {
+    "defaultMessage": "Недавние"
+  },
   "modelsBottomBar.resolvedModel": {
     "defaultMessage": "Разрешенная модель"
   },
@@ -2717,6 +2741,9 @@
   "promptsSettings.unsavedChanges": {
     "defaultMessage": "У вас есть несохраненные изменения"
   },
+  "providerCard.deprecatedReplacement": {
+    "defaultMessage": "Устарел — используйте вместо него {replacement}."
+  },
   "providerCard.noMetadata": {
     "defaultMessage": "Ошибка ProviderCard: метаданные не предоставлены"
   },
@@ -2771,8 +2798,17 @@
   "providerConfigForm.continue": {
     "defaultMessage": "Продолжить"
   },
+  "providerConfigForm.deviceCodeAndEnter": {
+    "defaultMessage": "и введите:"
+  },
+  "providerConfigForm.deviceCodeCopy": {
+    "defaultMessage": "Копировать"
+  },
   "providerConfigForm.deviceCodeFlowHint": {
     "defaultMessage": "Откроется окно браузера. Код подтверждения появится здесь — введите его, чтобы завершить вход."
+  },
+  "providerConfigForm.deviceCodeVisit": {
+    "defaultMessage": "Перейдите на"
   },
   "providerConfigForm.noApiKey": {
     "defaultMessage": "Нет API-ключа?"
@@ -2798,6 +2834,9 @@
   "providerConfigurationModal.checkConfigAgain": {
     "defaultMessage": "Проверьте конфигурацию еще раз, чтобы использовать этого провайдера."
   },
+  "providerConfigurationModal.chooseModel": {
+    "defaultMessage": "Выбрать модель"
+  },
   "providerConfigurationModal.close": {
     "defaultMessage": "Закрыть"
   },
@@ -2810,8 +2849,17 @@
   "providerConfigurationModal.deleteConfirmation": {
     "defaultMessage": "Это навсегда удалит текущую конфигурацию провайдера."
   },
+  "providerConfigurationModal.deviceCodeAndEnter": {
+    "defaultMessage": "и введите:"
+  },
+  "providerConfigurationModal.deviceCodeCopy": {
+    "defaultMessage": "Копировать"
+  },
   "providerConfigurationModal.deviceCodeFlowHint": {
     "defaultMessage": "Откроется окно браузера. Код подтверждения появится здесь — введите его, чтобы завершить вход."
+  },
+  "providerConfigurationModal.deviceCodeVisit": {
+    "defaultMessage": "Перейдите на"
   },
   "providerConfigurationModal.errorCheckingConfig": {
     "defaultMessage": "При проверке конфигурации этого провайдера произошла ошибка."
@@ -3956,6 +4004,75 @@
   "sessions.toast.updated": {
     "defaultMessage": "Описание сеанса успешно обновлено"
   },
+  "settings.agentLoop.description": {
+    "defaultMessage": "Использовать цикл агента на основе операций. Отключите, чтобы использовать прежний цикл."
+  },
+  "settings.agentLoop.operations.auto.placeholder": {
+    "defaultMessage": "Автоматически"
+  },
+  "settings.agentLoop.operations.blockLimit.label": {
+    "defaultMessage": "Лимит блокировок"
+  },
+  "settings.agentLoop.operations.contextCompaction.description": {
+    "defaultMessage": "Сводит историю диалога до заполнения контекстного окна."
+  },
+  "settings.agentLoop.operations.contextCompaction.title": {
+    "defaultMessage": "Сжатие контекста"
+  },
+  "settings.agentLoop.operations.cutoff.label": {
+    "defaultMessage": "Порог отсечения"
+  },
+  "settings.agentLoop.operations.enable": {
+    "defaultMessage": "Включить {operation}"
+  },
+  "settings.agentLoop.operations.failureTimeout.label": {
+    "defaultMessage": "Тайм-аут ошибки"
+  },
+  "settings.agentLoop.operations.heading": {
+    "defaultMessage": "Настраиваемые операции"
+  },
+  "settings.agentLoop.operations.maxTurns.description": {
+    "defaultMessage": "Останавливает автономную работу и запрашивает подтверждение пользователя перед продолжением."
+  },
+  "settings.agentLoop.operations.maxTurns.title": {
+    "defaultMessage": "Максимум ходов"
+  },
+  "settings.agentLoop.operations.recipeRetry.description": {
+    "defaultMessage": "Повторно запускает проверки рецепта, если настроенная проверка успеха завершается неудачно."
+  },
+  "settings.agentLoop.operations.recipeRetry.title": {
+    "defaultMessage": "Повтор рецепта"
+  },
+  "settings.agentLoop.operations.retryTimeout.label": {
+    "defaultMessage": "Тайм-аут повтора"
+  },
+  "settings.agentLoop.operations.slashCommands.description": {
+    "defaultMessage": "Распознаёт команды, такие как /compact, /skills и ярлыки рецептов."
+  },
+  "settings.agentLoop.operations.slashCommands.title": {
+    "defaultMessage": "Слэш-команды"
+  },
+  "settings.agentLoop.operations.stopHooks.description": {
+    "defaultMessage": "Позволяет хукам блокировать завершение, предотвращая бесконечные циклы остановки."
+  },
+  "settings.agentLoop.operations.stopHooks.title": {
+    "defaultMessage": "Хуки остановки"
+  },
+  "settings.agentLoop.operations.threshold.label": {
+    "defaultMessage": "Порог %"
+  },
+  "settings.agentLoop.operations.toolPairCompaction.description": {
+    "defaultMessage": "Сводит старые запросы и ответы инструментов для экономии контекста. Если поле пусто, порог выбирается автоматически."
+  },
+  "settings.agentLoop.operations.toolPairCompaction.title": {
+    "defaultMessage": "Сжатие пар инструментов"
+  },
+  "settings.agentLoop.operations.turns.label": {
+    "defaultMessage": "Ходы"
+  },
+  "settings.agentLoop.title": {
+    "defaultMessage": "Цикл агента"
+  },
   "settings.appearance.description": {
     "defaultMessage": "Настройте, как goose отображается в вашей системе"
   },
@@ -4547,11 +4664,29 @@
   "toolConfirmation.gooseWouldLikeToCallWithName": {
     "defaultMessage": "Goose хочет вызвать {toolName}. Разрешить?"
   },
-  "toolTurnSummary.running": {
-    "defaultMessage": "Выполняется {tool}"
+  "toolTurnSummary.activityDetails": {
+    "defaultMessage": "Сведения о действиях агента"
   },
-  "toolTurnSummary.toolCallCount": {
-    "defaultMessage": "{count, plural, =0 {Размышления: {thinking}} other {{thinking, plural, =0 {Вызовы инструментов: {count}} other {Вызовы инструментов: {count} · размышления: {thinking}}}}}"
+  "toolTurnSummary.completed": {
+    "defaultMessage": "Завершено за {duration}"
+  },
+  "toolTurnSummary.elapsed": {
+    "defaultMessage": "Прошло: {duration}"
+  },
+  "toolTurnSummary.failed": {
+    "defaultMessage": "Ошибка через {duration}"
+  },
+  "toolTurnSummary.minutesSeconds": {
+    "defaultMessage": "{minutes, plural, one {# мин} few {# мин} many {# мин} other {# мин}} {seconds, plural, one {# с} few {# с} many {# с} other {# с}}"
+  },
+  "toolTurnSummary.seconds": {
+    "defaultMessage": "{count, plural, one {# с} few {# с} many {# с} other {# с}}"
+  },
+  "toolTurnSummary.thinking": {
+    "defaultMessage": "Размышление"
+  },
+  "toolTurnSummary.waitingForApproval": {
+    "defaultMessage": "Ожидание подтверждения"
   },
   "updateSection.autoDownload": {
     "defaultMessage": "Обновление будет автоматически скачано в фоновом режиме."
@@ -4660,122 +4795,5 @@
   },
   "userMessage.removeImageFromEdit": {
     "defaultMessage": "Удалить изображение из сообщения"
-  },
-  "modelsBottomBar.recentModels": {
-    "defaultMessage": "Недавние"
-  },
-  "providerConfigurationModal.chooseModel": {
-    "defaultMessage": "Выбрать модель"
-  },
-  "providerCard.deprecatedReplacement": {
-    "defaultMessage": "Устарел — используйте вместо него {replacement}."
-  },
-  "acpReadinessPanel.adapterFound": {
-    "defaultMessage": "Адаптер ACP найден"
-  },
-  "acpReadinessPanel.adapterNotFound": {
-    "defaultMessage": "Адаптер ACP не найден"
-  },
-  "acpReadinessPanel.authenticationHelp": {
-    "defaultMessage": "Войдите через CLI провайдера, затем повторите проверку."
-  },
-  "acpReadinessPanel.checkAgain": {
-    "defaultMessage": "Проверить снова"
-  },
-  "acpReadinessPanel.checking": {
-    "defaultMessage": "Проверка..."
-  },
-  "acpReadinessPanel.connected": {
-    "defaultMessage": "Подключение выполнено"
-  },
-  "acpReadinessPanel.connectionNotChecked": {
-    "defaultMessage": "Проверьте подключение учетной записи, прежде чем продолжить."
-  },
-  "providerConfigForm.deviceCodeAndEnter": {
-    "defaultMessage": "и введите:"
-  },
-  "providerConfigForm.deviceCodeCopy": {
-    "defaultMessage": "Копировать"
-  },
-  "providerConfigForm.deviceCodeVisit": {
-    "defaultMessage": "Перейдите на"
-  },
-  "providerConfigurationModal.deviceCodeAndEnter": {
-    "defaultMessage": "и введите:"
-  },
-  "providerConfigurationModal.deviceCodeCopy": {
-    "defaultMessage": "Копировать"
-  },
-  "providerConfigurationModal.deviceCodeVisit": {
-    "defaultMessage": "Перейдите на"
-  },
-  "settings.agentLoop.description": {
-    "defaultMessage": "Использовать цикл агента на основе операций. Отключите, чтобы использовать прежний цикл."
-  },
-  "settings.agentLoop.operations.auto.placeholder": {
-    "defaultMessage": "Автоматически"
-  },
-  "settings.agentLoop.operations.blockLimit.label": {
-    "defaultMessage": "Лимит блокировок"
-  },
-  "settings.agentLoop.operations.contextCompaction.description": {
-    "defaultMessage": "Сводит историю диалога до заполнения контекстного окна."
-  },
-  "settings.agentLoop.operations.contextCompaction.title": {
-    "defaultMessage": "Сжатие контекста"
-  },
-  "settings.agentLoop.operations.cutoff.label": {
-    "defaultMessage": "Порог отсечения"
-  },
-  "settings.agentLoop.operations.enable": {
-    "defaultMessage": "Включить {operation}"
-  },
-  "settings.agentLoop.operations.failureTimeout.label": {
-    "defaultMessage": "Тайм-аут ошибки"
-  },
-  "settings.agentLoop.operations.heading": {
-    "defaultMessage": "Настраиваемые операции"
-  },
-  "settings.agentLoop.operations.maxTurns.description": {
-    "defaultMessage": "Останавливает автономную работу и запрашивает подтверждение пользователя перед продолжением."
-  },
-  "settings.agentLoop.operations.maxTurns.title": {
-    "defaultMessage": "Максимум ходов"
-  },
-  "settings.agentLoop.operations.recipeRetry.description": {
-    "defaultMessage": "Повторно запускает проверки рецепта, если настроенная проверка успеха завершается неудачно."
-  },
-  "settings.agentLoop.operations.recipeRetry.title": {
-    "defaultMessage": "Повтор рецепта"
-  },
-  "settings.agentLoop.operations.retryTimeout.label": {
-    "defaultMessage": "Тайм-аут повтора"
-  },
-  "settings.agentLoop.operations.slashCommands.description": {
-    "defaultMessage": "Распознаёт команды, такие как /compact, /skills и ярлыки рецептов."
-  },
-  "settings.agentLoop.operations.slashCommands.title": {
-    "defaultMessage": "Слэш-команды"
-  },
-  "settings.agentLoop.operations.stopHooks.description": {
-    "defaultMessage": "Позволяет хукам блокировать завершение, предотвращая бесконечные циклы остановки."
-  },
-  "settings.agentLoop.operations.stopHooks.title": {
-    "defaultMessage": "Хуки остановки"
-  },
-  "settings.agentLoop.operations.threshold.label": {
-    "defaultMessage": "Порог %"
-  },
-  "settings.agentLoop.operations.toolPairCompaction.description": {
-    "defaultMessage": "Сводит старые запросы и ответы инструментов для экономии контекста. Если поле пусто, порог выбирается автоматически."
-  },
-  "settings.agentLoop.operations.toolPairCompaction.title": {
-    "defaultMessage": "Сжатие пар инструментов"
-  },
-  "settings.agentLoop.operations.turns.label": {
-    "defaultMessage": "Ходы"
-  },
-  "settings.agentLoop.title": {
-    "defaultMessage": "Цикл агента"
   }
 }

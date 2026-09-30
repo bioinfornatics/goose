@@ -11,15 +11,18 @@ import {
   CreditsExhaustedNotification,
   getCreditsExhaustedNotification,
 } from './context_management/CreditsExhaustedNotification';
-import type {
-  ImageData,
-  Message,
-  NotificationEvent,
-  SystemNotificationContent,
+import {
+  getPendingToolConfirmationIds,
+  getToolResponses,
+  type ImageData,
+  type Message,
+  type NotificationEvent,
+  type SystemNotificationContent,
 } from '../types/message';
 import LoadingGoose from './LoadingGoose';
 import ToolTurnSummary, {
-  turnEndIndex,
+  buildTurnItems,
+  deriveTurnBoundaries,
   turnStartIndex,
   useToolTurnCollapse,
 } from './ToolTurnSummary';
@@ -261,6 +264,32 @@ export default function ProgressiveMessageList({
   // placed; it is filled as the map walks the list in order.
   const { isTurnExpanded, toggleTurn } = useToolTurnCollapse(messages);
   const activeTurnStart = turnStartIndex(messagesToRender, messagesToRender.length - 1);
+  const { startByIndex, endByIndex } = useMemo(
+    () => deriveTurnBoundaries(messagesToRender),
+    [messagesToRender]
+  );
+  const responsesById = useMemo(() => {
+    const responses = new Map<string, ReturnType<typeof getToolResponses>[number]>();
+    for (const message of messages) {
+      for (const response of getToolResponses(message)) responses.set(response.id, response);
+    }
+    return responses;
+  }, [messages]);
+  const pendingApprovalIds = useMemo(() => getPendingToolConfirmationIds(messages), [messages]);
+  const turnItemsByStart = useMemo(() => {
+    const items = new Map<number, ReturnType<typeof buildTurnItems>>();
+    for (const turnStart of new Set(startByIndex)) {
+      items.set(
+        turnStart,
+        buildTurnItems(
+          messagesToRender.slice(turnStart, endByIndex[turnStart] + 1),
+          messages,
+          pendingApprovalIds
+        )
+      );
+    }
+    return items;
+  }, [endByIndex, messages, messagesToRender, pendingApprovalIds, startByIndex]);
   const summarizedTurns = new Set<number>();
   const messageRows = messagesToRender
     .map((message, index) => {
@@ -289,14 +318,17 @@ export default function ProgressiveMessageList({
 
       // The summary is anchored above the turn's first message,
       // so it keeps its place while the turn produces more replies below.
-      const turnStart = turnStartIndex(messagesToRender, index);
+      const turnStart = startByIndex[index];
       // The turn gets marked on its first reply, so an already
       // marked turn means this reply is not the first. Read before the add below.
       const isTurnContinuation = !isUser && summarizedTurns.has(turnStart);
       // The footer belongs under the answer, not under an
       // intermediate "let me check that" line.
-      const isTurnFinal = turnEndIndex(messagesToRender, index) === index;
-      const showTurnSummary = !isUser && !summarizedTurns.has(turnStart);
+      const isTurnFinal = endByIndex[index] === index;
+      const showTurnSummary =
+        !isUser &&
+        !summarizedTurns.has(turnStart) &&
+        (turnItemsByStart.get(turnStart)?.length ?? 0) > 0;
       if (showTurnSummary) summarizedTurns.add(turnStart);
 
       return (
@@ -304,16 +336,20 @@ export default function ProgressiveMessageList({
           {showTurnSummary && (
             <ToolTurnSummary
               messages={messages}
-              turnMessages={messagesToRender.slice(
-                turnStart,
-                turnEndIndex(messagesToRender, index) + 1
-              )}
+              responsesById={responsesById}
+              pendingApprovalIds={pendingApprovalIds}
+              turnMessages={messagesToRender.slice(turnStart, endByIndex[index] + 1)}
               sessionId={sessionId}
               toolCallNotifications={toolCallNotifications}
               append={append}
-              isExpanded={isTurnExpanded(index)}
+              isExpanded={isTurnExpanded(
+                index,
+                isStreamingMessage && turnStart === activeTurnStart
+              )}
               isStreaming={isStreamingMessage && turnStart === activeTurnStart}
-              onToggle={() => toggleTurn(turnStart)}
+              onToggle={() =>
+                toggleTurn(turnStart, isStreamingMessage && turnStart === activeTurnStart)
+              }
             />
           )}
           <MessageRow

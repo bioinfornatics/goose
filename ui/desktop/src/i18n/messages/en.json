@@ -4664,11 +4664,29 @@
   "toolConfirmation.gooseWouldLikeToCallWithName": {
     "defaultMessage": "Goose would like to call {toolName}. Allow?"
   },
-  "toolTurnSummary.running": {
-    "defaultMessage": "Running {tool}"
+  "toolTurnSummary.activityDetails": {
+    "defaultMessage": "Agent activity details"
   },
-  "toolTurnSummary.toolCallCount": {
-    "defaultMessage": "{count,plural,=0{Thinking: {thinking}} other{{thinking,plural,=0{Tool calls: {count}} other{Tool calls: {count} · thinking: {thinking}}}}}"
+  "toolTurnSummary.completed": {
+    "defaultMessage": "Completed in {duration}"
+  },
+  "toolTurnSummary.elapsed": {
+    "defaultMessage": "{duration} elapsed"
+  },
+  "toolTurnSummary.failed": {
+    "defaultMessage": "Failed after {duration}"
+  },
+  "toolTurnSummary.minutesSeconds": {
+    "defaultMessage": "{minutes,plural,one{{seconds,plural,one{{minutes, number} min # sec} other{{minutes, number} min # sec}}} other{{seconds,plural,one{{minutes, number} min # sec} other{{minutes, number} min # sec}}}}"
+  },
+  "toolTurnSummary.seconds": {
+    "defaultMessage": "{count,plural,one{# sec} other{# sec}}"
+  },
+  "toolTurnSummary.thinking": {
+    "defaultMessage": "Thinking"
+  },
+  "toolTurnSummary.waitingForApproval": {
+    "defaultMessage": "Waiting for approval"
   },
   "updateSection.autoDownload": {
     "defaultMessage": "Goose will download the update in the background and install it the next time you quit or restart."

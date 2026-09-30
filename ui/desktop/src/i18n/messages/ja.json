@@ -1,4 +1,25 @@
 {
+  "acpReadinessPanel.adapterFound": {
+    "defaultMessage": "ACPアダプターが見つかりました"
+  },
+  "acpReadinessPanel.adapterNotFound": {
+    "defaultMessage": "ACPアダプターが見つかりません"
+  },
+  "acpReadinessPanel.authenticationHelp": {
+    "defaultMessage": "プロバイダーのCLIからサインインし、もう一度確認してください。"
+  },
+  "acpReadinessPanel.checkAgain": {
+    "defaultMessage": "もう一度確認"
+  },
+  "acpReadinessPanel.checking": {
+    "defaultMessage": "確認中..."
+  },
+  "acpReadinessPanel.connected": {
+    "defaultMessage": "接続しました"
+  },
+  "acpReadinessPanel.connectionNotChecked": {
+    "defaultMessage": "続行する前にアカウントの接続を確認してください。"
+  },
   "alertBox.autoCompactAt": {
     "defaultMessage": "自動圧縮の実行タイミング"
   },
@@ -923,11 +944,11 @@
   "dirSwitcher.enterPath": {
     "defaultMessage": "Enter path"
   },
-  "dirSwitcher.enterPathPlaceholder": {
-    "defaultMessage": "Enter an absolute path (e.g. /home/goose/workspace)"
-  },
   "dirSwitcher.enterPathInvalid": {
     "defaultMessage": "Working directory must be an absolute path"
+  },
+  "dirSwitcher.enterPathPlaceholder": {
+    "defaultMessage": "Enter an absolute path (e.g. /home/goose/workspace)"
   },
   "dirSwitcher.failedToUpdateWorkingDir": {
     "defaultMessage": "作業ディレクトリの更新に失敗しました"
@@ -943,18 +964,6 @@
   },
   "dirSwitcher.recentDirectories": {
     "defaultMessage": "最近のディレクトリ"
-  },
-  "gitBranchIndicator.failedToSwitch": {
-    "defaultMessage": "{branch} への切り替えに失敗しました"
-  },
-  "gitBranchIndicator.noBranchesFound": {
-    "defaultMessage": "ブランチが見つかりません"
-  },
-  "gitBranchIndicator.searchBranches": {
-    "defaultMessage": "ブランチを検索…"
-  },
-  "gitBranchIndicator.uncommittedChanges": {
-    "defaultMessage": "コミットされていない変更がある可能性があります。"
   },
   "elicitationRequest.accept": {
     "defaultMessage": "承諾"
@@ -1258,6 +1267,18 @@
   },
   "externalBackendSection.workingDirPlaceholder": {
     "defaultMessage": "/home/goose/workspace"
+  },
+  "gitBranchIndicator.failedToSwitch": {
+    "defaultMessage": "{branch} への切り替えに失敗しました"
+  },
+  "gitBranchIndicator.noBranchesFound": {
+    "defaultMessage": "ブランチが見つかりません"
+  },
+  "gitBranchIndicator.searchBranches": {
+    "defaultMessage": "ブランチを検索…"
+  },
+  "gitBranchIndicator.uncommittedChanges": {
+    "defaultMessage": "コミットされていない変更がある可能性があります。"
   },
   "goosehintsModal.close": {
     "defaultMessage": "閉じる"
@@ -2345,6 +2366,9 @@
   "modelsBottomBar.localModelSettingsTitle": {
     "defaultMessage": "ローカルモデル設定 — {modelName}"
   },
+  "modelsBottomBar.recentModels": {
+    "defaultMessage": "最近"
+  },
   "modelsBottomBar.resolvedModel": {
     "defaultMessage": "解決済みモデル"
   },
@@ -2717,6 +2741,9 @@
   "promptsSettings.unsavedChanges": {
     "defaultMessage": "未保存の変更があります"
   },
+  "providerCard.deprecatedReplacement": {
+    "defaultMessage": "非推奨です。代わりに {replacement} を使用してください。"
+  },
   "providerCard.noMetadata": {
     "defaultMessage": "ProviderCardエラー: メタデータが提供されていません"
   },
@@ -2771,8 +2798,17 @@
   "providerConfigForm.continue": {
     "defaultMessage": "続行"
   },
+  "providerConfigForm.deviceCodeAndEnter": {
+    "defaultMessage": "コードを入力してください："
+  },
+  "providerConfigForm.deviceCodeCopy": {
+    "defaultMessage": "コピー"
+  },
   "providerConfigForm.deviceCodeFlowHint": {
     "defaultMessage": "ブラウザーウィンドウが開きます。確認コードがここに表示されるので、入力してサインインを完了してください。"
+  },
+  "providerConfigForm.deviceCodeVisit": {
+    "defaultMessage": "次のURLにアクセスし、"
   },
   "providerConfigForm.noApiKey": {
     "defaultMessage": "APIキーをお持ちでないですか？"
@@ -2798,6 +2834,9 @@
   "providerConfigurationModal.checkConfigAgain": {
     "defaultMessage": "このプロバイダーを使用するには、設定をもう一度確認してください。"
   },
+  "providerConfigurationModal.chooseModel": {
+    "defaultMessage": "モデルを選択"
+  },
   "providerConfigurationModal.close": {
     "defaultMessage": "閉じる"
   },
@@ -2810,8 +2849,17 @@
   "providerConfigurationModal.deleteConfirmation": {
     "defaultMessage": "現在のプロバイダー設定は完全に削除されます。"
   },
+  "providerConfigurationModal.deviceCodeAndEnter": {
+    "defaultMessage": "コードを入力してください："
+  },
+  "providerConfigurationModal.deviceCodeCopy": {
+    "defaultMessage": "コピー"
+  },
   "providerConfigurationModal.deviceCodeFlowHint": {
     "defaultMessage": "ブラウザーウィンドウが開きます。確認コードがここに表示されるので、入力してサインインを完了してください。"
+  },
+  "providerConfigurationModal.deviceCodeVisit": {
+    "defaultMessage": "次のURLにアクセスし、"
   },
   "providerConfigurationModal.errorCheckingConfig": {
     "defaultMessage": "このプロバイダー設定の確認中にエラーが発生しました。"
@@ -3956,6 +4004,75 @@
   "sessions.toast.updated": {
     "defaultMessage": "セッションの説明を更新しました"
   },
+  "settings.agentLoop.description": {
+    "defaultMessage": "オペレーションベースのエージェントループを使用します。オフにすると従来のループを使用します。"
+  },
+  "settings.agentLoop.operations.auto.placeholder": {
+    "defaultMessage": "自動"
+  },
+  "settings.agentLoop.operations.blockLimit.label": {
+    "defaultMessage": "ブロック上限"
+  },
+  "settings.agentLoop.operations.contextCompaction.description": {
+    "defaultMessage": "コンテキストウィンドウがいっぱいになる前に会話履歴を要約します。"
+  },
+  "settings.agentLoop.operations.contextCompaction.title": {
+    "defaultMessage": "コンテキスト圧縮"
+  },
+  "settings.agentLoop.operations.cutoff.label": {
+    "defaultMessage": "カットオフ"
+  },
+  "settings.agentLoop.operations.enable": {
+    "defaultMessage": "{operation}を有効にする"
+  },
+  "settings.agentLoop.operations.failureTimeout.label": {
+    "defaultMessage": "失敗タイムアウト"
+  },
+  "settings.agentLoop.operations.heading": {
+    "defaultMessage": "設定可能なオペレーション"
+  },
+  "settings.agentLoop.operations.maxTurns.description": {
+    "defaultMessage": "自律作業を停止し、続行する前にユーザーへ確認します。"
+  },
+  "settings.agentLoop.operations.maxTurns.title": {
+    "defaultMessage": "最大ターン数"
+  },
+  "settings.agentLoop.operations.recipeRetry.description": {
+    "defaultMessage": "設定された成功チェックが失敗した場合にレシピのチェックを再実行します。"
+  },
+  "settings.agentLoop.operations.recipeRetry.title": {
+    "defaultMessage": "レシピの再試行"
+  },
+  "settings.agentLoop.operations.retryTimeout.label": {
+    "defaultMessage": "再試行タイムアウト"
+  },
+  "settings.agentLoop.operations.slashCommands.description": {
+    "defaultMessage": "/compact、/skills、レシピのショートカットなどのコマンドを認識します。"
+  },
+  "settings.agentLoop.operations.slashCommands.title": {
+    "defaultMessage": "スラッシュコマンド"
+  },
+  "settings.agentLoop.operations.stopHooks.description": {
+    "defaultMessage": "無限の停止サイクルを防ぎながら、フックによる完了のブロックを許可します。"
+  },
+  "settings.agentLoop.operations.stopHooks.title": {
+    "defaultMessage": "停止フック"
+  },
+  "settings.agentLoop.operations.threshold.label": {
+    "defaultMessage": "しきい値 %"
+  },
+  "settings.agentLoop.operations.toolPairCompaction.description": {
+    "defaultMessage": "古いツールのリクエストとレスポンスを要約してコンテキストを節約します。空欄の場合、カットオフは自動です。"
+  },
+  "settings.agentLoop.operations.toolPairCompaction.title": {
+    "defaultMessage": "ツールペア圧縮"
+  },
+  "settings.agentLoop.operations.turns.label": {
+    "defaultMessage": "ターン"
+  },
+  "settings.agentLoop.title": {
+    "defaultMessage": "エージェントループ"
+  },
   "settings.appearance.description": {
     "defaultMessage": "システム上でのgooseの表示を設定します"
   },
@@ -4547,11 +4664,29 @@
   "toolConfirmation.gooseWouldLikeToCallWithName": {
     "defaultMessage": "Gooseが{toolName}を実行しようとしています。許可しますか？"
   },
-  "toolTurnSummary.running": {
-    "defaultMessage": "{tool} を実行中"
+  "toolTurnSummary.activityDetails": {
+    "defaultMessage": "エージェントのアクティビティ詳細"
   },
-  "toolTurnSummary.toolCallCount": {
-    "defaultMessage": "{count, plural, =0 {思考: {thinking}件} other {{thinking, plural, =0 {ツール呼び出し: {count}件} other {ツール呼び出し: {count}件 · 思考: {thinking}件}}}}"
+  "toolTurnSummary.completed": {
+    "defaultMessage": "{duration}で完了"
+  },
+  "toolTurnSummary.elapsed": {
+    "defaultMessage": "経過時間：{duration}"
+  },
+  "toolTurnSummary.failed": {
+    "defaultMessage": "{duration}後に失敗"
+  },
+  "toolTurnSummary.minutesSeconds": {
+    "defaultMessage": "{minutes, plural, one {#分} other {#分}} {seconds, plural, one {#秒} other {#秒}}"
+  },
+  "toolTurnSummary.seconds": {
+    "defaultMessage": "{count, plural, one {#秒} other {#秒}}"
+  },
+  "toolTurnSummary.thinking": {
+    "defaultMessage": "思考中"
+  },
+  "toolTurnSummary.waitingForApproval": {
+    "defaultMessage": "承認待ち"
   },
   "updateSection.autoDownload": {
     "defaultMessage": "アップデートはバックグラウンドで自動的にダウンロードされます。"
@@ -4660,122 +4795,5 @@
   },
   "userMessage.removeImageFromEdit": {
     "defaultMessage": "メッセージから画像を削除"
-  },
-  "modelsBottomBar.recentModels": {
-    "defaultMessage": "最近"
-  },
-  "providerConfigurationModal.chooseModel": {
-    "defaultMessage": "モデルを選択"
-  },
-  "providerCard.deprecatedReplacement": {
-    "defaultMessage": "非推奨です。代わりに {replacement} を使用してください。"
-  },
-  "acpReadinessPanel.adapterFound": {
-    "defaultMessage": "ACPアダプターが見つかりました"
-  },
-  "acpReadinessPanel.adapterNotFound": {
-    "defaultMessage": "ACPアダプターが見つかりません"
-  },
-  "acpReadinessPanel.authenticationHelp": {
-    "defaultMessage": "プロバイダーのCLIからサインインし、もう一度確認してください。"
-  },
-  "acpReadinessPanel.checkAgain": {
-    "defaultMessage": "もう一度確認"
-  },
-  "acpReadinessPanel.checking": {
-    "defaultMessage": "確認中..."
-  },
-  "acpReadinessPanel.connected": {
-    "defaultMessage": "接続しました"
-  },
-  "acpReadinessPanel.connectionNotChecked": {
-    "defaultMessage": "続行する前にアカウントの接続を確認してください。"
-  },
-  "providerConfigForm.deviceCodeAndEnter": {
-    "defaultMessage": "コードを入力してください："
-  },
-  "providerConfigForm.deviceCodeCopy": {
-    "defaultMessage": "コピー"
-  },
-  "providerConfigForm.deviceCodeVisit": {
-    "defaultMessage": "次のURLにアクセスし、"
-  },
-  "providerConfigurationModal.deviceCodeAndEnter": {
-    "defaultMessage": "コードを入力してください："
-  },
-  "providerConfigurationModal.deviceCodeCopy": {
-    "defaultMessage": "コピー"
-  },
-  "providerConfigurationModal.deviceCodeVisit": {
-    "defaultMessage": "次のURLにアクセスし、"
-  },
-  "settings.agentLoop.description": {
-    "defaultMessage": "オペレーションベースのエージェントループを使用します。オフにすると従来のループを使用します。"
-  },
-  "settings.agentLoop.operations.auto.placeholder": {
-    "defaultMessage": "自動"
-  },
-  "settings.agentLoop.operations.blockLimit.label": {
-    "defaultMessage": "ブロック上限"
-  },
-  "settings.agentLoop.operations.contextCompaction.description": {
-    "defaultMessage": "コンテキストウィンドウがいっぱいになる前に会話履歴を要約します。"
-  },
-  "settings.agentLoop.operations.contextCompaction.title": {
-    "defaultMessage": "コンテキスト圧縮"
-  },
-  "settings.agentLoop.operations.cutoff.label": {
-    "defaultMessage": "カットオフ"
-  },
-  "settings.agentLoop.operations.enable": {
-    "defaultMessage": "{operation}を有効にする"
-  },
-  "settings.agentLoop.operations.failureTimeout.label": {
-    "defaultMessage": "失敗タイムアウト"
-  },
-  "settings.agentLoop.operations.heading": {
-    "defaultMessage": "設定可能なオペレーション"
-  },
-  "settings.agentLoop.operations.maxTurns.description": {
-    "defaultMessage": "自律作業を停止し、続行する前にユーザーへ確認します。"
-  },
-  "settings.agentLoop.operations.maxTurns.title": {
-    "defaultMessage": "最大ターン数"
-  },
-  "settings.agentLoop.operations.recipeRetry.description": {
-    "defaultMessage": "設定された成功チェックが失敗した場合にレシピのチェックを再実行します。"
-  },
-  "settings.agentLoop.operations.recipeRetry.title": {
-    "defaultMessage": "レシピの再試行"
-  },
-  "settings.agentLoop.operations.retryTimeout.label": {
-    "defaultMessage": "再試行タイムアウト"
-  },
-  "settings.agentLoop.operations.slashCommands.description": {
-    "defaultMessage": "/compact、/skills、レシピのショートカットなどのコマンドを認識します。"
-  },
-  "settings.agentLoop.operations.slashCommands.title": {
-    "defaultMessage": "スラッシュコマンド"
-  },
-  "settings.agentLoop.operations.stopHooks.description": {
-    "defaultMessage": "無限の停止サイクルを防ぎながら、フックによる完了のブロックを許可します。"
-  },
-  "settings.agentLoop.operations.stopHooks.title": {
-    "defaultMessage": "停止フック"
-  },
-  "settings.agentLoop.operations.threshold.label": {
-    "defaultMessage": "しきい値 %"
-  },
-  "settings.agentLoop.operations.toolPairCompaction.description": {
-    "defaultMessage": "古いツールのリクエストとレスポンスを要約してコンテキストを節約します。空欄の場合、カットオフは自動です。"
-  },
-  "settings.agentLoop.operations.toolPairCompaction.title": {
-    "defaultMessage": "ツールペア圧縮"
-  },
-  "settings.agentLoop.operations.turns.label": {
-    "defaultMessage": "ターン"
-  },
-  "settings.agentLoop.title": {
-    "defaultMessage": "エージェントループ"
   }
 }

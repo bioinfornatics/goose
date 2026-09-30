@@ -1,6 +1,6 @@
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import type { ImageData, Message, MessageContent } from '../types/message';
 import { IntlTestWrapper } from '../i18n/test-utils';
 import ProgressiveMessageList from './ProgressiveMessageList';
@@ -21,14 +21,59 @@ const messageUpdateCallbacks = vi.hoisted(
 );
 
 const turnFinalByMessageId = vi.hoisted(() => new Map<string, boolean | undefined>());
+const streamingByMessageId = vi.hoisted(() => new Map<string, boolean>());
 
 vi.mock('./GooseMessage', () => ({
-  default: ({ message, isTurnFinal }: { message: Message; isTurnFinal?: boolean }) => {
+  default: ({
+    message,
+    isTurnFinal,
+    isStreaming,
+    collapseToolCalls,
+    toolStates,
+  }: {
+    message: Message;
+    isTurnFinal?: boolean;
+    isStreaming: boolean;
+    collapseToolCalls?: boolean;
+    toolStates: { requestId: string; isPending: boolean }[];
+  }) => {
     const id = message.id ?? 'missing-id';
     renderCounts.set(id, (renderCounts.get(id) ?? 0) + 1);
     turnFinalByMessageId.set(id, isTurnFinal);
-    return <div>{id}</div>;
+    streamingByMessageId.set(id, isStreaming);
+    return (
+      <div>
+        {id}
+        {message.content.map((content, index) => {
+          if (content.type === 'text') return <span key={index}>{content.text}</span>;
+          if (content.type === 'thinking' && !collapseToolCalls) {
+            return <span key={index}>inline-thinking:{content.thinking}</span>;
+          }
+          if (content.type === 'toolRequest') {
+            const state = toolStates.find((candidate) => candidate.requestId === content.id);
+            if (!collapseToolCalls || state?.isPending) {
+              return <span key={index}>inline-tool:{content.id}</span>;
+            }
+          }
+          return null;
+        })}
+      </div>
+    );
   },
+}));
+
+vi.mock('./ThinkingContent', () => ({
+  default: ({ content }: { content: string }) => <div>summary-thinking:{content}</div>,
+}));
+
+vi.mock('./ToolCallWithResponse', () => ({
+  default: ({
+    toolRequest,
+    isStreamingMessage,
+  }: {
+    toolRequest: { id: string };
+    isStreamingMessage: boolean;
+  }) => <div>{`summary-tool:${toolRequest.id}:streaming:${isStreamingMessage}`}</div>,
 }));
 
 vi.mock('./UserMessage', () => ({
@@ -266,6 +311,7 @@ describe('ProgressiveMessageList turn grouping', () => {
   beforeEach(() => {
     renderCounts.clear();
     turnFinalByMessageId.clear();
+    streamingByMessageId.clear();
     append.mockClear();
   });
 
@@ -326,6 +372,108 @@ describe('ProgressiveMessageList turn grouping', () => {
     expect(turnFinalByMessageId.get('assistant-2')).toBe(true);
   });
 
+  it('renders exactly one summary for a multi-step turn without duplicating source content', () => {
+    renderList([
+      message('user-1', 'user', [{ type: 'text', text: 'Investigate' }]),
+      message('assistant-1', 'assistant', [
+        { type: 'thinking', thinking: 'inspect logs', signature: 'sig' },
+        toolRequest('call-1'),
+      ]),
+      message('tool-response-1', 'user', [toolResponse('call-1')]),
+      message('assistant-2', 'assistant', [{ type: 'text', text: 'Final assistant response' }]),
+    ]);
+
+    expect(screen.getAllByText('Completed in 0 sec')).toHaveLength(1);
+    expect(screen.queryByText('inline-thinking:inspect logs')).toBeNull();
+    expect(screen.queryByText('inline-tool:call-1')).toBeNull();
+    expect(screen.queryByText('summary-thinking:inspect logs')).toBeNull();
+    expect(screen.queryByText('summary-tool:call-1:streaming:false')).toBeNull();
+    expect(screen.getByText('Final assistant response')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Completed in 0 sec' }));
+    expect(screen.getByText('Thinking')).toBeTruthy();
+    expect(screen.getByText('inspect logs')).toBeTruthy();
+    expect(screen.getAllByText('summary-tool:call-1:streaming:false')).toHaveLength(1);
+  });
+
+  it('keeps a pending approval out of the summary', () => {
+    renderList([
+      message('user-1', 'user', [{ type: 'text', text: 'Delete it' }]),
+      message('assistant-1', 'assistant', [toolRequest('approval-call')]),
+      message('approval-1', 'assistant', [
+        {
+          type: 'actionRequired',
+          data: {
+            actionType: 'toolConfirmation',
+            id: 'approval-call',
+            toolName: 'test_tool',
+            arguments: {},
+          },
+        },
+      ]),
+    ]);
+
+    expect(screen.getByText('inline-tool:approval-call')).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'Agent activity details' })).toBeNull();
+  });
+
+  it('creates separate summaries for separate user turns', () => {
+    renderList([
+      message('user-1', 'user', [{ type: 'text', text: 'First' }]),
+      message('assistant-1', 'assistant', [toolRequest('call-1')]),
+      message('response-1', 'user', [toolResponse('call-1')]),
+      message('assistant-2', 'assistant', [{ type: 'text', text: 'First done' }]),
+      message('user-2', 'user', [{ type: 'text', text: 'Second' }]),
+      message('assistant-3', 'assistant', [toolRequest('call-2')]),
+      message('response-2', 'user', [toolResponse('call-2')]),
+      message('assistant-4', 'assistant', [{ type: 'text', text: 'Second done' }]),
+    ]);
+
+    expect(screen.getAllByText('Completed in 0 sec')).toHaveLength(2);
+  });
+
+  it('applies streaming only to the active last turn and preserves historical rows', () => {
+    const messages = [
+      message('user-1', 'user', [{ type: 'text', text: 'First' }]),
+      message('assistant-1', 'assistant', [toolRequest('call-1')]),
+      message('response-1', 'user', [toolResponse('call-1')]),
+      message('assistant-2', 'assistant', [{ type: 'text', text: 'First done' }]),
+      message('user-2', 'user', [{ type: 'text', text: 'Second' }]),
+      message('assistant-3', 'assistant', [toolRequest('call-2')]),
+    ];
+    const { rerender } = render(
+      <ProgressiveMessageList
+        messages={messages}
+        sessionId="test-session"
+        append={append}
+        isUserMessage={isUserMessage}
+        isStreamingMessage
+      />,
+      { wrapper: IntlTestWrapper }
+    );
+
+    expect(streamingByMessageId.get('assistant-1')).toBe(false);
+    expect(streamingByMessageId.get('assistant-3')).toBe(true);
+    const historicalRenderCount = renderCounts.get('assistant-1');
+
+    rerender(
+      <ProgressiveMessageList
+        messages={cloneMessages(messages)}
+        sessionId="test-session"
+        append={append}
+        isUserMessage={isUserMessage}
+        isStreamingMessage
+      />
+    );
+
+    expect(renderCounts.get('assistant-1')).toBe(historicalRenderCount);
+    const summaries = screen.getAllByRole('button', { name: /Completed in 0 sec|Test Tool/ });
+    fireEvent.click(summaries[0]);
+    expect(summaries[1]).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('summary-tool:call-1:streaming:false')).toBeTruthy();
+    expect(screen.getByText('summary-tool:call-2:streaming:true')).toBeTruthy();
+  });
+
   it('summarises a call made after the turn opened with a plain reply', () => {
     renderList([
       message('user-1', 'user', [{ type: 'text', text: 'Do X' }]),
@@ -335,7 +483,7 @@ describe('ProgressiveMessageList turn grouping', () => {
       message('assistant-3', 'assistant', [{ type: 'text', text: 'Done' }]),
     ]);
 
-    expect(screen.getByText('Tool calls: 1')).toBeTruthy();
+    expect(screen.getByText('Completed in 0 sec')).toBeTruthy();
   });
 
   it('summarises a call made after a status notification opened the turn', () => {
@@ -349,6 +497,6 @@ describe('ProgressiveMessageList turn grouping', () => {
       message('assistant-2', 'assistant', [{ type: 'text', text: 'Done' }]),
     ]);
 
-    expect(screen.getByText('Tool calls: 1')).toBeTruthy();
+    expect(screen.getByText('Completed in 0 sec')).toBeTruthy();
   });
 });

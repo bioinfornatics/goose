@@ -1,4 +1,25 @@
 {
+  "acpReadinessPanel.adapterFound": {
+    "defaultMessage": "Adattatore ACP trovato"
+  },
+  "acpReadinessPanel.adapterNotFound": {
+    "defaultMessage": "Adattatore ACP non trovato"
+  },
+  "acpReadinessPanel.authenticationHelp": {
+    "defaultMessage": "Accedi tramite la CLI del provider, quindi verifica di nuovo."
+  },
+  "acpReadinessPanel.checkAgain": {
+    "defaultMessage": "Verifica di nuovo"
+  },
+  "acpReadinessPanel.checking": {
+    "defaultMessage": "Verifica in corso..."
+  },
+  "acpReadinessPanel.connected": {
+    "defaultMessage": "Connessione riuscita"
+  },
+  "acpReadinessPanel.connectionNotChecked": {
+    "defaultMessage": "Verifica la connessione del tuo account prima di continuare."
+  },
   "alertBox.autoCompactAt": {
     "defaultMessage": "Compattazione automatica a"
   },
@@ -923,11 +944,11 @@
   "dirSwitcher.enterPath": {
     "defaultMessage": "Enter path"
   },
-  "dirSwitcher.enterPathPlaceholder": {
-    "defaultMessage": "Enter an absolute path (e.g. /home/goose/workspace)"
-  },
   "dirSwitcher.enterPathInvalid": {
     "defaultMessage": "Working directory must be an absolute path"
+  },
+  "dirSwitcher.enterPathPlaceholder": {
+    "defaultMessage": "Enter an absolute path (e.g. /home/goose/workspace)"
   },
   "dirSwitcher.failedToUpdateWorkingDir": {
     "defaultMessage": "Impossibile aggiornare la cartella di lavoro"
@@ -943,18 +964,6 @@
   },
   "dirSwitcher.recentDirectories": {
     "defaultMessage": "Cartelle recenti"
-  },
-  "gitBranchIndicator.failedToSwitch": {
-    "defaultMessage": "Impossibile passare a {branch}"
-  },
-  "gitBranchIndicator.noBranchesFound": {
-    "defaultMessage": "Nessun branch trovato"
-  },
-  "gitBranchIndicator.searchBranches": {
-    "defaultMessage": "Cerca branch…"
-  },
-  "gitBranchIndicator.uncommittedChanges": {
-    "defaultMessage": "Potresti avere modifiche non incluse in un commit."
   },
   "elicitationRequest.accept": {
     "defaultMessage": "Accetta"
@@ -1258,6 +1267,18 @@
   },
   "externalBackendSection.workingDirPlaceholder": {
     "defaultMessage": "/home/goose/workspace"
+  },
+  "gitBranchIndicator.failedToSwitch": {
+    "defaultMessage": "Impossibile passare a {branch}"
+  },
+  "gitBranchIndicator.noBranchesFound": {
+    "defaultMessage": "Nessun branch trovato"
+  },
+  "gitBranchIndicator.searchBranches": {
+    "defaultMessage": "Cerca branch…"
+  },
+  "gitBranchIndicator.uncommittedChanges": {
+    "defaultMessage": "Potresti avere modifiche non incluse in un commit."
   },
   "goosehintsModal.close": {
     "defaultMessage": "Chiudi"
@@ -2345,6 +2366,9 @@
   "modelsBottomBar.localModelSettingsTitle": {
     "defaultMessage": "Impostazioni modello locale — {modelName}"
   },
+  "modelsBottomBar.recentModels": {
+    "defaultMessage": "Recenti"
+  },
   "modelsBottomBar.resolvedModel": {
     "defaultMessage": "Modello risolto"
   },
@@ -2717,6 +2741,9 @@
   "promptsSettings.unsavedChanges": {
     "defaultMessage": "Hai modifiche non salvate"
   },
+  "providerCard.deprecatedReplacement": {
+    "defaultMessage": "Deprecato — usa invece {replacement}."
+  },
   "providerCard.noMetadata": {
     "defaultMessage": "Errore ProviderCard: nessun metadato fornito"
   },
@@ -2771,8 +2798,17 @@
   "providerConfigForm.continue": {
     "defaultMessage": "Continua"
   },
+  "providerConfigForm.deviceCodeAndEnter": {
+    "defaultMessage": "e inserisci:"
+  },
+  "providerConfigForm.deviceCodeCopy": {
+    "defaultMessage": "Copia"
+  },
   "providerConfigForm.deviceCodeFlowHint": {
     "defaultMessage": "Si aprirà una finestra del browser. Il codice di verifica verrà visualizzato qui, così potrai inserirlo per completare l'accesso."
+  },
+  "providerConfigForm.deviceCodeVisit": {
+    "defaultMessage": "Visita"
   },
   "providerConfigForm.noApiKey": {
     "defaultMessage": "Non hai una chiave API?"
@@ -2798,6 +2834,9 @@
   "providerConfigurationModal.checkConfigAgain": {
     "defaultMessage": "Controlla di nuovo la tua configurazione per usare questo provider."
   },
+  "providerConfigurationModal.chooseModel": {
+    "defaultMessage": "Scegli modello"
+  },
   "providerConfigurationModal.close": {
     "defaultMessage": "Chiudi"
   },
@@ -2810,8 +2849,17 @@
   "providerConfigurationModal.deleteConfirmation": {
     "defaultMessage": "Questa operazione eliminerà definitivamente la configurazione attuale del provider."
   },
+  "providerConfigurationModal.deviceCodeAndEnter": {
+    "defaultMessage": "e inserisci:"
+  },
+  "providerConfigurationModal.deviceCodeCopy": {
+    "defaultMessage": "Copia"
+  },
   "providerConfigurationModal.deviceCodeFlowHint": {
     "defaultMessage": "Si aprirà una finestra del browser. Il codice di verifica verrà visualizzato qui, così potrai inserirlo per completare l'accesso."
+  },
+  "providerConfigurationModal.deviceCodeVisit": {
+    "defaultMessage": "Visita"
   },
   "providerConfigurationModal.errorCheckingConfig": {
     "defaultMessage": "Si è verificato un errore durante la verifica della configurazione di questo provider."
@@ -3956,6 +4004,75 @@
   "sessions.toast.updated": {
     "defaultMessage": "Descrizione della sessione aggiornata correttamente"
   },
+  "settings.agentLoop.description": {
+    "defaultMessage": "Usa il ciclo agente basato sulle operazioni. Disattivalo per usare il ciclo legacy."
+  },
+  "settings.agentLoop.operations.auto.placeholder": {
+    "defaultMessage": "Automatico"
+  },
+  "settings.agentLoop.operations.blockLimit.label": {
+    "defaultMessage": "Limite di blocco"
+  },
+  "settings.agentLoop.operations.contextCompaction.description": {
+    "defaultMessage": "Riassume la cronologia della conversazione prima che la finestra di contesto si riempia."
+  },
+  "settings.agentLoop.operations.contextCompaction.title": {
+    "defaultMessage": "Compattazione del contesto"
+  },
+  "settings.agentLoop.operations.cutoff.label": {
+    "defaultMessage": "Soglia di taglio"
+  },
+  "settings.agentLoop.operations.enable": {
+    "defaultMessage": "Abilita {operation}"
+  },
+  "settings.agentLoop.operations.failureTimeout.label": {
+    "defaultMessage": "Timeout errore"
+  },
+  "settings.agentLoop.operations.heading": {
+    "defaultMessage": "Operazioni configurabili"
+  },
+  "settings.agentLoop.operations.maxTurns.description": {
+    "defaultMessage": "Interrompe il lavoro autonomo e chiede all’utente prima di continuare."
+  },
+  "settings.agentLoop.operations.maxTurns.title": {
+    "defaultMessage": "Numero massimo di turni"
+  },
+  "settings.agentLoop.operations.recipeRetry.description": {
+    "defaultMessage": "Esegue di nuovo i controlli della ricetta quando un controllo di successo configurato non riesce."
+  },
+  "settings.agentLoop.operations.recipeRetry.title": {
+    "defaultMessage": "Riprova ricetta"
+  },
+  "settings.agentLoop.operations.retryTimeout.label": {
+    "defaultMessage": "Timeout nuovo tentativo"
+  },
+  "settings.agentLoop.operations.slashCommands.description": {
+    "defaultMessage": "Riconosce comandi come /compact, /skills e le scorciatoie delle ricette."
+  },
+  "settings.agentLoop.operations.slashCommands.title": {
+    "defaultMessage": "Comandi slash"
+  },
+  "settings.agentLoop.operations.stopHooks.description": {
+    "defaultMessage": "Consente agli hook di bloccare il completamento evitando cicli di arresto infiniti."
+  },
+  "settings.agentLoop.operations.stopHooks.title": {
+    "defaultMessage": "Hook di arresto"
+  },
+  "settings.agentLoop.operations.threshold.label": {
+    "defaultMessage": "Soglia %"
+  },
+  "settings.agentLoop.operations.toolPairCompaction.description": {
+    "defaultMessage": "Riassume le richieste e le risposte meno recenti degli strumenti per risparmiare contesto. La soglia è automatica se il campo è vuoto."
+  },
+  "settings.agentLoop.operations.toolPairCompaction.title": {
+    "defaultMessage": "Compattazione delle coppie di strumenti"
+  },
+  "settings.agentLoop.operations.turns.label": {
+    "defaultMessage": "Turni"
+  },
+  "settings.agentLoop.title": {
+    "defaultMessage": "Ciclo agente"
+  },
   "settings.appearance.description": {
     "defaultMessage": "Configura l'aspetto di goose sul tuo sistema"
   },
@@ -4547,11 +4664,29 @@
   "toolConfirmation.gooseWouldLikeToCallWithName": {
     "defaultMessage": "Goose desidera richiamare {toolName}. Consentire?"
   },
-  "toolTurnSummary.running": {
-    "defaultMessage": "Esecuzione di {tool}"
+  "toolTurnSummary.activityDetails": {
+    "defaultMessage": "Dettagli dell’attività dell’agente"
   },
-  "toolTurnSummary.toolCallCount": {
-    "defaultMessage": "{count, plural, =0 {Ragionamento: {thinking}} other {{thinking, plural, =0 {Chiamate agli strumenti: {count}} other {Chiamate agli strumenti: {count} · ragionamento: {thinking}}}}}"
+  "toolTurnSummary.completed": {
+    "defaultMessage": "Completato in {duration}"
+  },
+  "toolTurnSummary.elapsed": {
+    "defaultMessage": "{duration} trascorsi"
+  },
+  "toolTurnSummary.failed": {
+    "defaultMessage": "Non riuscito dopo {duration}"
+  },
+  "toolTurnSummary.minutesSeconds": {
+    "defaultMessage": "{minutes, plural, one {# min} other {# min}} {seconds, plural, one {# s} other {# s}}"
+  },
+  "toolTurnSummary.seconds": {
+    "defaultMessage": "{count, plural, one {# s} other {# s}}"
+  },
+  "toolTurnSummary.thinking": {
+    "defaultMessage": "Ragionamento"
+  },
+  "toolTurnSummary.waitingForApproval": {
+    "defaultMessage": "In attesa di approvazione"
   },
   "updateSection.autoDownload": {
     "defaultMessage": "Goose scaricherà l'aggiornamento in background e lo installerà al prossimo arresto o riavvio."
@@ -4660,122 +4795,5 @@
   },
   "userMessage.removeImageFromEdit": {
     "defaultMessage": "Rimuovi immagine dal messaggio"
-  },
-  "modelsBottomBar.recentModels": {
-    "defaultMessage": "Recenti"
-  },
-  "providerConfigurationModal.chooseModel": {
-    "defaultMessage": "Scegli modello"
-  },
-  "providerCard.deprecatedReplacement": {
-    "defaultMessage": "Deprecato — usa invece {replacement}."
-  },
-  "acpReadinessPanel.adapterFound": {
-    "defaultMessage": "Adattatore ACP trovato"
-  },
-  "acpReadinessPanel.adapterNotFound": {
-    "defaultMessage": "Adattatore ACP non trovato"
-  },
-  "acpReadinessPanel.authenticationHelp": {
-    "defaultMessage": "Accedi tramite la CLI del provider, quindi verifica di nuovo."
-  },
-  "acpReadinessPanel.checkAgain": {
-    "defaultMessage": "Verifica di nuovo"
-  },
-  "acpReadinessPanel.checking": {
-    "defaultMessage": "Verifica in corso..."
-  },
-  "acpReadinessPanel.connected": {
-    "defaultMessage": "Connessione riuscita"
-  },
-  "acpReadinessPanel.connectionNotChecked": {
-    "defaultMessage": "Verifica la connessione del tuo account prima di continuare."
-  },
-  "providerConfigForm.deviceCodeAndEnter": {
-    "defaultMessage": "e inserisci:"
-  },
-  "providerConfigForm.deviceCodeCopy": {
-    "defaultMessage": "Copia"
-  },
-  "providerConfigForm.deviceCodeVisit": {
-    "defaultMessage": "Visita"
-  },
-  "providerConfigurationModal.deviceCodeAndEnter": {
-    "defaultMessage": "e inserisci:"
-  },
-  "providerConfigurationModal.deviceCodeCopy": {
-    "defaultMessage": "Copia"
-  },
-  "providerConfigurationModal.deviceCodeVisit": {
-    "defaultMessage": "Visita"
-  },
-  "settings.agentLoop.description": {
-    "defaultMessage": "Usa il ciclo agente basato sulle operazioni. Disattivalo per usare il ciclo legacy."
-  },
-  "settings.agentLoop.operations.auto.placeholder": {
-    "defaultMessage": "Automatico"
-  },
-  "settings.agentLoop.operations.blockLimit.label": {
-    "defaultMessage": "Limite di blocco"
-  },
-  "settings.agentLoop.operations.contextCompaction.description": {
-    "defaultMessage": "Riassume la cronologia della conversazione prima che la finestra di contesto si riempia."
-  },
-  "settings.agentLoop.operations.contextCompaction.title": {
-    "defaultMessage": "Compattazione del contesto"
-  },
-  "settings.agentLoop.operations.cutoff.label": {
-    "defaultMessage": "Soglia di taglio"
-  },
-  "settings.agentLoop.operations.enable": {
-    "defaultMessage": "Abilita {operation}"
-  },
-  "settings.agentLoop.operations.failureTimeout.label": {
-    "defaultMessage": "Timeout errore"
-  },
-  "settings.agentLoop.operations.heading": {
-    "defaultMessage": "Operazioni configurabili"
-  },
-  "settings.agentLoop.operations.maxTurns.description": {
-    "defaultMessage": "Interrompe il lavoro autonomo e chiede all’utente prima di continuare."
-  },
-  "settings.agentLoop.operations.maxTurns.title": {
-    "defaultMessage": "Numero massimo di turni"
-  },
-  "settings.agentLoop.operations.recipeRetry.description": {
-    "defaultMessage": "Esegue di nuovo i controlli della ricetta quando un controllo di successo configurato non riesce."
-  },
-  "settings.agentLoop.operations.recipeRetry.title": {
-    "defaultMessage": "Riprova ricetta"
-  },
-  "settings.agentLoop.operations.retryTimeout.label": {
-    "defaultMessage": "Timeout nuovo tentativo"
-  },
-  "settings.agentLoop.operations.slashCommands.description": {
-    "defaultMessage": "Riconosce comandi come /compact, /skills e le scorciatoie delle ricette."
-  },
-  "settings.agentLoop.operations.slashCommands.title": {
-    "defaultMessage": "Comandi slash"
-  },
-  "settings.agentLoop.operations.stopHooks.description": {
-    "defaultMessage": "Consente agli hook di bloccare il completamento evitando cicli di arresto infiniti."
-  },
-  "settings.agentLoop.operations.stopHooks.title": {
-    "defaultMessage": "Hook di arresto"
-  },
-  "settings.agentLoop.operations.threshold.label": {
-    "defaultMessage": "Soglia %"
-  },
-  "settings.agentLoop.operations.toolPairCompaction.description": {
-    "defaultMessage": "Riassume le richieste e le risposte meno recenti degli strumenti per risparmiare contesto. La soglia è automatica se il campo è vuoto."
-  },
-  "settings.agentLoop.operations.toolPairCompaction.title": {
-    "defaultMessage": "Compattazione delle coppie di strumenti"
-  },
-  "settings.agentLoop.operations.turns.label": {
-    "defaultMessage": "Turni"
-  },
-  "settings.agentLoop.title": {
-    "defaultMessage": "Ciclo agente"
   }
 }

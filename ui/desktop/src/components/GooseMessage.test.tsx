@@ -5,6 +5,20 @@ import { formatMessageTimestamp } from '../utils/timeUtils';
 import { IntlTestWrapper } from '../i18n/test-utils';
 import GooseMessage from './GooseMessage';
 
+vi.mock('./ThinkingContent', () => ({
+  default: ({ content }: { content: string }) => <div>thinking:{content}</div>,
+}));
+
+vi.mock('./ToolCallWithResponse', () => ({
+  default: ({
+    toolRequest,
+    isPendingApproval,
+  }: {
+    toolRequest: { id: string };
+    isPendingApproval: boolean;
+  }) => <div>{`tool:${toolRequest.id}:pending:${isPendingApproval}`}</div>,
+}));
+
 const created = 1758000000;
 
 function toolOnlyMessage(usage?: Message['metadata']['usage']): Message {
@@ -23,15 +37,19 @@ function toolOnlyMessage(usage?: Message['metadata']['usage']): Message {
   };
 }
 
-function renderMessage(message: Message, isTurnFinal: boolean) {
+function renderMessage(
+  message: Message,
+  isTurnFinal: boolean,
+  toolStates = [
+    { requestId: 'call-1', response: undefined, confirmation: undefined, isPending: false },
+  ]
+) {
   return render(
     <GooseMessage
       sessionId="test-session"
       message={message}
       hideTimestamp={false}
-      toolStates={[
-        { requestId: 'call-1', response: undefined, confirmation: undefined, isPending: false },
-      ]}
+      toolStates={toolStates}
       toolNotifications={[undefined]}
       toolConfirmationShownInline={false}
       append={vi.fn()}
@@ -44,6 +62,31 @@ function renderMessage(message: Message, isTurnFinal: boolean) {
 }
 
 describe('GooseMessage with collapsed tool calls', () => {
+  it('keeps final assistant text while collapsing thinking and completed tools', () => {
+    const message: Message = {
+      ...toolOnlyMessage(),
+      content: [
+        { type: 'thinking', thinking: 'private reasoning', signature: 'sig' },
+        ...toolOnlyMessage().content,
+        { type: 'text', text: 'Final assistant response' },
+      ],
+    };
+
+    renderMessage(message, true);
+
+    expect(screen.getByText('Final assistant response')).toBeTruthy();
+    expect(screen.queryByText('thinking:private reasoning')).toBeNull();
+    expect(screen.queryByText('tool:call-1:pending:false')).toBeNull();
+  });
+
+  it('keeps a tool awaiting approval inline when tool calls are collapsed', () => {
+    renderMessage(toolOnlyMessage(), true, [
+      { requestId: 'call-1', response: undefined, confirmation: undefined, isPending: true },
+    ]);
+
+    expect(screen.getByText('tool:call-1:pending:true')).toBeTruthy();
+  });
+
   it('keeps the timestamp on a turn that ends on a tool call', () => {
     renderMessage(toolOnlyMessage(), true);
 

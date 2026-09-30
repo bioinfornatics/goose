@@ -72,7 +72,8 @@ function GooseMessage({
   const isOutputTokenLimitFallback =
     outputTokenLimitReached && message.metadata.fallbackContent === true;
   const { textContent, imagePaths: allImagePaths } = getTextAndImageContent(message);
-  const displayText = isOutputTokenLimitFallback ? '' : textContent;
+  const displayText =
+    isOutputTokenLimitFallback || (collapseToolCalls && !isTurnFinal) ? '' : textContent;
   const imagePaths = isOutputTokenLimitFallback ? [] : allImagePaths;
   const thinkingContent = isOutputTokenLimitFallback ? null : getThinkingContent(message);
 

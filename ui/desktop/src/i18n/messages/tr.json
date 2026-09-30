@@ -1,4 +1,25 @@
 {
+  "acpReadinessPanel.adapterFound": {
+    "defaultMessage": "ACP bağdaştırıcısı bulundu"
+  },
+  "acpReadinessPanel.adapterNotFound": {
+    "defaultMessage": "ACP bağdaştırıcısı bulunamadı"
+  },
+  "acpReadinessPanel.authenticationHelp": {
+    "defaultMessage": "Sağlayıcı CLI üzerinden oturum açın, ardından tekrar kontrol edin."
+  },
+  "acpReadinessPanel.checkAgain": {
+    "defaultMessage": "Tekrar kontrol et"
+  },
+  "acpReadinessPanel.checking": {
+    "defaultMessage": "Kontrol ediliyor..."
+  },
+  "acpReadinessPanel.connected": {
+    "defaultMessage": "Başarıyla bağlanıldı"
+  },
+  "acpReadinessPanel.connectionNotChecked": {
+    "defaultMessage": "Devam etmeden önce hesap bağlantınızı kontrol edin."
+  },
   "alertBox.autoCompactAt": {
     "defaultMessage": "Otomatik sıkıştırma eşiği"
   },
@@ -923,11 +944,11 @@
   "dirSwitcher.enterPath": {
     "defaultMessage": "Enter path"
   },
-  "dirSwitcher.enterPathPlaceholder": {
-    "defaultMessage": "Enter an absolute path (e.g. /home/goose/workspace)"
-  },
   "dirSwitcher.enterPathInvalid": {
     "defaultMessage": "Working directory must be an absolute path"
+  },
+  "dirSwitcher.enterPathPlaceholder": {
+    "defaultMessage": "Enter an absolute path (e.g. /home/goose/workspace)"
   },
   "dirSwitcher.failedToUpdateWorkingDir": {
     "defaultMessage": "Çalışma dizini güncellenemedi"
@@ -943,18 +964,6 @@
   },
   "dirSwitcher.recentDirectories": {
     "defaultMessage": "Son dizinler"
-  },
-  "gitBranchIndicator.failedToSwitch": {
-    "defaultMessage": "{branch} dalına geçilemedi"
-  },
-  "gitBranchIndicator.noBranchesFound": {
-    "defaultMessage": "Dal bulunamadı"
-  },
-  "gitBranchIndicator.searchBranches": {
-    "defaultMessage": "Dal ara…"
-  },
-  "gitBranchIndicator.uncommittedChanges": {
-    "defaultMessage": "Commit edilmemiş değişiklikleriniz olabilir."
   },
   "elicitationRequest.accept": {
     "defaultMessage": "Kabul et"
@@ -1258,6 +1267,18 @@
   },
   "externalBackendSection.workingDirPlaceholder": {
     "defaultMessage": "/home/goose/workspace"
+  },
+  "gitBranchIndicator.failedToSwitch": {
+    "defaultMessage": "{branch} dalına geçilemedi"
+  },
+  "gitBranchIndicator.noBranchesFound": {
+    "defaultMessage": "Dal bulunamadı"
+  },
+  "gitBranchIndicator.searchBranches": {
+    "defaultMessage": "Dal ara…"
+  },
+  "gitBranchIndicator.uncommittedChanges": {
+    "defaultMessage": "Commit edilmemiş değişiklikleriniz olabilir."
   },
   "goosehintsModal.close": {
     "defaultMessage": "Kapat"
@@ -2345,6 +2366,9 @@
   "modelsBottomBar.localModelSettingsTitle": {
     "defaultMessage": "Yerel Model Ayarları — {modelName}"
   },
+  "modelsBottomBar.recentModels": {
+    "defaultMessage": "Son kullanılan"
+  },
   "modelsBottomBar.resolvedModel": {
     "defaultMessage": "Çözümlenen model"
   },
@@ -2717,6 +2741,9 @@
   "promptsSettings.unsavedChanges": {
     "defaultMessage": "Kaydedilmemiş değişiklikleriniz var"
   },
+  "providerCard.deprecatedReplacement": {
+    "defaultMessage": "Kullanımdan kaldırıldı — bunun yerine {replacement} kullanın."
+  },
   "providerCard.noMetadata": {
     "defaultMessage": "ProviderCard hatası: Meta veri sağlanmadı"
   },
@@ -2771,8 +2798,17 @@
   "providerConfigForm.continue": {
     "defaultMessage": "Devam et"
   },
+  "providerConfigForm.deviceCodeAndEnter": {
+    "defaultMessage": "ve girin:"
+  },
+  "providerConfigForm.deviceCodeCopy": {
+    "defaultMessage": "Kopyala"
+  },
   "providerConfigForm.deviceCodeFlowHint": {
     "defaultMessage": "Bir tarayıcı penceresi açılacak. Doğrulama kodu burada görünecek; oturum açmayı tamamlamak için kodu girin."
+  },
+  "providerConfigForm.deviceCodeVisit": {
+    "defaultMessage": "Ziyaret edin"
   },
   "providerConfigForm.noApiKey": {
     "defaultMessage": "API anahtarınız yok mu?"
@@ -2798,6 +2834,9 @@
   "providerConfigurationModal.checkConfigAgain": {
     "defaultMessage": "Bu sağlayıcıyı kullanmak için yapılandırmanızı tekrar kontrol edin."
   },
+  "providerConfigurationModal.chooseModel": {
+    "defaultMessage": "Modeli seçin"
+  },
   "providerConfigurationModal.close": {
     "defaultMessage": "Kapat"
   },
@@ -2810,8 +2849,17 @@
   "providerConfigurationModal.deleteConfirmation": {
     "defaultMessage": "Bu, mevcut sağlayıcı yapılandırmasını kalıcı olarak silecektir."
   },
+  "providerConfigurationModal.deviceCodeAndEnter": {
+    "defaultMessage": "ve girin:"
+  },
+  "providerConfigurationModal.deviceCodeCopy": {
+    "defaultMessage": "Kopyala"
+  },
   "providerConfigurationModal.deviceCodeFlowHint": {
     "defaultMessage": "Bir tarayıcı penceresi açılacak. Doğrulama kodu burada görünecek; oturum açmayı tamamlamak için kodu girin."
+  },
+  "providerConfigurationModal.deviceCodeVisit": {
+    "defaultMessage": "Ziyaret edin"
   },
   "providerConfigurationModal.errorCheckingConfig": {
     "defaultMessage": "Bu sağlayıcı yapılandırması kontrol edilirken bir hata oluştu."
@@ -3956,6 +4004,75 @@
   "sessions.toast.updated": {
     "defaultMessage": "Oturum açıklaması başarıyla güncellendi"
   },
+  "settings.agentLoop.description": {
+    "defaultMessage": "İşlem tabanlı ajan döngüsünü kullanır. Eski döngüyü kullanmak için kapatın."
+  },
+  "settings.agentLoop.operations.auto.placeholder": {
+    "defaultMessage": "Otomatik"
+  },
+  "settings.agentLoop.operations.blockLimit.label": {
+    "defaultMessage": "Engelleme sınırı"
+  },
+  "settings.agentLoop.operations.contextCompaction.description": {
+    "defaultMessage": "Bağlam penceresi dolmadan önce konuşma geçmişini özetler."
+  },
+  "settings.agentLoop.operations.contextCompaction.title": {
+    "defaultMessage": "Bağlam sıkıştırma"
+  },
+  "settings.agentLoop.operations.cutoff.label": {
+    "defaultMessage": "Kesme noktası"
+  },
+  "settings.agentLoop.operations.enable": {
+    "defaultMessage": "{operation} etkinleştir"
+  },
+  "settings.agentLoop.operations.failureTimeout.label": {
+    "defaultMessage": "Başarısızlık zaman aşımı"
+  },
+  "settings.agentLoop.operations.heading": {
+    "defaultMessage": "Yapılandırılabilir işlemler"
+  },
+  "settings.agentLoop.operations.maxTurns.description": {
+    "defaultMessage": "Otonom çalışmayı durdurur ve devam etmeden önce kullanıcıya sorar."
+  },
+  "settings.agentLoop.operations.maxTurns.title": {
+    "defaultMessage": "Maksimum tur"
+  },
+  "settings.agentLoop.operations.recipeRetry.description": {
+    "defaultMessage": "Yapılandırılmış bir başarı denetimi başarısız olduğunda tarif denetimlerini yeniden çalıştırır."
+  },
+  "settings.agentLoop.operations.recipeRetry.title": {
+    "defaultMessage": "Tarifi yeniden dene"
+  },
+  "settings.agentLoop.operations.retryTimeout.label": {
+    "defaultMessage": "Yeniden deneme zaman aşımı"
+  },
+  "settings.agentLoop.operations.slashCommands.description": {
+    "defaultMessage": "/compact, /skills ve tarif kısayolları gibi komutları tanır."
+  },
+  "settings.agentLoop.operations.slashCommands.title": {
+    "defaultMessage": "Eğik çizgi komutları"
+  },
+  "settings.agentLoop.operations.stopHooks.description": {
+    "defaultMessage": "Kancaların tamamlanmayı engellemesine izin verirken sonsuz durdurma döngülerini önler."
+  },
+  "settings.agentLoop.operations.stopHooks.title": {
+    "defaultMessage": "Durdurma kancaları"
+  },
+  "settings.agentLoop.operations.threshold.label": {
+    "defaultMessage": "Eşik %"
+  },
+  "settings.agentLoop.operations.toolPairCompaction.description": {
+    "defaultMessage": "Bağlamdan tasarruf etmek için eski araç isteklerini ve yanıtlarını özetler. Boş bırakıldığında kesme noktası otomatik belirlenir."
+  },
+  "settings.agentLoop.operations.toolPairCompaction.title": {
+    "defaultMessage": "Araç çifti sıkıştırma"
+  },
+  "settings.agentLoop.operations.turns.label": {
+    "defaultMessage": "Turlar"
+  },
+  "settings.agentLoop.title": {
+    "defaultMessage": "Ajan döngüsü"
+  },
   "settings.appearance.description": {
     "defaultMessage": "goose'nin sisteminizde nasıl görüneceğini yapılandırın"
   },
@@ -4547,11 +4664,29 @@
   "toolConfirmation.gooseWouldLikeToCallWithName": {
     "defaultMessage": "Goose, {toolName}'yi aramak istiyor. İzin vermek?"
   },
-  "toolTurnSummary.running": {
-    "defaultMessage": "{tool} çalıştırılıyor"
+  "toolTurnSummary.activityDetails": {
+    "defaultMessage": "Aracı etkinliği ayrıntıları"
   },
-  "toolTurnSummary.toolCallCount": {
-    "defaultMessage": "{count, plural, =0 {Düşünme: {thinking}} other {{thinking, plural, =0 {Araç çağrıları: {count}} other {Araç çağrıları: {count} · düşünme: {thinking}}}}}"
+  "toolTurnSummary.completed": {
+    "defaultMessage": "{duration} içinde tamamlandı"
+  },
+  "toolTurnSummary.elapsed": {
+    "defaultMessage": "Geçen süre: {duration}"
+  },
+  "toolTurnSummary.failed": {
+    "defaultMessage": "{duration} sonra başarısız oldu"
+  },
+  "toolTurnSummary.minutesSeconds": {
+    "defaultMessage": "{minutes, plural, one {# dk} other {# dk}} {seconds, plural, one {# sn} other {# sn}}"
+  },
+  "toolTurnSummary.seconds": {
+    "defaultMessage": "{count, plural, one {# sn} other {# sn}}"
+  },
+  "toolTurnSummary.thinking": {
+    "defaultMessage": "Düşünüyor"
+  },
+  "toolTurnSummary.waitingForApproval": {
+    "defaultMessage": "Onay bekleniyor"
   },
   "updateSection.autoDownload": {
     "defaultMessage": "Güncelleme arka planda otomatik olarak indirilecektir."
@@ -4660,122 +4795,5 @@
   },
   "userMessage.removeImageFromEdit": {
     "defaultMessage": "Görseli mesajdan kaldır"
-  },
-  "modelsBottomBar.recentModels": {
-    "defaultMessage": "Son kullanılan"
-  },
-  "providerConfigurationModal.chooseModel": {
-    "defaultMessage": "Modeli seçin"
-  },
-  "providerCard.deprecatedReplacement": {
-    "defaultMessage": "Kullanımdan kaldırıldı — bunun yerine {replacement} kullanın."
-  },
-  "acpReadinessPanel.adapterFound": {
-    "defaultMessage": "ACP bağdaştırıcısı bulundu"
-  },
-  "acpReadinessPanel.adapterNotFound": {
-    "defaultMessage": "ACP bağdaştırıcısı bulunamadı"
-  },
-  "acpReadinessPanel.authenticationHelp": {
-    "defaultMessage": "Sağlayıcı CLI üzerinden oturum açın, ardından tekrar kontrol edin."
-  },
-  "acpReadinessPanel.checkAgain": {
-    "defaultMessage": "Tekrar kontrol et"
-  },
-  "acpReadinessPanel.checking": {
-    "defaultMessage": "Kontrol ediliyor..."
-  },
-  "acpReadinessPanel.connected": {
-    "defaultMessage": "Başarıyla bağlanıldı"
-  },
-  "acpReadinessPanel.connectionNotChecked": {
-    "defaultMessage": "Devam etmeden önce hesap bağlantınızı kontrol edin."
-  },
-  "providerConfigForm.deviceCodeAndEnter": {
-    "defaultMessage": "ve girin:"
-  },
-  "providerConfigForm.deviceCodeCopy": {
-    "defaultMessage": "Kopyala"
-  },
-  "providerConfigForm.deviceCodeVisit": {
-    "defaultMessage": "Ziyaret edin"
-  },
-  "providerConfigurationModal.deviceCodeAndEnter": {
-    "defaultMessage": "ve girin:"
-  },
-  "providerConfigurationModal.deviceCodeCopy": {
-    "defaultMessage": "Kopyala"
-  },
-  "providerConfigurationModal.deviceCodeVisit": {
-    "defaultMessage": "Ziyaret edin"
-  },
-  "settings.agentLoop.description": {
-    "defaultMessage": "İşlem tabanlı ajan döngüsünü kullanır. Eski döngüyü kullanmak için kapatın."
-  },
-  "settings.agentLoop.operations.auto.placeholder": {
-    "defaultMessage": "Otomatik"
-  },
-  "settings.agentLoop.operations.blockLimit.label": {
-    "defaultMessage": "Engelleme sınırı"
-  },
-  "settings.agentLoop.operations.contextCompaction.description": {
-    "defaultMessage": "Bağlam penceresi dolmadan önce konuşma geçmişini özetler."
-  },
-  "settings.agentLoop.operations.contextCompaction.title": {
-    "defaultMessage": "Bağlam sıkıştırma"
-  },
-  "settings.agentLoop.operations.cutoff.label": {
-    "defaultMessage": "Kesme noktası"
-  },
-  "settings.agentLoop.operations.enable": {
-    "defaultMessage": "{operation} etkinleştir"
-  },
-  "settings.agentLoop.operations.failureTimeout.label": {
-    "defaultMessage": "Başarısızlık zaman aşımı"
-  },
-  "settings.agentLoop.operations.heading": {
-    "defaultMessage": "Yapılandırılabilir işlemler"
-  },
-  "settings.agentLoop.operations.maxTurns.description": {
-    "defaultMessage": "Otonom çalışmayı durdurur ve devam etmeden önce kullanıcıya sorar."
-  },
-  "settings.agentLoop.operations.maxTurns.title": {
-    "defaultMessage": "Maksimum tur"
-  },
-  "settings.agentLoop.operations.recipeRetry.description": {
-    "defaultMessage": "Yapılandırılmış bir başarı denetimi başarısız olduğunda tarif denetimlerini yeniden çalıştırır."
-  },
-  "settings.agentLoop.operations.recipeRetry.title": {
-    "defaultMessage": "Tarifi yeniden dene"
-  },
-  "settings.agentLoop.operations.retryTimeout.label": {
-    "defaultMessage": "Yeniden deneme zaman aşımı"
-  },
-  "settings.agentLoop.operations.slashCommands.description": {
-    "defaultMessage": "/compact, /skills ve tarif kısayolları gibi komutları tanır."
-  },
-  "settings.agentLoop.operations.slashCommands.title": {
-    "defaultMessage": "Eğik çizgi komutları"
-  },
-  "settings.agentLoop.operations.stopHooks.description": {
-    "defaultMessage": "Kancaların tamamlanmayı engellemesine izin verirken sonsuz durdurma döngülerini önler."
-  },
-  "settings.agentLoop.operations.stopHooks.title": {
-    "defaultMessage": "Durdurma kancaları"
-  },
-  "settings.agentLoop.operations.threshold.label": {
-    "defaultMessage": "Eşik %"
-  },
-  "settings.agentLoop.operations.toolPairCompaction.description": {
-    "defaultMessage": "Bağlamdan tasarruf etmek için eski araç isteklerini ve yanıtlarını özetler. Boş bırakıldığında kesme noktası otomatik belirlenir."
-  },
-  "settings.agentLoop.operations.toolPairCompaction.title": {
-    "defaultMessage": "Araç çifti sıkıştırma"
-  },
-  "settings.agentLoop.operations.turns.label": {
-    "defaultMessage": "Turlar"
-  },
-  "settings.agentLoop.title": {
-    "defaultMessage": "Ajan döngüsü"
   }
 }

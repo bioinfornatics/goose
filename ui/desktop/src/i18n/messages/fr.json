@@ -1,25 +1,4 @@
 {
-  "acpReadinessPanel.adapterFound": {
-    "defaultMessage": "Adaptateur ACP trouvé"
-  },
-  "acpReadinessPanel.adapterNotFound": {
-    "defaultMessage": "Adaptateur ACP introuvable"
-  },
-  "acpReadinessPanel.authenticationHelp": {
-    "defaultMessage": "Connectez-vous à partir de la CLI du fournisseur, puis vérifiez à nouveau."
-  },
-  "acpReadinessPanel.checkAgain": {
-    "defaultMessage": "Vérifier à nouveau"
-  },
-  "acpReadinessPanel.checking": {
-    "defaultMessage": "Vérification..."
-  },
-  "acpReadinessPanel.connected": {
-    "defaultMessage": "Connexion réussie"
-  },
-  "acpReadinessPanel.connectionNotChecked": {
-    "defaultMessage": "Vérifiez la connexion de votre compte avant de continuer."
-  },
   "alertBox.autoCompactAt": {
     "defaultMessage": "Compactage automatique à"
   },
@@ -944,11 +923,11 @@
   "dirSwitcher.enterPath": {
     "defaultMessage": "Enter path"
   },
-  "dirSwitcher.enterPathInvalid": {
-    "defaultMessage": "Working directory must be an absolute path"
-  },
   "dirSwitcher.enterPathPlaceholder": {
     "defaultMessage": "Enter an absolute path (e.g. /home/goose/workspace)"
+  },
+  "dirSwitcher.enterPathInvalid": {
+    "defaultMessage": "Working directory must be an absolute path"
   },
   "dirSwitcher.failedToUpdateWorkingDir": {
     "defaultMessage": "Échec de la mise à jour du répertoire de travail"
@@ -964,6 +943,18 @@
   },
   "dirSwitcher.recentDirectories": {
     "defaultMessage": "Répertoires récents"
+  },
+  "gitBranchIndicator.failedToSwitch": {
+    "defaultMessage": "Impossible de basculer vers {branch}"
+  },
+  "gitBranchIndicator.noBranchesFound": {
+    "defaultMessage": "Aucune branche trouvée"
+  },
+  "gitBranchIndicator.searchBranches": {
+    "defaultMessage": "Rechercher des branches…"
+  },
+  "gitBranchIndicator.uncommittedChanges": {
+    "defaultMessage": "Vous avez peut-être des modifications non validées."
   },
   "elicitationRequest.accept": {
     "defaultMessage": "Accepter"
@@ -1267,18 +1258,6 @@
   },
   "externalBackendSection.workingDirPlaceholder": {
     "defaultMessage": "/home/goose/workspace"
-  },
-  "gitBranchIndicator.failedToSwitch": {
-    "defaultMessage": "Impossible de basculer vers {branch}"
-  },
-  "gitBranchIndicator.noBranchesFound": {
-    "defaultMessage": "Aucune branche trouvée"
-  },
-  "gitBranchIndicator.searchBranches": {
-    "defaultMessage": "Rechercher des branches…"
-  },
-  "gitBranchIndicator.uncommittedChanges": {
-    "defaultMessage": "Vous avez peut-être des modifications non validées."
   },
   "goosehintsModal.close": {
     "defaultMessage": "Fermer"
@@ -2366,9 +2345,6 @@
   "modelsBottomBar.localModelSettingsTitle": {
     "defaultMessage": "Paramètres du modèle local — {modelName}"
   },
-  "modelsBottomBar.recentModels": {
-    "defaultMessage": "Récents"
-  },
   "modelsBottomBar.resolvedModel": {
     "defaultMessage": "Modèle résolu"
   },
@@ -2741,9 +2717,6 @@
   "promptsSettings.unsavedChanges": {
     "defaultMessage": "Vous avez des modifications non enregistrées"
   },
-  "providerCard.deprecatedReplacement": {
-    "defaultMessage": "Obsolète — utilisez plutôt {replacement}."
-  },
   "providerCard.noMetadata": {
     "defaultMessage": "Erreur ProviderCard : aucune métadonnée fournie"
   },
@@ -2798,17 +2771,8 @@
   "providerConfigForm.continue": {
     "defaultMessage": "Continuer"
   },
-  "providerConfigForm.deviceCodeAndEnter": {
-    "defaultMessage": "et entrez :"
-  },
-  "providerConfigForm.deviceCodeCopy": {
-    "defaultMessage": "Copier"
-  },
   "providerConfigForm.deviceCodeFlowHint": {
     "defaultMessage": "Une fenêtre de navigateur s’ouvrira. Le code de vérification apparaîtra ici afin que vous puissiez le saisir pour terminer la connexion."
-  },
-  "providerConfigForm.deviceCodeVisit": {
-    "defaultMessage": "Visitez"
   },
   "providerConfigForm.noApiKey": {
     "defaultMessage": "Vous n'avez pas de clé API ?"
@@ -2834,9 +2798,6 @@
   "providerConfigurationModal.checkConfigAgain": {
     "defaultMessage": "Vérifiez à nouveau votre configuration pour utiliser ce fournisseur."
   },
-  "providerConfigurationModal.chooseModel": {
-    "defaultMessage": "Choisir un modèle"
-  },
   "providerConfigurationModal.close": {
     "defaultMessage": "Fermer"
   },
@@ -2849,17 +2810,8 @@
   "providerConfigurationModal.deleteConfirmation": {
     "defaultMessage": "Cette action supprimera définitivement la configuration actuelle du fournisseur."
   },
-  "providerConfigurationModal.deviceCodeAndEnter": {
-    "defaultMessage": "et entrez :"
-  },
-  "providerConfigurationModal.deviceCodeCopy": {
-    "defaultMessage": "Copier"
-  },
   "providerConfigurationModal.deviceCodeFlowHint": {
     "defaultMessage": "Une fenêtre de navigateur s’ouvrira. Le code de vérification apparaîtra ici afin que vous puissiez le saisir pour terminer la connexion."
-  },
-  "providerConfigurationModal.deviceCodeVisit": {
-    "defaultMessage": "Visitez"
   },
   "providerConfigurationModal.errorCheckingConfig": {
     "defaultMessage": "Une erreur s'est produite lors de la vérification de la configuration de ce fournisseur."
@@ -4004,75 +3956,6 @@
   "sessions.toast.updated": {
     "defaultMessage": "Description de la session mise à jour avec succès"
   },
-  "settings.agentLoop.description": {
-    "defaultMessage": "Utilise la boucle d’agent basée sur les opérations. Désactivez-la pour utiliser la boucle héritée."
-  },
-  "settings.agentLoop.operations.auto.placeholder": {
-    "defaultMessage": "Automatique"
-  },
-  "settings.agentLoop.operations.blockLimit.label": {
-    "defaultMessage": "Limite de blocage"
-  },
-  "settings.agentLoop.operations.contextCompaction.description": {
-    "defaultMessage": "Résume l’historique de la conversation avant que la fenêtre de contexte soit pleine."
-  },
-  "settings.agentLoop.operations.contextCompaction.title": {
-    "defaultMessage": "Compactage du contexte"
-  },
-  "settings.agentLoop.operations.cutoff.label": {
-    "defaultMessage": "Seuil de coupure"
-  },
-  "settings.agentLoop.operations.enable": {
-    "defaultMessage": "Activer {operation}"
-  },
-  "settings.agentLoop.operations.failureTimeout.label": {
-    "defaultMessage": "Délai d’échec"
-  },
-  "settings.agentLoop.operations.heading": {
-    "defaultMessage": "Opérations configurables"
-  },
-  "settings.agentLoop.operations.maxTurns.description": {
-    "defaultMessage": "Arrête le travail autonome et demande confirmation à l’utilisateur avant de continuer."
-  },
-  "settings.agentLoop.operations.maxTurns.title": {
-    "defaultMessage": "Nombre maximal de tours"
-  },
-  "settings.agentLoop.operations.recipeRetry.description": {
-    "defaultMessage": "Relance les vérifications de recette lorsqu’une vérification de réussite configurée échoue."
-  },
-  "settings.agentLoop.operations.recipeRetry.title": {
-    "defaultMessage": "Nouvelle tentative de recette"
-  },
-  "settings.agentLoop.operations.retryTimeout.label": {
-    "defaultMessage": "Délai de nouvelle tentative"
-  },
-  "settings.agentLoop.operations.slashCommands.description": {
-    "defaultMessage": "Reconnaît les commandes comme /compact, /skills et les raccourcis de recettes."
-  },
-  "settings.agentLoop.operations.slashCommands.title": {
-    "defaultMessage": "Commandes slash"
-  },
-  "settings.agentLoop.operations.stopHooks.description": {
-    "defaultMessage": "Permet aux hooks de bloquer la fin tout en évitant les cycles d’arrêt infinis."
-  },
-  "settings.agentLoop.operations.stopHooks.title": {
-    "defaultMessage": "Hooks d’arrêt"
-  },
-  "settings.agentLoop.operations.threshold.label": {
-    "defaultMessage": "Seuil %"
-  },
-  "settings.agentLoop.operations.toolPairCompaction.description": {
-    "defaultMessage": "Résume les anciennes requêtes et réponses d’outils pour économiser le contexte. Le seuil est automatique si le champ est vide."
-  },
-  "settings.agentLoop.operations.toolPairCompaction.title": {
-    "defaultMessage": "Compactage des paires d’outils"
-  },
-  "settings.agentLoop.operations.turns.label": {
-    "defaultMessage": "Tours"
-  },
-  "settings.agentLoop.title": {
-    "defaultMessage": "Boucle d’agent"
-  },
   "settings.appearance.description": {
     "defaultMessage": "Configurez l'apparence de goose sur votre système"
   },
@@ -4795,5 +4678,122 @@
   },
   "userMessage.removeImageFromEdit": {
     "defaultMessage": "Supprimer l'image du message"
+  },
+  "modelsBottomBar.recentModels": {
+    "defaultMessage": "Récents"
+  },
+  "providerConfigurationModal.chooseModel": {
+    "defaultMessage": "Choisir un modèle"
+  },
+  "providerCard.deprecatedReplacement": {
+    "defaultMessage": "Obsolète — utilisez plutôt {replacement}."
+  },
+  "acpReadinessPanel.adapterFound": {
+    "defaultMessage": "Adaptateur ACP trouvé"
+  },
+  "acpReadinessPanel.adapterNotFound": {
+    "defaultMessage": "Adaptateur ACP introuvable"
+  },
+  "acpReadinessPanel.authenticationHelp": {
+    "defaultMessage": "Connectez-vous à partir de la CLI du fournisseur, puis vérifiez à nouveau."
+  },
+  "acpReadinessPanel.checkAgain": {
+    "defaultMessage": "Vérifier à nouveau"
+  },
+  "acpReadinessPanel.checking": {
+    "defaultMessage": "Vérification..."
+  },
+  "acpReadinessPanel.connected": {
+    "defaultMessage": "Connexion réussie"
+  },
+  "acpReadinessPanel.connectionNotChecked": {
+    "defaultMessage": "Vérifiez la connexion de votre compte avant de continuer."
+  },
+  "providerConfigForm.deviceCodeAndEnter": {
+    "defaultMessage": "et entrez :"
+  },
+  "providerConfigForm.deviceCodeCopy": {
+    "defaultMessage": "Copier"
+  },
+  "providerConfigForm.deviceCodeVisit": {
+    "defaultMessage": "Visitez"
+  },
+  "providerConfigurationModal.deviceCodeAndEnter": {
+    "defaultMessage": "et entrez :"
+  },
+  "providerConfigurationModal.deviceCodeCopy": {
+    "defaultMessage": "Copier"
+  },
+  "providerConfigurationModal.deviceCodeVisit": {
+    "defaultMessage": "Visitez"
+  },
+  "settings.agentLoop.description": {
+    "defaultMessage": "Utilise la boucle d’agent basée sur les opérations. Désactivez-la pour utiliser la boucle héritée."
+  },
+  "settings.agentLoop.operations.auto.placeholder": {
+    "defaultMessage": "Automatique"
+  },
+  "settings.agentLoop.operations.blockLimit.label": {
+    "defaultMessage": "Limite de blocage"
+  },
+  "settings.agentLoop.operations.contextCompaction.description": {
+    "defaultMessage": "Résume l’historique de la conversation avant que la fenêtre de contexte soit pleine."
+  },
+  "settings.agentLoop.operations.contextCompaction.title": {
+    "defaultMessage": "Compactage du contexte"
+  },
+  "settings.agentLoop.operations.cutoff.label": {
+    "defaultMessage": "Seuil de coupure"
+  },
+  "settings.agentLoop.operations.enable": {
+    "defaultMessage": "Activer {operation}"
+  },
+  "settings.agentLoop.operations.failureTimeout.label": {
+    "defaultMessage": "Délai d’échec"
+  },
+  "settings.agentLoop.operations.heading": {
+    "defaultMessage": "Opérations configurables"
+  },
+  "settings.agentLoop.operations.maxTurns.description": {
+    "defaultMessage": "Arrête le travail autonome et demande confirmation à l’utilisateur avant de continuer."
+  },
+  "settings.agentLoop.operations.maxTurns.title": {
+    "defaultMessage": "Nombre maximal de tours"
+  },
+  "settings.agentLoop.operations.recipeRetry.description": {
+    "defaultMessage": "Relance les vérifications de recette lorsqu’une vérification de réussite configurée échoue."
+  },
+  "settings.agentLoop.operations.recipeRetry.title": {
+    "defaultMessage": "Nouvelle tentative de recette"
+  },
+  "settings.agentLoop.operations.retryTimeout.label": {
+    "defaultMessage": "Délai de nouvelle tentative"
+  },
+  "settings.agentLoop.operations.slashCommands.description": {
+    "defaultMessage": "Reconnaît les commandes comme /compact, /skills et les raccourcis de recettes."
+  },
+  "settings.agentLoop.operations.slashCommands.title": {
+    "defaultMessage": "Commandes slash"
+  },
+  "settings.agentLoop.operations.stopHooks.description": {
+    "defaultMessage": "Permet aux hooks de bloquer la fin tout en évitant les cycles d’arrêt infinis."
+  },
+  "settings.agentLoop.operations.stopHooks.title": {
+    "defaultMessage": "Hooks d’arrêt"
+  },
+  "settings.agentLoop.operations.threshold.label": {
+    "defaultMessage": "Seuil %"
+  },
+  "settings.agentLoop.operations.toolPairCompaction.description": {
+    "defaultMessage": "Résume les anciennes requêtes et réponses d’outils pour économiser le contexte. Le seuil est automatique si le champ est vide."
+  },
+  "settings.agentLoop.operations.toolPairCompaction.title": {
+    "defaultMessage": "Compactage des paires d’outils"
+  },
+  "settings.agentLoop.operations.turns.label": {
+    "defaultMessage": "Tours"
+  },
+  "settings.agentLoop.title": {
+    "defaultMessage": "Boucle d’agent"
   }
 }

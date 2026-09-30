@@ -1,25 +1,4 @@
 {
-  "acpReadinessPanel.adapterFound": {
-    "defaultMessage": "Penyesuai ACP ditemui"
-  },
-  "acpReadinessPanel.adapterNotFound": {
-    "defaultMessage": "Penyesuai ACP tidak ditemui"
-  },
-  "acpReadinessPanel.authenticationHelp": {
-    "defaultMessage": "Log masuk melalui CLI penyedia, kemudian semak semula."
-  },
-  "acpReadinessPanel.checkAgain": {
-    "defaultMessage": "Semak semula"
-  },
-  "acpReadinessPanel.checking": {
-    "defaultMessage": "Menyemak..."
-  },
-  "acpReadinessPanel.connected": {
-    "defaultMessage": "Berjaya disambungkan"
-  },
-  "acpReadinessPanel.connectionNotChecked": {
-    "defaultMessage": "Semak sambungan akaun anda sebelum meneruskan."
-  },
   "alertBox.autoCompactAt": {
     "defaultMessage": "Padatkan automatik pada"
   },
@@ -944,11 +923,11 @@
   "dirSwitcher.enterPath": {
     "defaultMessage": "Enter path"
   },
-  "dirSwitcher.enterPathInvalid": {
-    "defaultMessage": "Working directory must be an absolute path"
-  },
   "dirSwitcher.enterPathPlaceholder": {
     "defaultMessage": "Enter an absolute path (e.g. /home/goose/workspace)"
+  },
+  "dirSwitcher.enterPathInvalid": {
+    "defaultMessage": "Working directory must be an absolute path"
   },
   "dirSwitcher.failedToUpdateWorkingDir": {
     "defaultMessage": "Gagal mengemas kini direktori kerja"
@@ -964,6 +943,18 @@
   },
   "dirSwitcher.recentDirectories": {
     "defaultMessage": "Direktori terkini"
+  },
+  "gitBranchIndicator.failedToSwitch": {
+    "defaultMessage": "Gagal beralih ke {branch}"
+  },
+  "gitBranchIndicator.noBranchesFound": {
+    "defaultMessage": "Tiada cabang ditemui"
+  },
+  "gitBranchIndicator.searchBranches": {
+    "defaultMessage": "Cari cabang…"
+  },
+  "gitBranchIndicator.uncommittedChanges": {
+    "defaultMessage": "Anda mungkin mempunyai perubahan yang belum dikomit."
   },
   "elicitationRequest.accept": {
     "defaultMessage": "Terima"
@@ -1267,18 +1258,6 @@
   },
   "externalBackendSection.workingDirPlaceholder": {
     "defaultMessage": "/home/goose/workspace"
-  },
-  "gitBranchIndicator.failedToSwitch": {
-    "defaultMessage": "Gagal beralih ke {branch}"
-  },
-  "gitBranchIndicator.noBranchesFound": {
-    "defaultMessage": "Tiada cabang ditemui"
-  },
-  "gitBranchIndicator.searchBranches": {
-    "defaultMessage": "Cari cabang…"
-  },
-  "gitBranchIndicator.uncommittedChanges": {
-    "defaultMessage": "Anda mungkin mempunyai perubahan yang belum dikomit."
   },
   "goosehintsModal.close": {
     "defaultMessage": "Tutup"
@@ -2366,9 +2345,6 @@
   "modelsBottomBar.localModelSettingsTitle": {
     "defaultMessage": "Tetapan Model Tempatan — {modelName}"
   },
-  "modelsBottomBar.recentModels": {
-    "defaultMessage": "Terkini"
-  },
   "modelsBottomBar.resolvedModel": {
     "defaultMessage": "Model diselesaikan"
   },
@@ -2741,9 +2717,6 @@
   "promptsSettings.unsavedChanges": {
     "defaultMessage": "Anda mempunyai perubahan yang belum disimpan"
   },
-  "providerCard.deprecatedReplacement": {
-    "defaultMessage": "Tidak digunakan lagi — gunakan {replacement} sebagai gantinya."
-  },
   "providerCard.noMetadata": {
     "defaultMessage": "Ralat ProviderCard: Tiada metadata disediakan"
   },
@@ -2798,17 +2771,8 @@
   "providerConfigForm.continue": {
     "defaultMessage": "Teruskan"
   },
-  "providerConfigForm.deviceCodeAndEnter": {
-    "defaultMessage": "dan masukkan:"
-  },
-  "providerConfigForm.deviceCodeCopy": {
-    "defaultMessage": "Salin"
-  },
   "providerConfigForm.deviceCodeFlowHint": {
     "defaultMessage": "Tetingkap pelayar akan dibuka. Kod pengesahan akan dipaparkan di sini supaya anda boleh memasukkannya untuk melengkapkan log masuk."
-  },
-  "providerConfigForm.deviceCodeVisit": {
-    "defaultMessage": "Lawati"
   },
   "providerConfigForm.noApiKey": {
     "defaultMessage": "Tidak mempunyai kunci API?"
@@ -2834,9 +2798,6 @@
   "providerConfigurationModal.checkConfigAgain": {
     "defaultMessage": "Semak semula konfigurasi anda untuk menggunakan penyedia ini."
   },
-  "providerConfigurationModal.chooseModel": {
-    "defaultMessage": "Pilih Model"
-  },
   "providerConfigurationModal.close": {
     "defaultMessage": "Tutup"
   },
@@ -2849,17 +2810,8 @@
   "providerConfigurationModal.deleteConfirmation": {
     "defaultMessage": "Ini akan memadamkan konfigurasi penyedia semasa secara kekal."
   },
-  "providerConfigurationModal.deviceCodeAndEnter": {
-    "defaultMessage": "dan masukkan:"
-  },
-  "providerConfigurationModal.deviceCodeCopy": {
-    "defaultMessage": "Salin"
-  },
   "providerConfigurationModal.deviceCodeFlowHint": {
     "defaultMessage": "Tetingkap pelayar akan dibuka. Kod pengesahan akan dipaparkan di sini supaya anda boleh memasukkannya untuk melengkapkan log masuk."
-  },
-  "providerConfigurationModal.deviceCodeVisit": {
-    "defaultMessage": "Lawati"
   },
   "providerConfigurationModal.errorCheckingConfig": {
     "defaultMessage": "Terdapat ralat semasa menyemak konfigurasi penyedia ini."
@@ -4004,75 +3956,6 @@
   "sessions.toast.updated": {
     "defaultMessage": "Penerangan sesi berjaya dikemas kini"
   },
-  "settings.agentLoop.description": {
-    "defaultMessage": "Gunakan gelung ejen berasaskan operasi. Matikan untuk menggunakan gelung legasi."
-  },
-  "settings.agentLoop.operations.auto.placeholder": {
-    "defaultMessage": "Automatik"
-  },
-  "settings.agentLoop.operations.blockLimit.label": {
-    "defaultMessage": "Had sekatan"
-  },
-  "settings.agentLoop.operations.contextCompaction.description": {
-    "defaultMessage": "Merumuskan sejarah perbualan sebelum tetingkap konteks penuh."
-  },
-  "settings.agentLoop.operations.contextCompaction.title": {
-    "defaultMessage": "Pemadatan konteks"
-  },
-  "settings.agentLoop.operations.cutoff.label": {
-    "defaultMessage": "Had"
-  },
-  "settings.agentLoop.operations.enable": {
-    "defaultMessage": "Dayakan {operation}"
-  },
-  "settings.agentLoop.operations.failureTimeout.label": {
-    "defaultMessage": "Tamat masa kegagalan"
-  },
-  "settings.agentLoop.operations.heading": {
-    "defaultMessage": "Operasi boleh dikonfigurasi"
-  },
-  "settings.agentLoop.operations.maxTurns.description": {
-    "defaultMessage": "Menghentikan kerja autonomi dan bertanya kepada pengguna sebelum meneruskan."
-  },
-  "settings.agentLoop.operations.maxTurns.title": {
-    "defaultMessage": "Giliran maksimum"
-  },
-  "settings.agentLoop.operations.recipeRetry.description": {
-    "defaultMessage": "Menjalankan semula semakan resipi apabila semakan kejayaan yang dikonfigurasi gagal."
-  },
-  "settings.agentLoop.operations.recipeRetry.title": {
-    "defaultMessage": "Cuba semula resipi"
-  },
-  "settings.agentLoop.operations.retryTimeout.label": {
-    "defaultMessage": "Tamat masa cuba semula"
-  },
-  "settings.agentLoop.operations.slashCommands.description": {
-    "defaultMessage": "Mengenali perintah seperti /compact, /skills dan pintasan resipi."
-  },
-  "settings.agentLoop.operations.slashCommands.title": {
-    "defaultMessage": "Perintah garis miring"
-  },
-  "settings.agentLoop.operations.stopHooks.description": {
-    "defaultMessage": "Membolehkan hook menyekat penyiapan sambil menghalang kitaran berhenti tanpa henti."
-  },
-  "settings.agentLoop.operations.stopHooks.title": {
-    "defaultMessage": "Hook berhenti"
-  },
-  "settings.agentLoop.operations.threshold.label": {
-    "defaultMessage": "Ambang %"
-  },
-  "settings.agentLoop.operations.toolPairCompaction.description": {
-    "defaultMessage": "Merumuskan permintaan dan respons alat lama untuk menjimatkan konteks. Had ditetapkan secara automatik jika dibiarkan kosong."
-  },
-  "settings.agentLoop.operations.toolPairCompaction.title": {
-    "defaultMessage": "Pemadatan pasangan alat"
-  },
-  "settings.agentLoop.operations.turns.label": {
-    "defaultMessage": "Giliran"
-  },
-  "settings.agentLoop.title": {
-    "defaultMessage": "Gelung ejen"
-  },
   "settings.appearance.description": {
     "defaultMessage": "Konfigurasikan cara goose muncul pada sistem anda"
   },
@@ -4795,5 +4678,122 @@
   },
   "userMessage.removeImageFromEdit": {
     "defaultMessage": "Alih keluar imej daripada mesej"
+  },
+  "modelsBottomBar.recentModels": {
+    "defaultMessage": "Terkini"
+  },
+  "providerConfigurationModal.chooseModel": {
+    "defaultMessage": "Pilih Model"
+  },
+  "providerCard.deprecatedReplacement": {
+    "defaultMessage": "Tidak digunakan lagi — gunakan {replacement} sebagai gantinya."
+  },
+  "acpReadinessPanel.adapterFound": {
+    "defaultMessage": "Penyesuai ACP ditemui"
+  },
+  "acpReadinessPanel.adapterNotFound": {
+    "defaultMessage": "Penyesuai ACP tidak ditemui"
+  },
+  "acpReadinessPanel.authenticationHelp": {
+    "defaultMessage": "Log masuk melalui CLI penyedia, kemudian semak semula."
+  },
+  "acpReadinessPanel.checkAgain": {
+    "defaultMessage": "Semak semula"
+  },
+  "acpReadinessPanel.checking": {
+    "defaultMessage": "Menyemak..."
+  },
+  "acpReadinessPanel.connected": {
+    "defaultMessage": "Berjaya disambungkan"
+  },
+  "acpReadinessPanel.connectionNotChecked": {
+    "defaultMessage": "Semak sambungan akaun anda sebelum meneruskan."
+  },
+  "providerConfigForm.deviceCodeAndEnter": {
+    "defaultMessage": "dan masukkan:"
+  },
+  "providerConfigForm.deviceCodeCopy": {
+    "defaultMessage": "Salin"
+  },
+  "providerConfigForm.deviceCodeVisit": {
+    "defaultMessage": "Lawati"
+  },
+  "providerConfigurationModal.deviceCodeAndEnter": {
+    "defaultMessage": "dan masukkan:"
+  },
+  "providerConfigurationModal.deviceCodeCopy": {
+    "defaultMessage": "Salin"
+  },
+  "providerConfigurationModal.deviceCodeVisit": {
+    "defaultMessage": "Lawati"
+  },
+  "settings.agentLoop.description": {
+    "defaultMessage": "Gunakan gelung ejen berasaskan operasi. Matikan untuk menggunakan gelung legasi."
+  },
+  "settings.agentLoop.operations.auto.placeholder": {
+    "defaultMessage": "Automatik"
+  },
+  "settings.agentLoop.operations.blockLimit.label": {
+    "defaultMessage": "Had sekatan"
+  },
+  "settings.agentLoop.operations.contextCompaction.description": {
+    "defaultMessage": "Merumuskan sejarah perbualan sebelum tetingkap konteks penuh."
+  },
+  "settings.agentLoop.operations.contextCompaction.title": {
+    "defaultMessage": "Pemadatan konteks"
+  },
+  "settings.agentLoop.operations.cutoff.label": {
+    "defaultMessage": "Had"
+  },
+  "settings.agentLoop.operations.enable": {
+    "defaultMessage": "Dayakan {operation}"
+  },
+  "settings.agentLoop.operations.failureTimeout.label": {
+    "defaultMessage": "Tamat masa kegagalan"
+  },
+  "settings.agentLoop.operations.heading": {
+    "defaultMessage": "Operasi boleh dikonfigurasi"
+  },
+  "settings.agentLoop.operations.maxTurns.description": {
+    "defaultMessage": "Menghentikan kerja autonomi dan bertanya kepada pengguna sebelum meneruskan."
+  },
+  "settings.agentLoop.operations.maxTurns.title": {
+    "defaultMessage": "Giliran maksimum"
+  },
+  "settings.agentLoop.operations.recipeRetry.description": {
+    "defaultMessage": "Menjalankan semula semakan resipi apabila semakan kejayaan yang dikonfigurasi gagal."
+  },
+  "settings.agentLoop.operations.recipeRetry.title": {
+    "defaultMessage": "Cuba semula resipi"
+  },
+  "settings.agentLoop.operations.retryTimeout.label": {
+    "defaultMessage": "Tamat masa cuba semula"
+  },
+  "settings.agentLoop.operations.slashCommands.description": {
+    "defaultMessage": "Mengenali perintah seperti /compact, /skills dan pintasan resipi."
+  },
+  "settings.agentLoop.operations.slashCommands.title": {
+    "defaultMessage": "Perintah garis miring"
+  },
+  "settings.agentLoop.operations.stopHooks.description": {
+    "defaultMessage": "Membolehkan hook menyekat penyiapan sambil menghalang kitaran berhenti tanpa henti."
+  },
+  "settings.agentLoop.operations.stopHooks.title": {
+    "defaultMessage": "Hook berhenti"
+  },
+  "settings.agentLoop.operations.threshold.label": {
+    "defaultMessage": "Ambang %"
+  },
+  "settings.agentLoop.operations.toolPairCompaction.description": {
+    "defaultMessage": "Merumuskan permintaan dan respons alat lama untuk menjimatkan konteks. Had ditetapkan secara automatik jika dibiarkan kosong."
+  },
+  "settings.agentLoop.operations.toolPairCompaction.title": {
+    "defaultMessage": "Pemadatan pasangan alat"
+  },
+  "settings.agentLoop.operations.turns.label": {
+    "defaultMessage": "Giliran"
+  },
+  "settings.agentLoop.title": {
+    "defaultMessage": "Gelung ejen"
   }
 }

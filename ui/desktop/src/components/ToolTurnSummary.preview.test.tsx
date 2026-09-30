@@ -82,6 +82,23 @@ describe('ToolTurnSummary thinking preview', () => {
     expect(preview.querySelector('.line-clamp-2')).not.toBeNull();
   });
 
+  it('keeps the active thinking preview visible while the timeline is expanded', () => {
+    const thinking = 'Current reasoning remains visible';
+    render(
+      <Harness
+        content={[{ type: 'thinking', thinking, signature: '' }]}
+        initialExpanded
+        isStreaming
+      />,
+      { wrapper: IntlTestWrapper }
+    );
+
+    const preview = screen.getByRole('button', { name: `Thinking: ${thinking}` });
+    expect(preview).toBeTruthy();
+    expect(preview).toHaveAttribute('aria-expanded', 'false');
+    expect(preview).toHaveAttribute('aria-controls');
+  });
+
   it('opens the timeline and latest thinking block when the preview is clicked', () => {
     const previous = 'Previous reasoning message';
     const latest = 'Latest reasoning message shown in the preview';
@@ -98,8 +115,51 @@ describe('ToolTurnSummary thinking preview', () => {
 
     fireEvent.click(screen.getByRole('button', { name: `Thinking: ${latest}` }));
 
-    expect(screen.getByText(latest).closest('details')).toHaveAttribute('open');
-    expect(screen.getByText(previous).closest('details')).not.toHaveAttribute('open');
+    const latestDetailsId = screen
+      .getByRole('button', { name: `Thinking: ${latest}` })
+      .getAttribute('aria-controls');
+    expect(latestDetailsId).not.toBeNull();
+    expect(document.getElementById(latestDetailsId!)).toHaveAttribute('open');
+    const previousDetails = screen
+      .getAllByText(previous)
+      .map((node) => node.closest('details'))
+      .find(Boolean);
+    expect(previousDetails).not.toHaveAttribute('open');
+  });
+
+  it('opens only the latest thinking block when the timeline is already expanded', () => {
+    const previous = 'Earlier expanded-timeline reasoning';
+    const latest = 'Current expanded-timeline reasoning';
+    render(
+      <Harness
+        content={[
+          { type: 'thinking', thinking: previous, signature: '' },
+          { type: 'thinking', thinking: latest, signature: '' },
+        ]}
+        initialExpanded
+        isStreaming
+      />,
+      { wrapper: IntlTestWrapper }
+    );
+
+    const preview = screen.getByRole('button', { name: `Thinking: ${latest}` });
+    fireEvent.click(preview);
+
+    const latestDetailsId = screen
+      .getByRole('button', { name: `Thinking: ${latest}` })
+      .getAttribute('aria-controls');
+    expect(latestDetailsId).not.toBeNull();
+    expect(document.getElementById(latestDetailsId!)).toHaveAttribute('open');
+    const previousDetails = screen
+      .getAllByText(previous)
+      .map((node) => node.closest('details'))
+      .find(Boolean);
+    expect(previousDetails).not.toHaveAttribute('open');
+    expect(screen.getByRole('button', { name: `Thinking: ${latest}` })).toHaveAttribute(
+      'aria-expanded',
+      'true'
+    );
+    expect(screen.getAllByRole('button')[0]).toHaveAttribute('aria-expanded', 'true');
   });
 
   it('removes the preview when thinking ends', () => {
@@ -116,7 +176,7 @@ describe('ToolTurnSummary thinking preview', () => {
     expect(screen.queryByText(thinking)).toBeNull();
   });
 
-  it('removes the preview when another activity starts', () => {
+  it('keeps the preview while a tool runs after thinking', () => {
     const thinking = 'Reasoning before a command';
     render(
       <Harness
@@ -126,16 +186,51 @@ describe('ToolTurnSummary thinking preview', () => {
       { wrapper: IntlTestWrapper }
     );
 
-    expect(screen.queryByRole('button', { name: `Thinking: ${thinking}` })).toBeNull();
+    expect(screen.getByRole('button', { name: `Thinking: ${thinking}` })).toBeTruthy();
   });
 
-  it('removes the preview when an empty response text block starts', () => {
+  it('replaces the preview when a newer thinking message arrives after a tool', () => {
+    const previous = 'Reasoning before the tool';
+    const latest = 'New reasoning after the tool';
+    render(
+      <Harness
+        content={[
+          { type: 'thinking', thinking: previous, signature: '' },
+          toolRequest(),
+          { type: 'thinking', thinking: latest, signature: '' },
+        ]}
+        isStreaming
+      />,
+      { wrapper: IntlTestWrapper }
+    );
+
+    expect(screen.getByRole('button', { name: `Thinking: ${latest}` })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: `Thinking: ${previous}` })).toBeNull();
+  });
+
+  it('removes the preview as soon as a response text block starts', () => {
     const thinking = 'Reasoning before the response';
     render(
       <Harness
         content={[
           { type: 'thinking', thinking, signature: '' },
           { type: 'text', text: '' },
+        ]}
+        isStreaming
+      />,
+      { wrapper: IntlTestWrapper }
+    );
+
+    expect(screen.queryByRole('button', { name: `Thinking: ${thinking}` })).toBeNull();
+  });
+
+  it('removes the preview when response content starts', () => {
+    const thinking = 'Reasoning before response content';
+    render(
+      <Harness
+        content={[
+          { type: 'thinking', thinking, signature: '' },
+          { type: 'text', text: 'The response has started.' },
         ]}
         isStreaming
       />,
@@ -159,7 +254,11 @@ describe('ToolTurnSummary thinking preview', () => {
     expect(screen.queryByRole('button', { name: `Thinking: ${first}` })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: `Thinking: ${second}` }));
-    expect(screen.getByText(second).closest('details')).toHaveAttribute('open');
+    const detailsId = screen
+      .getByRole('button', { name: `Thinking: ${second}` })
+      .getAttribute('aria-controls');
+    expect(detailsId).not.toBeNull();
+    expect(document.getElementById(detailsId!)).toHaveAttribute('open');
   });
 
   it('does not preview thinking from a hidden message', () => {

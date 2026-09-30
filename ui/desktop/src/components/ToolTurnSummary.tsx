@@ -71,7 +71,7 @@ function latestThinkingContent(turnMessages: Message[]): LatestThinking | null {
           key: `${messageKey}-thinking-${contentIndex}`,
         };
       }
-      return null;
+      if (block.type === 'text') return null;
     }
   }
   return null;
@@ -158,11 +158,14 @@ export default function ToolTurnSummary({
         : duration === null
           ? intl.formatMessage(failed ? i18n.failedWithoutDuration : i18n.completedWithoutDuration)
           : intl.formatMessage(failed ? i18n.failed : i18n.completed, { duration });
-  const showThinkingPreview = isStreaming && !isExpanded && latestThinking !== null;
+  const showThinkingPreview = isStreaming && latestThinking !== null;
+  const latestThinkingDetailsId = `${detailsId}-latest-thinking`;
+  const isLatestThinkingExpanded =
+    latestThinking !== null && isExpanded && openThinkingKeys.has(latestThinking.key);
   const expandLatestThinking = () => {
     if (!latestThinking) return;
     setOpenThinkingKeys((keys) => new Set(keys).add(latestThinking.key));
-    onToggle();
+    if (!isExpanded) onToggle();
   };
 
   return (
@@ -201,8 +204,8 @@ export default function ToolTurnSummary({
         <button
           type="button"
           onClick={expandLatestThinking}
-          aria-expanded="false"
-          aria-controls={detailsId}
+          aria-expanded={isLatestThinkingExpanded}
+          aria-controls={isExpanded ? latestThinkingDetailsId : detailsId}
           aria-label={`${intl.formatMessage(i18n.thinking)}: ${latestThinking.content}`}
           className="ml-5 max-w-[min(42rem,calc(100vw-7rem))] cursor-pointer rounded-md px-2 py-1 text-left text-xs text-text-secondary transition-colors hover:bg-background-secondary hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-primary motion-reduce:transition-none"
         >
@@ -236,6 +239,7 @@ export default function ToolTurnSummary({
                 return (
                   <details
                     key={item.key}
+                    id={item.key === latestThinking?.key ? latestThinkingDetailsId : undefined}
                     open={openThinkingKeys.has(item.key)}
                     onToggle={(event) => {
                       const open = event.currentTarget.open;

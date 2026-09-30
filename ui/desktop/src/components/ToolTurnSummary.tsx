@@ -53,6 +53,30 @@ function formatDuration(intl: ReturnType<typeof useIntl>, seconds: number): stri
     : intl.formatMessage(i18n.seconds, { count: safeSeconds });
 }
 
+interface LatestThinking {
+  content: string;
+  key: string;
+}
+
+function latestThinkingContent(turnMessages: Message[]): LatestThinking | null {
+  for (let messageIndex = turnMessages.length - 1; messageIndex >= 0; messageIndex--) {
+    const message = turnMessages[messageIndex];
+    if (!message.metadata.userVisible) continue;
+    for (let contentIndex = message.content.length - 1; contentIndex >= 0; contentIndex--) {
+      const block = message.content[contentIndex];
+      if (block.type === 'thinking' && block.thinking.trim()) {
+        const messageKey = message.id ?? `turn-${messageIndex}-${message.created}`;
+        return {
+          content: block.thinking,
+          key: `${messageKey}-thinking-${contentIndex}`,
+        };
+      }
+      return null;
+    }
+  }
+  return null;
+}
+
 interface ToolTurnSummaryProps {
   messages: Message[];
   responsesById: Map<string, ToolResponseMessageContent>;
@@ -85,6 +109,8 @@ export default function ToolTurnSummary({
     [messages, pendingApprovalIds, turnMessages]
   );
   const responses = responsesById;
+  const latestThinking = useMemo(() => latestThinkingContent(turnMessages), [turnMessages]);
+  const [openThinkingKeys, setOpenThinkingKeys] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(() => Date.now());
   const [completedAt, setCompletedAt] = useState<number | null>(null);
   const wasStreaming = useRef(isStreaming);
@@ -132,6 +158,12 @@ export default function ToolTurnSummary({
         : duration === null
           ? intl.formatMessage(failed ? i18n.failedWithoutDuration : i18n.completedWithoutDuration)
           : intl.formatMessage(failed ? i18n.failed : i18n.completed, { duration });
+  const showThinkingPreview = isStreaming && !isExpanded && latestThinking !== null;
+  const expandLatestThinking = () => {
+    if (!latestThinking) return;
+    setOpenThinkingKeys((keys) => new Set(keys).add(latestThinking.key));
+    onToggle();
+  };
 
   return (
     <section
@@ -165,6 +197,19 @@ export default function ToolTurnSummary({
         />
       </button>
 
+      {showThinkingPreview && latestThinking && (
+        <button
+          type="button"
+          onClick={expandLatestThinking}
+          aria-expanded="false"
+          aria-controls={detailsId}
+          aria-label={`${intl.formatMessage(i18n.thinking)}: ${latestThinking.content}`}
+          className="ml-5 max-w-[min(42rem,calc(100vw-7rem))] cursor-pointer rounded-md px-2 py-1 text-left text-xs text-text-secondary transition-colors hover:bg-background-secondary hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-primary motion-reduce:transition-none"
+        >
+          <span className="line-clamp-2 break-words">{latestThinking.content}</span>
+        </button>
+      )}
+
       {isExpanded && (
         <div
           id={detailsId}
@@ -189,7 +234,20 @@ export default function ToolTurnSummary({
 
               if (item.kind === 'thinking') {
                 return (
-                  <details key={item.key} className="group/activity py-1">
+                  <details
+                    key={item.key}
+                    open={openThinkingKeys.has(item.key)}
+                    onToggle={(event) => {
+                      const open = event.currentTarget.open;
+                      setOpenThinkingKeys((keys) => {
+                        const next = new Set(keys);
+                        if (open) next.add(item.key);
+                        else next.delete(item.key);
+                        return next;
+                      });
+                    }}
+                    className="group/activity py-1"
+                  >
                     <summary className="inline-flex max-w-full cursor-pointer list-none items-center gap-2 text-xs text-text-secondary hover:text-text-primary">
                       <Brain className="h-3 w-3 shrink-0" aria-hidden="true" />
                       <span className="min-w-0 truncate">{intl.formatMessage(i18n.thinking)}</span>

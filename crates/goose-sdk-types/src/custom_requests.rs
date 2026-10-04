@@ -2313,7 +2313,7 @@ pub struct DictationModelDeleteRequest {
 }
 
 /// Permission level for a tool.
-#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolPermissionLevel {
     AlwaysAllow,
@@ -2346,6 +2346,24 @@ pub struct SetToolPermissionsResponse {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tool_permission_entry_accepts_default_reset() {
+        let entry: ToolPermissionEntry =
+            serde_json::from_str(r#"{"toolName":"developer__shell","permission":null}"#).unwrap();
+
+        assert_eq!(entry.tool_name, "developer__shell");
+        assert_eq!(entry.permission, None);
+    }
+
+    #[test]
+    fn tool_permission_entry_keeps_explicit_rules() {
+        let entry: ToolPermissionEntry =
+            serde_json::from_str(r#"{"toolName":"developer__shell","permission":"never_allow"}"#)
+                .unwrap();
+
+        assert_eq!(entry.permission, Some(ToolPermissionLevel::NeverAllow));
+    }
 
     #[test]
     fn export_session_request_defaults_to_json_without_format() {

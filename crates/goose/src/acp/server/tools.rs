@@ -6,8 +6,9 @@ use crate::config::scoped_permissions::{
     PermissionEffect, PermissionPrincipal, PermissionRequest, PermissionRule, PermissionScope,
 };
 use goose_sdk_types::custom_requests::{
-    ToolListItem, ToolMetadataHints, ToolPermissionLevel, ToolPermissionPrincipal,
-    ToolPermissionRule, ToolPermissionScope, ToolPermissionSource,
+    ShellPolicyRuleSummary, ShellPolicySummary, ToolListItem, ToolMetadataHints,
+    ToolPermissionLevel, ToolPermissionPrincipal, ToolPermissionRule, ToolPermissionScope,
+    ToolPermissionSource,
 };
 use rmcp::model::CallToolRequestParams;
 use std::collections::BTreeSet;
@@ -235,6 +236,34 @@ impl GooseAcpAgent {
                     applicable_permission_rules: applicable_rules,
                     effective_permission_scope,
                     effective_permission_origin,
+                    shell_policy: matches!(tool.name.as_ref(), "shell" | "developer__shell").then(
+                        || ShellPolicySummary {
+                            enforcement:
+                                "Built-in deterministic policy, applied before mode approval"
+                                    .to_string(),
+                            rules: vec![
+                                ShellPolicyRuleSummary {
+                                    decision: "deny".to_string(),
+                                    pattern: "sudo | doas | su".to_string(),
+                                    reason: "Privilege escalation is forbidden".to_string(),
+                                },
+                                ShellPolicyRuleSummary {
+                                    decision: "deny".to_string(),
+                                    pattern: "rm --recursive --force /".to_string(),
+                                    reason:
+                                        "Recursive forced deletion of filesystem root is forbidden"
+                                            .to_string(),
+                                },
+                                ShellPolicyRuleSummary {
+                                    decision: "ask".to_string(),
+                                    pattern: "rm …".to_string(),
+                                    reason: "Other removal commands require approval".to_string(),
+                                },
+                            ],
+                            limitations: "Command policy is a bounded guardrail, not an OS sandbox"
+                                .to_string(),
+                        },
+                    ),
                     input_schema: serde_json::Value::Object(tool.input_schema.as_ref().clone()),
                     output_schema: tool
                         .output_schema

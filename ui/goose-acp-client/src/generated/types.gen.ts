@@ -281,6 +281,7 @@ export type ToolListItem = {
      * Storage origin of the rule that produced the effective permission.
      */
     effectivePermissionOrigin?: string | null;
+    shellPolicy?: ShellPolicySummary | null;
     inputSchema: unknown;
     outputSchema?: unknown;
 };
@@ -333,6 +334,21 @@ export type ToolPermissionPrincipal = {
 } | {
     capability: string;
     type: 'capability';
+};
+
+/**
+ * Summary of deterministic policies that protect the developer shell.
+ */
+export type ShellPolicySummary = {
+    enforcement: string;
+    rules: Array<ShellPolicyRuleSummary>;
+    limitations: string;
+};
+
+export type ShellPolicyRuleSummary = {
+    decision: string;
+    pattern: string;
+    reason: string;
 };
 
 /**

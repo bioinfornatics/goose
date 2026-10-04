@@ -571,6 +571,16 @@
           ],
           "description": "Storage origin of the rule that produced the effective permission."
         },
+        "shellPolicy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ShellPolicySummary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "inputSchema": {},
         "outputSchema": {}
       },
@@ -730,6 +740,48 @@
         }
       ],
       "description": "Stable identity of the principal targeted by a permission rule."
+    },
+    "ShellPolicySummary": {
+      "type": "object",
+      "properties": {
+        "enforcement": {
+          "type": "string"
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ShellPolicyRuleSummary"
+          }
+        },
+        "limitations": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "enforcement",
+        "rules",
+        "limitations"
+      ],
+      "description": "Summary of deterministic policies that protect the developer shell."
+    },
+    "ShellPolicyRuleSummary": {
+      "type": "object",
+      "properties": {
+        "decision": {
+          "type": "string"
+        },
+        "pattern": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "decision",
+        "pattern",
+        "reason"
+      ]
     },
     "SetToolPermissionsRequest_unstable": {
       "type": "object",

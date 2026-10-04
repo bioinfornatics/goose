@@ -355,6 +355,19 @@ export default function PermissionRulesModal({
                                   <p className="text-xs text-text-secondary">
                                     Effective: {effectiveLabel} · {tool.permissionReason}
                                   </p>
+                                  {tool.shellPolicy && (
+                                    <details className="text-xs text-text-secondary">
+                                      <summary>Command safety policy</summary>
+                                      <ul className="list-disc pl-4">
+                                        {tool.shellPolicy.rules.map((rule) => (
+                                          <li key={`${rule.decision}-${rule.pattern}`}>
+                                            {rule.decision.toUpperCase()} {rule.pattern} — {rule.reason}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                      <p>{tool.shellPolicy.limitations}</p>
+                                    </details>
+                                  )}
                                   <details className="text-xs text-text-secondary">
                                     <summary>Technical details</summary>
                                     <code>{tool.name}</code>

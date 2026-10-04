@@ -200,6 +200,21 @@ export const zToolPermissionRule = z.object({
     origin: z.string()
 });
 
+export const zShellPolicyRuleSummary = z.object({
+    decision: z.string(),
+    pattern: z.string(),
+    reason: z.string()
+});
+
+/**
+ * Summary of deterministic policies that protect the developer shell.
+ */
+export const zShellPolicySummary = z.object({
+    enforcement: z.string(),
+    rules: z.array(zShellPolicyRuleSummary),
+    limitations: z.string()
+});
+
 /**
  * A single tool item returned by the tools list endpoint.
  */
@@ -219,6 +234,7 @@ export const zToolListItem = z.object({
     applicablePermissionRules: z.array(zToolPermissionRule).optional(),
     effectivePermissionScope: zToolPermissionScope.nullish(),
     effectivePermissionOrigin: z.string().nullish(),
+    shellPolicy: zShellPolicySummary.nullish(),
     inputSchema: z.unknown(),
     outputSchema: z.unknown().optional()
 });

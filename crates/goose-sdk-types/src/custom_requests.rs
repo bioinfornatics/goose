@@ -103,6 +103,23 @@ pub enum ToolPermissionPrincipal {
     Capability { capability: String },
 }
 
+/// Summary of deterministic policies that protect the developer shell.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ShellPolicySummary {
+    pub enforcement: String,
+    pub rules: Vec<ShellPolicyRuleSummary>,
+    pub limitations: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ShellPolicyRuleSummary {
+    pub decision: String,
+    pub pattern: String,
+    pub reason: String,
+}
+
 /// A single tool item returned by the tools list endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -134,6 +151,8 @@ pub struct ToolListItem {
     /// Storage origin of the rule that produced the effective permission.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effective_permission_origin: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shell_policy: Option<ShellPolicySummary>,
     pub input_schema: serde_json::Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_schema: Option<serde_json::Value>,

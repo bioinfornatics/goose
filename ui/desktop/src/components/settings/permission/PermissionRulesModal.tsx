@@ -5,8 +5,12 @@ import { Input } from '../../ui/input';
 import { Button } from '../../ui/button';
 import { useChatContext } from '../../../contexts/ChatContext';
 import { getSessionExtensions, type SessionExtension } from '../../../acp/session-extensions';
-import { listTools, setToolPermissions } from '../../../acp/permissions';
-import type { ToolListItem, ToolPermissionLevel } from '../../../acp/permissions';
+import { listToolsWithScopes, setToolPermissions } from '../../../acp/permissions';
+import type {
+  ToolListItem,
+  ToolPermissionLevel,
+  ToolPermissionScope,
+} from '../../../acp/permissions';
 import { defineMessages, useIntl } from '../../../i18n';
 
 const i18n = defineMessages({
@@ -76,9 +80,36 @@ export function toolMetadataLabels(tool: ToolListItem): string[] {
 interface PermissionRulesModalProps {
   isOpen: boolean;
   onClose: () => void;
+  extensionFilter?: string;
 }
 
-export default function PermissionRulesModal({ isOpen, onClose }: PermissionRulesModalProps) {
+const scopeLabels: Record<ToolPermissionScope, string> = {
+  session: 'This session',
+  project_local: 'This project, for me',
+  project_shared: 'This project, shared',
+  user: 'All sessions on this device',
+  managed: 'Managed by organization',
+};
+
+export function permissionAtScope(
+  tool: ToolListItem,
+  scope: ToolPermissionScope
+): PermissionChoice {
+  const rule = tool.applicablePermissionRules?.find(
+    (candidate) =>
+      candidate.scope === scope &&
+      candidate.principal.type === 'function' &&
+      candidate.principal.extension === tool.extensionName &&
+      candidate.principal.function === (tool.name.split('__').at(-1) ?? tool.name)
+  );
+  return rule?.effect ?? 'default';
+}
+
+export default function PermissionRulesModal({
+  isOpen,
+  onClose,
+  extensionFilter,
+}: PermissionRulesModalProps) {
   const intl = useIntl();
   const sessionId = useChatContext()?.chat.sessionId ?? '';
   const [groups, setGroups] = useState<ExtensionTools[]>([]);
@@ -87,15 +118,22 @@ export default function PermissionRulesModal({ isOpen, onClose }: PermissionRule
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [writableScopes, setWritableScopes] = useState<ToolPermissionScope[]>(['user']);
+  const [selectedScope, setSelectedScope] = useState<ToolPermissionScope>('user');
 
   const load = useCallback(async () => {
     if (!isOpen || !sessionId) return;
     setLoading(true);
-    const entries = await getSessionExtensions(sessionId);
+    const entries = (await getSessionExtensions(sessionId)).filter(
+      (extension) => !extensionFilter || extension.name === extensionFilter
+    );
+    const discoveredScopes = new Set<ToolPermissionScope>();
     const loaded = await Promise.all(
       entries.map(async (extension): Promise<ExtensionTools> => {
         try {
-          const tools = (await listTools(sessionId, extension.name)).filter(
+          const result = await listToolsWithScopes(sessionId, extension.name);
+          result.writablePermissionScopes.forEach((scope) => discoveredScopes.add(scope));
+          const tools = result.tools.filter(
             (tool) => !['platform__read_resource', 'platform__list_resources'].includes(tool.name)
           );
           return { extension, tools, failed: false };
@@ -107,10 +145,16 @@ export default function PermissionRulesModal({ isOpen, onClose }: PermissionRule
     const visible = loaded
       .filter((group) => group.failed || group.tools.length > 0)
       .sort((a, b) => a.extension.name.localeCompare(b.extension.name));
+    const scopes: ToolPermissionScope[] = [...discoveredScopes].filter(
+      (scope): scope is Exclude<ToolPermissionScope, 'managed'> => scope !== 'managed'
+    );
+    setWritableScopes(scopes.length > 0 ? scopes : ['user']);
+    setSelectedScope((current) => (scopes.includes(current) ? current : (scopes[0] ?? 'user')));
     setGroups(visible);
     setExpanded(new Set(visible.map((group) => group.extension.name)));
+    setChanges({});
     setLoading(false);
-  }, [isOpen, sessionId]);
+  }, [extensionFilter, isOpen, sessionId]);
 
   useEffect(() => {
     void load();
@@ -140,8 +184,10 @@ export default function PermissionRulesModal({ isOpen, onClose }: PermissionRule
       await setToolPermissions(
         Object.entries(changes).map(([toolName, permission]) => ({
           toolName,
+          scope: selectedScope,
           permission: permission === 'default' ? null : permission,
-        }))
+        })),
+        sessionId
       );
       onClose();
     } finally {
@@ -165,6 +211,37 @@ export default function PermissionRulesModal({ isOpen, onClose }: PermissionRule
             {intl.formatMessage(i18n.title)}
           </DialogTitle>
           <p className="text-sm text-text-secondary">{intl.formatMessage(i18n.description)}</p>
+          <div className="grid grid-cols-2 gap-3 rounded-md bg-background-secondary p-3 text-sm">
+            <div>
+              <span className="block text-text-secondary">Showing</span>
+              <strong>
+                {extensionFilter ? `Current session · ${extensionFilter}` : 'Current session'}
+              </strong>
+            </div>
+            <label>
+              <span className="block text-text-secondary">Saving to</span>
+              <select
+                aria-label="Permission scope"
+                value={selectedScope}
+                onChange={(event) => {
+                  setSelectedScope(event.target.value as ToolPermissionScope);
+                  setChanges({});
+                }}
+                className="mt-1 h-9 w-full rounded-md border border-border-primary bg-background-primary px-2"
+              >
+                {writableScopes.map((scope) => (
+                  <option key={scope} value={scope}>
+                    {scopeLabels[scope]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {selectedScope === 'project_shared' && (
+            <p className="text-xs text-text-secondary">
+              Shared project policies are restrictive-only until workspace trust is available.
+            </p>
+          )}
           <div className="relative pt-2">
             <Search
               className="absolute left-3 top-4 h-4 w-4 text-text-secondary"
@@ -238,7 +315,7 @@ export default function PermissionRulesModal({ isOpen, onClose }: PermissionRule
                         ) : (
                           tools.map((tool) => {
                             const value =
-                              changes[tool.name] ?? tool.explicitPermission ?? 'default';
+                              changes[tool.name] ?? permissionAtScope(tool, selectedScope);
                             const effectiveLabel = tool.effectivePermission
                               ? options.find((option) => option.value === tool.effectivePermission)
                                   ?.label
@@ -286,7 +363,14 @@ export default function PermissionRulesModal({ isOpen, onClose }: PermissionRule
                                   className="h-9 rounded-md border border-border-primary bg-background-primary px-3 text-sm text-text-primary"
                                 >
                                   {options.map((option) => (
-                                    <option key={option.value} value={option.value}>
+                                    <option
+                                      key={option.value}
+                                      value={option.value}
+                                      disabled={
+                                        selectedScope === 'project_shared' &&
+                                        option.value === 'always_allow'
+                                      }
+                                    >
                                       {option.label}
                                     </option>
                                   ))}

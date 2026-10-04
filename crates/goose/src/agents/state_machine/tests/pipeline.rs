@@ -29,6 +29,7 @@ use crate::conversation::message::{ActionRequiredData, Message, MessageContent};
 use crate::conversation::Conversation;
 use crate::hooks::HookManager;
 use crate::permission::permission_inspector::PermissionInspector;
+use crate::permission::shell_policy::ShellPolicyInspector;
 use crate::permission::Permission;
 use crate::providers::base::Provider;
 use crate::security::security_inspector::SecurityInspector;
@@ -787,6 +788,7 @@ async fn build_test_pipeline(
     let permission_manager = Arc::new(PermissionManager::new(temp_dir.path().join("permissions")));
     let mut tool_inspection_manager = ToolInspectionManager::new();
     tool_inspection_manager.add_inspector(Box::new(SecurityInspector::enabled()));
+    tool_inspection_manager.add_inspector(Box::new(ShellPolicyInspector::builtin()));
     tool_inspection_manager.add_inspector(Box::new(PermissionInspector::new(
         permission_manager.clone(),
         shared_provider,

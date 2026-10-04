@@ -59,6 +59,7 @@ use crate::conversation::message::{
 use crate::conversation::{debug_conversation_fix, fix_conversation, Conversation};
 use crate::permission::permission_inspector::PermissionInspector;
 use crate::permission::permission_judge::PermissionCheckResult;
+use crate::permission::shell_policy::ShellPolicyInspector;
 use crate::permission::{Permission, PermissionConfirmation};
 use crate::providers::base::{PermissionRouting, Provider};
 use crate::recipe::Response;
@@ -773,9 +774,10 @@ impl Agent {
     ) -> ToolInspectionManager {
         let mut tool_inspection_manager = ToolInspectionManager::new();
 
-        // Add security inspector (highest priority - runs first)
+        // Add deterministic inspectors before model-based and user-mode decisions.
         tool_inspection_manager.add_inspector(Box::new(SecurityInspector::new()));
         tool_inspection_manager.add_inspector(Box::new(EgressInspector::new()));
+        tool_inspection_manager.add_inspector(Box::new(ShellPolicyInspector::builtin()));
 
         // Add adversary inspector (LLM-based review, enabled by ~/.config/goose/adversary.md)
         tool_inspection_manager.add_inspector(Box::new(AdversaryInspector::new(
@@ -5855,6 +5857,10 @@ echo start >> "$PLUGIN_ROOT/hook.log"
         assert!(
             inspector_names.contains(&"security"),
             "Tool inspection manager should contain security inspector"
+        );
+        assert!(
+            inspector_names.contains(&"shell_policy"),
+            "Tool inspection manager should contain shell policy inspector"
         );
         assert!(
             inspector_names.contains(&"adversary"),

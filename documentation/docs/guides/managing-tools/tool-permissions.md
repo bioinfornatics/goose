@@ -126,6 +126,48 @@ Each tool can be set to one of three permission levels:
   </TabItem>
 </Tabs>
 
+## Scoped Permissions
+
+The `/permissions` host command manages the tools attached to the active session without sending a message to the model. Rules can be saved at one of these writable scopes:
+
+| Scope | Lifetime | Storage behavior |
+| --- | --- | --- |
+| **This session** | Current session | Kept in memory and removed with the session |
+| **This project, for me** | Current checkout and user | Stored in `.config/goose/permission.local.yaml` under the session working directory |
+| **This project, shared** | Current project | Stored in `.config/goose/permission.yaml`; until workspace trust is implemented, shared rules are restrictive-only and cannot use **Always Allow** |
+| **All sessions on this device** | Current user | Stored in the existing goose `permission.yaml` file |
+
+The Desktop distinguishes the tools being shown from the destination being changed:
+
+- **Showing** identifies the active session or extension filter.
+- **Saving to** identifies the persistence scope for the rule.
+
+The CLI supports the same model interactively and with explicit subcommands:
+
+```text
+/permissions list
+/permissions set developer__shell ask --scope project-local
+/permissions reset developer__shell --scope session
+```
+
+Valid CLI scope values are `session`, `project-local`, `project-shared`, and `user`. Valid effects are `allow`, `ask`, and `deny`.
+
+### Resolution and provenance
+
+All applicable rules participate in one deterministic resolution:
+
+1. `deny` wins over `ask`, and `ask` wins over `allow` across scopes.
+2. For rules with the same effect, scope precedence is `managed` > `session` > `project-local` > `project-shared` > `user`.
+3. For the same effect and scope, a function rule is more specific than an extension rule, which is more specific than a capability rule.
+
+The UI reports the effective permission, the scope and origin of the winning rule, and the other applicable rules. A local `allow` cannot silently override a broader `deny`.
+
+:::warning Permissions are not a sandbox
+Permission rules decide whether goose may call a tool. They do not constrain what an allowed process can do at the operating-system level. Command aliases, interpreters, scripts, or indirect execution require separate sandboxing controls.
+:::
+
+For the complete lifetime, inheritance, trust, and fail-closed contract, see [Scoped permissions design](./scoped-permissions-design).
+
 ## Benefits of Permission Management
 
 :::tip

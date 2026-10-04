@@ -495,7 +495,35 @@
             {
               "type": "null"
             }
+          ],
+          "description": "Backward-compatible permission value used by existing clients."
+        },
+        "explicitPermission": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ToolPermissionLevel"
+            },
+            {
+              "type": "null"
+            }
           ]
+        },
+        "effectivePermission": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ToolPermissionLevel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "None means Smart Approve must inspect the concrete call arguments at runtime."
+        },
+        "permissionSource": {
+          "$ref": "#/$defs/ToolPermissionSource"
+        },
+        "permissionReason": {
+          "type": "string"
         },
         "inputSchema": {},
         "outputSchema": {}
@@ -504,6 +532,8 @@
         "name",
         "description",
         "parameters",
+        "permissionSource",
+        "permissionReason",
         "inputSchema"
       ],
       "description": "A single tool item returned by the tools list endpoint."
@@ -516,6 +546,17 @@
         "never_allow"
       ],
       "description": "Permission level for a tool."
+    },
+    "ToolPermissionSource": {
+      "type": "string",
+      "enum": [
+        "explicit_rule",
+        "mode_default",
+        "tool_annotation",
+        "smart_approve_cache",
+        "smart_approve_runtime"
+      ],
+      "description": "Explains where the effective permission shown to the user comes from."
     },
     "SetToolPermissionsRequest_unstable": {
       "type": "object",

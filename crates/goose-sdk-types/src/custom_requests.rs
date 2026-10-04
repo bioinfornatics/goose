@@ -58,6 +58,17 @@ pub struct GetToolsRequest {
     pub extension_name: Option<String>,
 }
 
+/// Explains where the effective permission shown to the user comes from.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolPermissionSource {
+    ExplicitRule,
+    ModeDefault,
+    ToolAnnotation,
+    SmartApproveCache,
+    SmartApproveRuntime,
+}
+
 /// A single tool item returned by the tools list endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -65,7 +76,15 @@ pub struct ToolListItem {
     pub name: String,
     pub description: String,
     pub parameters: Vec<String>,
+    /// Backward-compatible permission value used by existing clients.
     pub permission: Option<ToolPermissionLevel>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub explicit_permission: Option<ToolPermissionLevel>,
+    /// None means Smart Approve must inspect the concrete call arguments at runtime.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effective_permission: Option<ToolPermissionLevel>,
+    pub permission_source: ToolPermissionSource,
+    pub permission_reason: String,
     pub input_schema: serde_json::Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_schema: Option<serde_json::Value>,

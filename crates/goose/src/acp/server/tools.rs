@@ -2,8 +2,16 @@ use super::*;
 use crate::agents::extension_manager::{get_parameter_names, is_tool_owned_by_extension};
 use crate::agents::reply_parts::is_tool_visible_to_app;
 use crate::config::permission::PermissionLevel;
-use goose_sdk_types::custom_requests::{ToolListItem, ToolPermissionLevel};
+use goose_sdk_types::custom_requests::{ToolListItem, ToolPermissionLevel, ToolPermissionSource};
 use rmcp::model::CallToolRequestParams;
+
+fn permission_level_to_sdk(level: PermissionLevel) -> ToolPermissionLevel {
+    match level {
+        PermissionLevel::AlwaysAllow => ToolPermissionLevel::AlwaysAllow,
+        PermissionLevel::AskBefore => ToolPermissionLevel::AskBefore,
+        PermissionLevel::NeverAllow => ToolPermissionLevel::NeverAllow,
+    }
+}
 
 impl GooseAcpAgent {
     pub(super) async fn on_get_tools(
@@ -20,22 +28,64 @@ impl GooseAcpAgent {
             .await
             .into_iter()
             .map(|tool| {
-                let permission = permission_manager
+                let explicit_permission = permission_manager
                     .get_user_permission(&tool.name)
-                    .or_else(|| {
-                        if goose_mode == GooseMode::SmartApprove {
-                            permission_manager.get_smart_approve_permission(&tool.name)
-                        } else if goose_mode == GooseMode::Approve {
-                            Some(PermissionLevel::AskBefore)
-                        } else {
-                            None
+                    .map(permission_level_to_sdk);
+                let (effective_permission, permission_source, permission_reason) =
+                    if let Some(permission) = explicit_permission {
+                        (
+                            Some(permission),
+                            ToolPermissionSource::ExplicitRule,
+                            "Explicit user rule".to_string(),
+                        )
+                    } else {
+                        match goose_mode {
+                        GooseMode::Auto => (
+                            Some(ToolPermissionLevel::AlwaysAllow),
+                            ToolPermissionSource::ModeDefault,
+                            "Auto mode allows tool calls".to_string(),
+                        ),
+                        GooseMode::Approve => (
+                            Some(ToolPermissionLevel::AskBefore),
+                            ToolPermissionSource::ModeDefault,
+                            "Approve mode asks before tool calls".to_string(),
+                        ),
+                        GooseMode::Chat => (
+                            Some(ToolPermissionLevel::NeverAllow),
+                            ToolPermissionSource::ModeDefault,
+                            "Chat mode does not run tools".to_string(),
+                        ),
+                        GooseMode::SmartApprove
+                            if tool
+                                .annotations
+                                .as_ref()
+                                .and_then(|annotations| annotations.read_only_hint)
+                                == Some(true) =>
+                        {
+                            (
+                                Some(ToolPermissionLevel::AlwaysAllow),
+                                ToolPermissionSource::ToolAnnotation,
+                                "Tool declares a read-only operation".to_string(),
+                            )
                         }
-                    })
-                    .map(|p| match p {
-                        PermissionLevel::AlwaysAllow => ToolPermissionLevel::AlwaysAllow,
-                        PermissionLevel::AskBefore => ToolPermissionLevel::AskBefore,
-                        PermissionLevel::NeverAllow => ToolPermissionLevel::NeverAllow,
-                    });
+                        GooseMode::SmartApprove => match permission_manager
+                            .get_smart_approve_permission(&tool.name)
+                        {
+                            Some(PermissionLevel::AskBefore) => (
+                                Some(ToolPermissionLevel::AskBefore),
+                                ToolPermissionSource::SmartApproveCache,
+                                "Smart Approve previously classified this tool as state-changing"
+                                    .to_string(),
+                            ),
+                            _ => (
+                                None,
+                                ToolPermissionSource::SmartApproveRuntime,
+                                "Smart Approve evaluates each concrete call at runtime".to_string(),
+                            ),
+                        },
+                    }
+                    };
+                let permission = explicit_permission.or(effective_permission);
                 ToolListItem {
                     name: tool.name.to_string(),
                     description: tool
@@ -45,6 +95,10 @@ impl GooseAcpAgent {
                         .unwrap_or_default(),
                     parameters: get_parameter_names(&tool),
                     permission,
+                    explicit_permission,
+                    effective_permission,
+                    permission_source,
+                    permission_reason,
                     input_schema: serde_json::Value::Object(tool.input_schema.as_ref().clone()),
                     output_schema: tool
                         .output_schema

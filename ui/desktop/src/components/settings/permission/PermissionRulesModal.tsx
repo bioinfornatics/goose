@@ -221,7 +221,12 @@ export default function PermissionRulesModal({ isOpen, onClose }: PermissionRule
                           </div>
                         ) : (
                           tools.map((tool) => {
-                            const value = changes[tool.name] ?? tool.permission ?? 'default';
+                            const value =
+                              changes[tool.name] ?? tool.explicitPermission ?? 'default';
+                            const effectiveLabel = tool.effectivePermission
+                              ? options.find((option) => option.value === tool.effectivePermission)
+                                  ?.label
+                              : 'Evaluated for each call';
                             const id = 'permission-' + tool.name;
                             return (
                               <div
@@ -234,6 +239,9 @@ export default function PermissionRulesModal({ isOpen, onClose }: PermissionRule
                                   </label>
                                   <p className="text-sm text-text-secondary">
                                     {firstSentence(tool.description)}
+                                  </p>
+                                  <p className="text-xs text-text-secondary">
+                                    Effective: {effectiveLabel} · {tool.permissionReason}
                                   </p>
                                   <code className="text-xs text-text-secondary">{tool.name}</code>
                                 </div>

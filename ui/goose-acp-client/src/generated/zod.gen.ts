@@ -139,6 +139,17 @@ export const zToolPermissionLevel = z.enum([
 ]);
 
 /**
+ * Explains where the effective permission shown to the user comes from.
+ */
+export const zToolPermissionSource = z.enum([
+    'explicit_rule',
+    'mode_default',
+    'tool_annotation',
+    'smart_approve_cache',
+    'smart_approve_runtime'
+]);
+
+/**
  * A single tool item returned by the tools list endpoint.
  */
 export const zToolListItem = z.object({
@@ -146,6 +157,10 @@ export const zToolListItem = z.object({
     description: z.string(),
     parameters: z.array(z.string()),
     permission: zToolPermissionLevel.nullish(),
+    explicitPermission: zToolPermissionLevel.nullish(),
+    effectivePermission: zToolPermissionLevel.nullish(),
+    permissionSource: zToolPermissionSource,
+    permissionReason: z.string(),
     inputSchema: z.unknown(),
     outputSchema: z.unknown().optional()
 });

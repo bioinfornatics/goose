@@ -244,7 +244,17 @@ export type ToolListItem = {
     name: string;
     description: string;
     parameters: Array<string>;
+    /**
+     * Backward-compatible permission value used by existing clients.
+     */
     permission?: ToolPermissionLevel | null;
+    explicitPermission?: ToolPermissionLevel | null;
+    /**
+     * None means Smart Approve must inspect the concrete call arguments at runtime.
+     */
+    effectivePermission?: ToolPermissionLevel | null;
+    permissionSource: ToolPermissionSource;
+    permissionReason: string;
     inputSchema: unknown;
     outputSchema?: unknown;
 };
@@ -253,6 +263,11 @@ export type ToolListItem = {
  * Permission level for a tool.
  */
 export type ToolPermissionLevel = 'always_allow' | 'ask_before' | 'never_allow';
+
+/**
+ * Explains where the effective permission shown to the user comes from.
+ */
+export type ToolPermissionSource = 'explicit_rule' | 'mode_default' | 'tool_annotation' | 'smart_approve_cache' | 'smart_approve_runtime';
 
 /**
  * Set permission levels for one or more tools.

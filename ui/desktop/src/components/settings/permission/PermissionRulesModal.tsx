@@ -4,7 +4,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Input } from '../../ui/input';
 import { Button } from '../../ui/button';
 import { useChatContext } from '../../../contexts/ChatContext';
-import { getSessionExtensions } from '../../../acp/session-extensions';
+import { getSessionExtensions, type SessionExtension } from '../../../acp/session-extensions';
 import { listTools, setToolPermissions } from '../../../acp/permissions';
 import type { ToolListItem, ToolPermissionLevel } from '../../../acp/permissions';
 import { defineMessages, useIntl } from '../../../i18n';
@@ -42,6 +42,12 @@ type ExtensionTools = {
   tools: ToolListItem[];
   failed: boolean;
 };
+
+export function sessionExtensionNames(extensions: SessionExtension[]): string[] {
+  return extensions
+    .map((extension) => extension.name)
+    .sort((left, right) => left.localeCompare(right));
+}
 
 export function humanizeToolName(name: string): string {
   const rawName = name.split('__').at(-1) ?? name;

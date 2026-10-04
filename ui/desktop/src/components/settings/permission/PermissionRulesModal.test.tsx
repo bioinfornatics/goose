@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { humanizeToolName, toolMetadataLabels } from './PermissionRulesModal';
+import {
+  humanizeToolName,
+  sessionExtensionNames,
+  toolMetadataLabels,
+} from './PermissionRulesModal';
+import type { SessionExtension } from '../../../acp/session-extensions';
 import type { ToolListItem } from '../../../acp/permissions';
 
 describe('permission tool labels', () => {
@@ -27,5 +32,15 @@ describe('permission tool labels', () => {
   it('recommends approval when impact metadata is missing', () => {
     const tool = { metadataHints: {} } as ToolListItem;
     expect(toolMetadataLabels(tool)).toEqual(['Impact not declared · Approval recommended']);
+  });
+
+  it('uses only the extensions returned for the active session', () => {
+    const extensions = [
+      { name: 'github', extensionKey: 'github' },
+      { name: 'developer', extensionKey: 'developer' },
+    ] as SessionExtension[];
+
+    expect(sessionExtensionNames(extensions)).toEqual(['developer', 'github']);
+    expect(sessionExtensionNames(extensions)).not.toContain('configured-but-disabled');
   });
 });

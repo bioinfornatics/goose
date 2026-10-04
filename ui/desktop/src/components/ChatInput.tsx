@@ -43,6 +43,8 @@ import TurndownService from 'turndown';
 import type { NextChatExtensionDraft } from '../utils/nextChatExtensions';
 import { LiveVoiceButton } from './LiveVoiceButton';
 import type { LiveVoiceAvailabilityResponse_unstable } from '@aaif/goose-acp-client';
+import PermissionRulesModal from './settings/permission/PermissionRulesModal';
+import { isHostSlashCommand } from '../acp/autocomplete';
 import { isLiveVoiceActive, type LiveVoiceController } from '../liveVoice/useLiveVoice';
 
 const turndown = new TurndownService({
@@ -72,10 +74,7 @@ interface PastedImage {
   error?: string;
 }
 
-type ChatInputLiveVoice = Pick<
-  LiveVoiceController,
-  'phase' | 'muted' | 'stop' | 'toggleMute'
-> & {
+type ChatInputLiveVoice = Pick<LiveVoiceController, 'phase' | 'muted' | 'stop' | 'toggleMute'> & {
   availability: LiveVoiceAvailabilityResponse_unstable | null;
   activeInAnotherSession: boolean;
   start: () => Promise<void>;
@@ -329,6 +328,7 @@ export default function ChatInput({
     null
   ) as React.RefObject<HTMLDivElement>;
   const intl = useIntl();
+  const [isPermissionRulesOpen, setIsPermissionRulesOpen] = useState(false);
   const {
     getCurrentModelAndProvider,
     currentModel: configModel,
@@ -1162,8 +1162,20 @@ export default function ChatInput({
 
   const performSubmit = useCallback(
     (text?: string) => {
+      const rawText = text ?? displayValue.trim();
+      if (isHostSlashCommand(rawText)) {
+        setIsPermissionRulesOpen(true);
+        LocalMessageStorage.addMessage(rawText);
+        clearInputState();
+        setHistoryIndex(-1);
+        setSavedInput('');
+        setIsInGlobalHistory(false);
+        setHasUserTyped(false);
+        return;
+      }
+
       const imageData = convertImagesToImageData();
-      const textToSend = appendDroppedFilePaths(text ?? displayValue.trim());
+      const textToSend = appendDroppedFilePaths(rawText);
 
       if (textToSend || imageData.length > 0) {
         // Store original message in history
@@ -1542,6 +1554,10 @@ export default function ChatInput({
       onDrop={handleLocalDrop}
       onDragOver={handleLocalDragOver}
     >
+      <PermissionRulesModal
+        isOpen={isPermissionRulesOpen}
+        onClose={() => setIsPermissionRulesOpen(false)}
+      />
       <input
         ref={fileInputRef}
         type="file"

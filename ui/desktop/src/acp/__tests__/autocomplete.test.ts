@@ -1,6 +1,10 @@
 import type { AgentMention, AvailableCommand } from '@aaif/goose-acp-client';
 import { describe, expect, it } from 'vitest';
-import { agentMentionToDisplayItem, availableCommandToDisplayItem } from '../autocomplete';
+import {
+  agentMentionToDisplayItem,
+  availableCommandToDisplayItem,
+  isHostSlashCommand,
+} from '../autocomplete';
 
 function command(overrides: Partial<AvailableCommand>): AvailableCommand {
   return {
@@ -109,5 +113,11 @@ describe('ACP autocomplete mapping', () => {
     expect(agentMentionToDisplayItem(agent({ mention: '@reviewer ' }))).toMatchObject({
       insertText: '@reviewer ',
     });
+  });
+
+  it('recognizes only the exact permissions host command', () => {
+    expect(isHostSlashCommand('/permissions')).toBe(true);
+    expect(isHostSlashCommand(' /permissions ')).toBe(true);
+    expect(isHostSlashCommand('/permissions extra')).toBe(false);
   });
 });

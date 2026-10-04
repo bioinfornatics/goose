@@ -38,6 +38,7 @@ use goose::agents::{
     context_management_unsupported_message, Agent, SessionConfig, COMPACT_TRIGGERS,
 };
 use goose::config::extensions::name_to_key;
+use goose::config::permission::PermissionLevel;
 use goose::config::{Config, GooseMode};
 use input::InputResult;
 use rmcp::model::ServerNotification;
@@ -773,7 +774,82 @@ impl CliSession {
                 history.save(editor);
                 self.handle_list_skills().await?;
             }
+            InputResult::Permissions => {
+                history.save(editor);
+                self.handle_permissions().await?;
+            }
         }
+        Ok(())
+    }
+
+    async fn handle_permissions(&self) -> Result<()> {
+        let tools = self.agent.list_tools(&self.session_id, None).await;
+        if tools.is_empty() {
+            output::render_error("No tools are available in this session.");
+            return Ok(());
+        }
+
+        let permission_manager = &self.agent.config.permission_manager;
+        let tool_name = cliclack::select("Choose a tool to update permission")
+            .items(
+                &tools
+                    .iter()
+                    .map(|tool| {
+                        let description = tool
+                            .description
+                            .as_deref()
+                            .unwrap_or("No description available")
+                            .split('.')
+                            .next()
+                            .unwrap_or_default()
+                            .trim();
+                        {
+                            let display_name = tool
+                                .name
+                                .split("__")
+                                .last()
+                                .unwrap_or(&tool.name)
+                                .replace('_', " ");
+                            (tool.name.clone(), display_name, description)
+                        }
+                    })
+                    .collect::<Vec<_>>(),
+            )
+            .filter_mode()
+            .interact()?;
+
+        let current_permission = match permission_manager.get_user_permission(&tool_name) {
+            Some(PermissionLevel::AlwaysAllow) => "Always Allow",
+            Some(PermissionLevel::AskBefore) => "Ask Before",
+            Some(PermissionLevel::NeverAllow) => "Never Allow",
+            None => "Not Set",
+        };
+        let permission = cliclack::select(format!(
+            "Set permission level for {tool_name} (currently {current_permission})"
+        ))
+        .item(
+            Some(PermissionLevel::AlwaysAllow),
+            "Always Allow",
+            "Allow this tool to execute without asking",
+        )
+        .item(
+            Some(PermissionLevel::AskBefore),
+            "Ask Before",
+            "Prompt before executing this tool",
+        )
+        .item(
+            Some(PermissionLevel::NeverAllow),
+            "Never Allow",
+            "Prevent this tool from executing",
+        )
+        .item(None, "Use Mode Default", "Remove the explicit permission")
+        .interact()?;
+
+        match permission {
+            Some(permission) => permission_manager.update_user_permission(&tool_name, permission),
+            None => permission_manager.remove_user_permission(&tool_name),
+        }
+        cliclack::outro(format!("Updated permission for {tool_name}."))?;
         Ok(())
     }
 

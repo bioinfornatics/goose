@@ -31,6 +31,7 @@ pub enum InputResult {
     Edit(Option<String>),
     ListSkills,
     LoadSkills(Vec<String>),
+    Permissions,
 }
 
 #[derive(Debug)]
@@ -321,6 +322,7 @@ fn handle_slash_command(input: &str) -> Option<InputResult> {
                 }))
             }
         }
+        "/permissions" => Some(InputResult::Permissions),
         s if s == CMD_CLEAR => Some(InputResult::Clear),
         s if s == CMD_NEW => Some(InputResult::New),
         s if s == CMD_COMPACT => Some(InputResult::Compact),
@@ -432,6 +434,7 @@ fn help_text() -> String {
 /model [name] - Show the current model, or switch models for this session while keeping the same provider
 /model --provider <name> [model] - Switch to a different provider (optionally specifying a model)
 /compact - Compact the current conversation to reduce context length while preserving key information.
+/permissions - Manage tool permissions for this session's available tools
 {additional_builtin_help}/status - Show session status: model, provider, mode, and token usage.
 /edit [text] - Open your prompt editor to compose a message. Optionally pre-fill with text.
                Uses $GOOSE_PROMPT_EDITOR, $VISUAL, or $EDITOR (in that order).
@@ -527,6 +530,12 @@ mod tests {
             handle_slash_command("/r"),
             Some(InputResult::ToggleFullToolOutput)
         ));
+
+        assert!(matches!(
+            handle_slash_command("/permissions"),
+            Some(InputResult::Permissions)
+        ));
+        assert!(handle_slash_command("/permissions extra").is_none());
 
         // Test extension command
         if let Some(InputResult::AddExtension(cmd)) = handle_slash_command("/extension foo bar") {

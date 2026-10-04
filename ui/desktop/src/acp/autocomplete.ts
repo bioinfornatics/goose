@@ -7,14 +7,24 @@ type AutocompleteDisplayItem = DisplayItem;
 
 const SLASH_COMMAND_ITEM_TYPES = new Set<string>(['Builtin', 'Recipe', 'Skill']);
 
+const HOST_SLASH_COMMANDS: AutocompleteDisplayItem[] = [
+  {
+    name: 'permissions',
+    extra: 'Manage tool permissions without sending a message',
+    itemType: 'Builtin',
+    relativePath: 'permissions',
+  },
+];
+
+export function isHostSlashCommand(value: string): boolean {
+  return value.trim() === '/permissions';
+}
+
 function isSlashCommandItemType(value: unknown): value is SlashCommandItemType {
   return typeof value === 'string' && SLASH_COMMAND_ITEM_TYPES.has(value);
 }
 
-function stringMetaValue(
-  meta: AvailableCommand['_meta'],
-  key: string
-): string | undefined {
+function stringMetaValue(meta: AvailableCommand['_meta'], key: string): string | undefined {
   const value = meta?.[key];
   return typeof value === 'string' && value.trim() ? value : undefined;
 }
@@ -33,7 +43,8 @@ export function availableCommandToDisplayItem(
   }
 
   const sourcePath = stringMetaValue(command._meta, 'sourcePath');
-  const extra = commandType === 'Recipe' ? sourcePath ?? command.description : command.description;
+  const extra =
+    commandType === 'Recipe' ? (sourcePath ?? command.description) : command.description;
 
   return {
     name: command.name,
@@ -58,9 +69,11 @@ export function agentMentionToDisplayItem(agent: AgentMention): AutocompleteDisp
 export async function listSlashCommandItems(cwd: string): Promise<AutocompleteDisplayItem[]> {
   const client = await getAcpClient();
   const response = await client.goose.slashCommandsList_unstable(cwdParam(cwd));
-  return response.availableCommands
+  const commands = response.availableCommands
     .map(availableCommandToDisplayItem)
     .filter((item): item is AutocompleteDisplayItem => item !== null);
+  const names = new Set(commands.map((command) => command.name));
+  return [...commands, ...HOST_SLASH_COMMANDS.filter((command) => !names.has(command.name))];
 }
 
 export async function listAgentMentionItems(

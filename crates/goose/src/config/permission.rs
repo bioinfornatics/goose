@@ -161,6 +161,24 @@ impl PermissionManager {
         self.update_permission(USER_PERMISSION, principal_name, level)
     }
 
+    /// Removes an explicit user permission so the current goose mode decides again.
+    pub fn remove_user_permission(&self, principal_name: &str) {
+        self.mutate_permission_map(|map| {
+            let Some(permission_config) = map.get_mut(USER_PERMISSION) else {
+                return;
+            };
+            permission_config
+                .always_allow
+                .retain(|permission| permission != principal_name);
+            permission_config
+                .ask_before
+                .retain(|permission| permission != principal_name);
+            permission_config
+                .never_allow
+                .retain(|permission| permission != principal_name);
+        });
+    }
+
     /// Updates the smart approve permission level for a specific tool.
     pub fn update_smart_approve_permission(&self, principal_name: &str, level: PermissionLevel) {
         self.update_permission(SMART_APPROVE_PERMISSION, principal_name, level)
@@ -561,6 +579,16 @@ mod tests {
             reloaded_manager.get_user_permission("target_tool"),
             Some(PermissionLevel::AskBefore)
         );
+    }
+
+    #[test]
+    fn remove_user_permission_restores_unset_state() {
+        let (manager, _temp_dir) = create_test_permission_manager();
+        manager.update_user_permission("developer__shell", PermissionLevel::NeverAllow);
+
+        manager.remove_user_permission("developer__shell");
+
+        assert_eq!(manager.get_user_permission("developer__shell"), None);
     }
 
     use test_case::test_case;

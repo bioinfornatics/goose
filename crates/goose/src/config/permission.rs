@@ -1,4 +1,9 @@
 use crate::config::paths::Paths;
+use crate::config::scoped_permissions::{
+    resolve_permission, PermissionEffect, PermissionPrincipal, PermissionRequest,
+    PermissionResolution, PermissionRule, PermissionScope, RuleOrigin,
+};
+use anyhow::{bail, Result};
 use fs2::FileExt;
 use rmcp::model::Tool;
 use serde::{Deserialize, Serialize};
@@ -30,6 +35,8 @@ pub struct PermissionConfig {
     pub always_allow: Vec<String>, // List of tools that are always allowed
     pub ask_before: Vec<String>,   // List of tools that require user consent
     pub never_allow: Vec<String>,  // List of tools that are never allowed
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rules: Vec<PermissionRule>,
 }
 
 /// PermissionManager manages permission configurations for various tools.
@@ -37,6 +44,7 @@ pub struct PermissionConfig {
 pub struct PermissionManager {
     config_path: PathBuf,
     permission_map: RwLock<HashMap<String, PermissionConfig>>,
+    session_rules: RwLock<HashMap<String, Vec<PermissionRule>>>,
 }
 
 // Constants representing specific permission categories
@@ -56,6 +64,7 @@ impl PermissionManager {
         PermissionManager {
             config_path: permission_path,
             permission_map: RwLock::new(permission_map),
+            session_rules: RwLock::new(HashMap::new()),
         }
     }
 
@@ -293,6 +302,263 @@ impl PermissionManager {
         temporary_file
             .persist(storage_path)
             .expect("Failed to write to permission.yaml");
+    }
+
+    /// Collects applicable persisted and session rules.
+    ///
+    /// Project files follow the existing project configuration pattern:
+    /// `.config/goose/permission.yaml` is shared and
+    /// `.config/goose/permission.local.yaml` is checkout-local. Because goose
+    /// has no workspace trust service yet, shared rules are restrictive-only.
+    pub fn scoped_rules(
+        &self,
+        project_root: Option<&Path>,
+        session_id: Option<&str>,
+    ) -> Result<Vec<PermissionRule>> {
+        let mut rules = self.user_scoped_rules();
+        if let Some(root) = project_root {
+            rules.extend(Self::load_project_rules(
+                &Self::project_permission_path(root, PermissionScope::ProjectShared)?,
+                PermissionScope::ProjectShared,
+            )?);
+            rules.extend(Self::load_project_rules(
+                &Self::project_permission_path(root, PermissionScope::ProjectLocal)?,
+                PermissionScope::ProjectLocal,
+            )?);
+        }
+        if let Some(id) = session_id {
+            rules.extend(
+                self.session_rules
+                    .read()
+                    .unwrap()
+                    .get(id)
+                    .cloned()
+                    .unwrap_or_default(),
+            );
+        }
+        Ok(rules)
+    }
+
+    /// Resolves scoped rules. A broken project source produces `ask` rather
+    /// than allowing another source to widen access.
+    pub fn resolve_scoped_permission(
+        &self,
+        project_root: Option<&Path>,
+        session_id: Option<&str>,
+        request: &PermissionRequest,
+    ) -> PermissionResolution {
+        match self.scoped_rules(project_root, session_id) {
+            Ok(rules) => resolve_permission(&rules, request),
+            Err(error) => {
+                tracing::error!(%error, "Failed to load scoped permissions; asking instead");
+                PermissionResolution {
+                    effect: PermissionEffect::Ask,
+                    matched_rule: None,
+                }
+            }
+        }
+    }
+
+    pub fn update_scoped_permission(
+        &self,
+        scope: PermissionScope,
+        project_root: Option<&Path>,
+        session_id: Option<&str>,
+        principal: PermissionPrincipal,
+        effect: PermissionEffect,
+    ) -> Result<()> {
+        if scope == PermissionScope::ProjectShared && effect == PermissionEffect::Allow {
+            bail!("shared project allow rules require workspace trust support");
+        }
+        let source = Self::scope_source(scope, project_root, session_id)?;
+        let rule = PermissionRule {
+            origin: RuleOrigin { scope, source },
+            principal,
+            effect,
+        };
+        match scope {
+            PermissionScope::User => {
+                self.mutate_permission_map(|map| {
+                    let rules = &mut map.entry(USER_PERMISSION.to_string()).or_default().rules;
+                    Self::replace_rule(rules, rule);
+                });
+            }
+            PermissionScope::ProjectShared | PermissionScope::ProjectLocal => {
+                let root = project_root
+                    .ok_or_else(|| anyhow::anyhow!("project scope requires a project root"))?;
+                let path = Self::project_permission_path(root, scope)?;
+                Self::mutate_rule_file(&path, scope, |rules| Self::replace_rule(rules, rule))?;
+            }
+            PermissionScope::Session => {
+                let id = session_id
+                    .ok_or_else(|| anyhow::anyhow!("session scope requires a session ID"))?;
+                let mut sessions = self.session_rules.write().unwrap();
+                Self::replace_rule(sessions.entry(id.to_string()).or_default(), rule);
+            }
+            PermissionScope::Managed => bail!("managed permission storage is not implemented"),
+        }
+        Ok(())
+    }
+
+    pub fn reset_scoped_permissions(
+        &self,
+        scope: PermissionScope,
+        project_root: Option<&Path>,
+        session_id: Option<&str>,
+    ) -> Result<()> {
+        match scope {
+            PermissionScope::User => self.mutate_permission_map(|map| {
+                if let Some(config) = map.get_mut(USER_PERMISSION) {
+                    config.rules.clear();
+                    config.always_allow.clear();
+                    config.ask_before.clear();
+                    config.never_allow.clear();
+                }
+            }),
+            PermissionScope::ProjectShared | PermissionScope::ProjectLocal => {
+                let root = project_root
+                    .ok_or_else(|| anyhow::anyhow!("project scope requires a project root"))?;
+                let path = Self::project_permission_path(root, scope)?;
+                Self::mutate_rule_file(&path, scope, Vec::clear)?;
+            }
+            PermissionScope::Session => {
+                let id = session_id
+                    .ok_or_else(|| anyhow::anyhow!("session scope requires a session ID"))?;
+                self.session_rules.write().unwrap().remove(id);
+            }
+            PermissionScope::Managed => bail!("managed permission storage is not implemented"),
+        }
+        Ok(())
+    }
+
+    pub fn remove_session_permissions(&self, session_id: &str) {
+        self.session_rules.write().unwrap().remove(session_id);
+    }
+
+    pub fn project_permission_path(root: &Path, scope: PermissionScope) -> Result<PathBuf> {
+        let file = match scope {
+            PermissionScope::ProjectShared => PERMISSION_FILE,
+            PermissionScope::ProjectLocal => "permission.local.yaml",
+            _ => bail!("only project scopes have project paths"),
+        };
+        Ok(root.join(".config").join("goose").join(file))
+    }
+
+    fn user_scoped_rules(&self) -> Vec<PermissionRule> {
+        let map = self.permission_map.read().unwrap();
+        let Some(user) = map.get(USER_PERMISSION) else {
+            return Vec::new();
+        };
+        let mut rules = user.rules.clone();
+        for rule in &mut rules {
+            rule.origin.scope = PermissionScope::User;
+            rule.origin.source = self.config_path.display().to_string();
+        }
+        for (names, effect) in [
+            (&user.always_allow, PermissionEffect::Allow),
+            (&user.ask_before, PermissionEffect::Ask),
+            (&user.never_allow, PermissionEffect::Deny),
+        ] {
+            rules.extend(names.iter().map(|name| PermissionRule {
+                origin: RuleOrigin {
+                    scope: PermissionScope::User,
+                    source: self.config_path.display().to_string(),
+                },
+                principal: Self::legacy_principal(name),
+                effect,
+            }));
+        }
+        rules
+    }
+
+    fn legacy_principal(name: &str) -> PermissionPrincipal {
+        match name.split_once("__") {
+            Some((extension, function)) => PermissionPrincipal::Function {
+                extension: extension.to_string(),
+                function: function.to_string(),
+            },
+            None => PermissionPrincipal::Extension {
+                extension: name.to_string(),
+            },
+        }
+    }
+
+    fn scope_source(
+        scope: PermissionScope,
+        project_root: Option<&Path>,
+        session_id: Option<&str>,
+    ) -> Result<String> {
+        Ok(match scope {
+            PermissionScope::User => "user".to_string(),
+            PermissionScope::ProjectShared | PermissionScope::ProjectLocal => {
+                Self::project_permission_path(
+                    project_root
+                        .ok_or_else(|| anyhow::anyhow!("project scope requires a project root"))?,
+                    scope,
+                )?
+                .display()
+                .to_string()
+            }
+            PermissionScope::Session => format!(
+                "session:{}",
+                session_id.ok_or_else(|| anyhow::anyhow!("session scope requires a session ID"))?
+            ),
+            PermissionScope::Managed => bail!("managed permission storage is not implemented"),
+        })
+    }
+
+    fn replace_rule(rules: &mut Vec<PermissionRule>, rule: PermissionRule) {
+        rules.retain(|existing| existing.principal != rule.principal);
+        rules.push(rule);
+    }
+
+    fn load_project_rules(path: &Path, scope: PermissionScope) -> Result<Vec<PermissionRule>> {
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let contents = fs::read_to_string(path)?;
+        let mut rules: Vec<PermissionRule> = serde_yaml::from_str(&contents)?;
+        for rule in &mut rules {
+            if rule.origin.scope != scope {
+                bail!("{} contains a rule with the wrong scope", path.display());
+            }
+            if scope == PermissionScope::ProjectShared && rule.effect == PermissionEffect::Allow {
+                bail!(
+                    "{} contains an allow rule but workspace trust is unavailable",
+                    path.display()
+                );
+            }
+            rule.origin.source = path.display().to_string();
+        }
+        Ok(rules)
+    }
+
+    fn mutate_rule_file<F>(path: &Path, scope: PermissionScope, mutation: F) -> Result<()>
+    where
+        F: FnOnce(&mut Vec<PermissionRule>),
+    {
+        let storage_path = Self::permission_storage_path(path);
+        let parent = storage_path
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("permission file has no parent"))?;
+        fs::create_dir_all(parent)?;
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(storage_path.with_extension("yaml.lock"))?;
+        lock.lock_exclusive()?;
+        let mut rules = Self::load_project_rules(&storage_path, scope)?;
+        mutation(&mut rules);
+        let yaml = serde_yaml::to_string(&rules)?;
+        let mut temporary = NamedTempFile::new_in(parent)?;
+        temporary.write_all(yaml.as_bytes())?;
+        temporary.as_file().sync_all()?;
+        temporary
+            .persist(&storage_path)
+            .map_err(|error| error.error)?;
+        Ok(())
     }
 
     pub fn remove_extension(&self, extension_name: &str) {

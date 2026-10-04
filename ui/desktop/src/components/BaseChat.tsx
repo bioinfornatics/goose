@@ -95,6 +95,7 @@ export default function BaseChat({
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const disableAnimation = location.state?.disableAnimation || false;
   const shouldStartLiveVoice = location.state?.startLiveVoice === true;
+  const shouldOpenPermissions = location.state?.openPermissions === true;
   const [hasStartedUsingRecipe, setHasStartedUsingRecipe] = React.useState(false);
   const [acpRecovering, setAcpRecovering] = useState(isAcpRecovering);
   const [liveVoiceAvailability, setLiveVoiceAvailability] =
@@ -136,10 +137,7 @@ export default function BaseChat({
         setQuoteButtonPos(null);
         return;
       }
-      if (
-        !conversationRef.current ||
-        !conversationRef.current.contains(sel.anchorNode)
-      ) {
+      if (!conversationRef.current || !conversationRef.current.contains(sel.anchorNode)) {
         setQuoteButtonPos(null);
         return;
       }
@@ -183,6 +181,17 @@ export default function BaseChat({
 
   const sessionLoaded = session !== undefined;
   const liveVoiceChatBusy = chatState !== ChatState.Idle;
+
+  useEffect(() => {
+    if (!isActiveSession || !shouldOpenPermissions) {
+      return;
+    }
+
+    navigate(location, {
+      replace: true,
+      state: { ...location.state, openPermissions: undefined },
+    });
+  }, [isActiveSession, shouldOpenPermissions, location, navigate]);
 
   useEffect(() => {
     if (!isActiveSession || !shouldStartLiveVoice || liveVoiceAvailability === null) {
@@ -549,17 +558,17 @@ export default function BaseChat({
               <>
                 <SearchView>
                   <div ref={conversationRef}>
-                  <ProgressiveMessageList
-                    messages={messages}
-                    sessionId={sessionId}
-                    toolCallNotifications={toolCallNotifications}
-                    append={appendToChat}
-                    isUserMessage={isUserMessage}
-                    isStreamingMessage={chatState !== ChatState.Idle}
-                    onRenderingComplete={handleRenderingComplete}
-                    onMessageUpdate={onMessageUpdate}
-                    submitElicitationResponse={submitElicitationResponse}
-                  />
+                    <ProgressiveMessageList
+                      messages={messages}
+                      sessionId={sessionId}
+                      toolCallNotifications={toolCallNotifications}
+                      append={appendToChat}
+                      isUserMessage={isUserMessage}
+                      isStreamingMessage={chatState !== ChatState.Idle}
+                      onRenderingComplete={handleRenderingComplete}
+                      onMessageUpdate={onMessageUpdate}
+                      submitElicitationResponse={submitElicitationResponse}
+                    />
                   </div>
                 </SearchView>
 
@@ -655,6 +664,7 @@ export default function BaseChat({
             }}
             appendQuote={pendingQuote}
             onAppendQuoteConsumed={() => setPendingQuote(null)}
+            openPermissionsOnMount={shouldOpenPermissions}
             {...customChatInputProps}
           />
         </ChatInputCard>

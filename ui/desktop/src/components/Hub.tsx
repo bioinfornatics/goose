@@ -167,6 +167,24 @@ export default function Hub({
     }
   };
 
+  const openPermissions = async () => {
+    const session = await createHubSession();
+    if (!session) return;
+
+    window.dispatchEvent(new CustomEvent(AppEvents.SESSION_CREATED));
+    window.dispatchEvent(
+      new CustomEvent(AppEvents.ADD_ACTIVE_SESSION, {
+        detail: { sessionId: session.id },
+      })
+    );
+    setView('pair', {
+      disableAnimation: true,
+      resumeSessionId: session.id,
+      openPermissions: true,
+      noAutoSubmit: true,
+    });
+  };
+
   const handleSubmit = async (input: UserInput) => {
     const { msg: userMessage, images } = input;
     if (!(images.length > 0 || userMessage.trim())) return;
@@ -252,6 +270,7 @@ export default function Hub({
             inputRef={inputRef}
             nextChatExtensionDraft={draftForMenu}
             onNextChatExtensionDraftChange={handleNextChatExtensionDraftChange}
+            onOpenPermissions={openPermissions}
             liveVoice={{
               availability: isCreatingSession ? null : liveVoiceAvailability,
               phase: 'idle',

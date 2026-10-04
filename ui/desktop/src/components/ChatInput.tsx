@@ -213,6 +213,8 @@ interface ChatInputProps {
   liveVoice?: ChatInputLiveVoice;
   appendQuote?: string | null;
   onAppendQuoteConsumed?: () => void;
+  onOpenPermissions?: () => void | Promise<void>;
+  openPermissionsOnMount?: boolean;
 }
 
 export default function ChatInput({
@@ -253,6 +255,8 @@ export default function ChatInput({
   liveVoice,
   appendQuote,
   onAppendQuoteConsumed,
+  onOpenPermissions,
+  openPermissionsOnMount = false,
 }: ChatInputProps) {
   const [_value, setValue] = useState(initialValue);
   const [displayValue, setDisplayValue] = useState(initialValue); // For immediate visual feedback
@@ -328,7 +332,9 @@ export default function ChatInput({
     null
   ) as React.RefObject<HTMLDivElement>;
   const intl = useIntl();
-  const [isPermissionRulesOpen, setIsPermissionRulesOpen] = useState(false);
+  const [isPermissionRulesOpen, setIsPermissionRulesOpen] = useState(
+    openPermissionsOnMount && Boolean(sessionId)
+  );
   const {
     getCurrentModelAndProvider,
     currentModel: configModel,
@@ -1164,7 +1170,11 @@ export default function ChatInput({
     (text?: string) => {
       const rawText = text ?? displayValue.trim();
       if (isHostSlashCommand(rawText)) {
-        setIsPermissionRulesOpen(true);
+        if (onOpenPermissions) {
+          void onOpenPermissions();
+        } else {
+          setIsPermissionRulesOpen(true);
+        }
         LocalMessageStorage.addMessage(rawText);
         clearInputState();
         setHistoryIndex(-1);
@@ -1221,6 +1231,7 @@ export default function ChatInput({
       lastInterruption,
       clearInputState,
       sessionId,
+      onOpenPermissions,
     ]
   );
 
@@ -1557,6 +1568,7 @@ export default function ChatInput({
       <PermissionRulesModal
         isOpen={isPermissionRulesOpen}
         onClose={() => setIsPermissionRulesOpen(false)}
+        sessionId={sessionId ?? undefined}
       />
       <input
         ref={fileInputRef}

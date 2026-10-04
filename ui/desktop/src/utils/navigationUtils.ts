@@ -29,7 +29,9 @@ export type ViewOptions = {
   disableAnimation?: boolean;
   initialMessage?: UserInput;
   resumeSessionId?: string;
+  noAutoSubmit?: boolean;
   startLiveVoice?: boolean;
+  openPermissions?: boolean;
   pendingScheduleDeepLink?: string;
 };
 

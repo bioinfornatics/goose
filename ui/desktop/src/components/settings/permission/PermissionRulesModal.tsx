@@ -81,6 +81,7 @@ interface PermissionRulesModalProps {
   isOpen: boolean;
   onClose: () => void;
   extensionFilter?: string;
+  sessionId?: string;
 }
 
 const scopeLabels: Record<ToolPermissionScope, string> = {
@@ -90,6 +91,13 @@ const scopeLabels: Record<ToolPermissionScope, string> = {
   user: 'All sessions on this device',
   managed: 'Managed by organization',
 };
+
+export function resolvePermissionSessionId(
+  sessionIdProp: string | undefined,
+  contextSessionId: string
+): string {
+  return sessionIdProp ?? contextSessionId;
+}
 
 export function permissionAtScope(
   tool: ToolListItem,
@@ -109,9 +117,11 @@ export default function PermissionRulesModal({
   isOpen,
   onClose,
   extensionFilter,
+  sessionId: sessionIdProp,
 }: PermissionRulesModalProps) {
   const intl = useIntl();
-  const sessionId = useChatContext()?.chat.sessionId ?? '';
+  const contextSessionId = useChatContext()?.chat.sessionId ?? '';
+  const sessionId = resolvePermissionSessionId(sessionIdProp, contextSessionId);
   const [groups, setGroups] = useState<ExtensionTools[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [changes, setChanges] = useState<Record<string, PermissionChoice>>({});

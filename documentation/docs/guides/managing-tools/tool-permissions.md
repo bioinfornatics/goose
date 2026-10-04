@@ -168,6 +168,24 @@ Permission rules decide whether goose may call a tool. They do not constrain wha
 
 For the complete lifetime, inheritance, trust, and fail-closed contract, see [Scoped permissions design](./scoped-permissions-design).
 
+## Deterministic Shell Safety Policy
+
+The built-in Developer shell applies a deterministic safety policy before permission-mode and Smart Approval decisions:
+
+| Command family | Decision |
+| --- | --- |
+| `sudo`, `doas`, or `su` | Deny |
+| Recursive forced `rm` targeting filesystem root, including `rm -rf /`, `rm -fr /`, split flags, long flags, and `/bin/rm` | Deny |
+| Other `rm` commands | Ask |
+| Safely parsed commands that match no policy | Continue to normal permission evaluation |
+| Dynamic or unsupported shell syntax | Ask |
+
+The evaluator tokenizes a bounded subset of POSIX shell syntax, separates linear chains such as `;`, `&&`, `||`, pipes, and newlines, unwraps selected transparent wrappers, and applies the most restrictive decision across all subcommands. Policy tests use command strings only and never execute destructive commands.
+
+:::warning Command policy is not a sandbox
+Interpreters, mutable scripts, aliases, indirect filesystem APIs, and syntax outside the bounded parser can have equivalent effects without matching a command rule. Unknown syntax asks for approval, but an OS sandbox and a non-privileged account remain necessary security boundaries.
+:::
+
 ## Benefits of Permission Management
 
 :::tip

@@ -36,6 +36,22 @@ describe('permission tool labels', () => {
     expect(toolMetadataLabels(tool)).toEqual(['Impact not declared · Approval recommended']);
   });
 
+  it('surfaces deterministic shell policy rules without hiding their limitation', () => {
+    const tool = {
+      shellPolicy: {
+        enforcement: 'Built-in deterministic policy',
+        rules: [{ decision: 'deny', pattern: 'sudo | doas | su', reason: 'Forbidden' }],
+        limitations: 'Not an OS sandbox',
+      },
+    } as ToolListItem;
+
+    expect(tool.shellPolicy?.rules[0]).toMatchObject({
+      decision: 'deny',
+      pattern: 'sudo | doas | su',
+    });
+    expect(tool.shellPolicy?.limitations).toContain('sandbox');
+  });
+
   it('prefers the authoritative ChatInput session ID over stale context', () => {
     expect(resolvePermissionSessionId('new-session', '')).toBe('new-session');
     expect(resolvePermissionSessionId(undefined, 'context-session')).toBe('context-session');

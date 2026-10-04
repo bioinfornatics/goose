@@ -69,12 +69,32 @@ pub enum ToolPermissionSource {
     SmartApproveRuntime,
 }
 
+/// Descriptive metadata supplied by the tool provider. These are hints, not security guarantees.
+#[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolMetadataHints {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_only: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destructive: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotent: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open_world: Option<bool>,
+}
+
 /// A single tool item returned by the tools list endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolListItem {
     pub name: String,
+    pub display_name: String,
     pub description: String,
+    /// Extension/MCP scope parsed from the canonical routed tool name.
+    pub extension_name: String,
+    /// Whether the display metadata is built into Goose or declared by an MCP server.
+    pub metadata_source: String,
+    pub metadata_hints: ToolMetadataHints,
     pub parameters: Vec<String>,
     /// Backward-compatible permission value used by existing clients.
     pub permission: Option<ToolPermissionLevel>,

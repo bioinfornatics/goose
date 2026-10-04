@@ -478,8 +478,22 @@
         "name": {
           "type": "string"
         },
+        "displayName": {
+          "type": "string"
+        },
         "description": {
           "type": "string"
+        },
+        "extensionName": {
+          "type": "string",
+          "description": "Extension/MCP scope parsed from the canonical routed tool name."
+        },
+        "metadataSource": {
+          "type": "string",
+          "description": "Whether the display metadata is built into Goose or declared by an MCP server."
+        },
+        "metadataHints": {
+          "$ref": "#/$defs/ToolMetadataHints"
         },
         "parameters": {
           "type": "array",
@@ -530,13 +544,47 @@
       },
       "required": [
         "name",
+        "displayName",
         "description",
+        "extensionName",
+        "metadataSource",
+        "metadataHints",
         "parameters",
         "permissionSource",
         "permissionReason",
         "inputSchema"
       ],
       "description": "A single tool item returned by the tools list endpoint."
+    },
+    "ToolMetadataHints": {
+      "type": "object",
+      "properties": {
+        "readOnly": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "destructive": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "idempotent": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "openWorld": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "description": "Descriptive metadata supplied by the tool provider. These are hints, not security guarantees."
     },
     "ToolPermissionLevel": {
       "type": "string",

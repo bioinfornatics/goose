@@ -2,7 +2,9 @@ use super::*;
 use crate::agents::extension_manager::{get_parameter_names, is_tool_owned_by_extension};
 use crate::agents::reply_parts::is_tool_visible_to_app;
 use crate::config::permission::PermissionLevel;
-use goose_sdk_types::custom_requests::{ToolListItem, ToolPermissionLevel, ToolPermissionSource};
+use goose_sdk_types::custom_requests::{
+    ToolListItem, ToolMetadataHints, ToolPermissionLevel, ToolPermissionSource,
+};
 use rmcp::model::CallToolRequestParams;
 
 fn permission_level_to_sdk(level: PermissionLevel) -> ToolPermissionLevel {
@@ -11,6 +13,20 @@ fn permission_level_to_sdk(level: PermissionLevel) -> ToolPermissionLevel {
         PermissionLevel::AskBefore => ToolPermissionLevel::AskBefore,
         PermissionLevel::NeverAllow => ToolPermissionLevel::NeverAllow,
     }
+}
+
+fn humanize_tool_name(name: &str) -> String {
+    name.split(['_', '-'])
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut characters = part.chars();
+            match characters.next() {
+                Some(first) => first.to_uppercase().collect::<String>() + characters.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 impl GooseAcpAgent {
@@ -86,13 +102,36 @@ impl GooseAcpAgent {
                     }
                     };
                 let permission = explicit_permission.or(effective_permission);
+                let (extension_name, fallback_name) = tool
+                    .name
+                    .split_once("__")
+                    .unwrap_or(("unknown", tool.name.as_ref()));
+                let annotations = tool.annotations.as_ref();
+                let display_name = annotations
+                    .and_then(|value| value.title.clone())
+                    .unwrap_or_else(|| humanize_tool_name(fallback_name));
+                let metadata_source =
+                    if extension_name == "developer" || extension_name == "platform" {
+                        "goose_builtin"
+                    } else {
+                        "mcp_declared"
+                    };
                 ToolListItem {
                     name: tool.name.to_string(),
+                    display_name,
                     description: tool
                         .description
                         .as_ref()
                         .map(|d| d.as_ref().to_string())
                         .unwrap_or_default(),
+                    extension_name: extension_name.to_string(),
+                    metadata_source: metadata_source.to_string(),
+                    metadata_hints: ToolMetadataHints {
+                        read_only: annotations.and_then(|value| value.read_only_hint),
+                        destructive: annotations.and_then(|value| value.destructive_hint),
+                        idempotent: annotations.and_then(|value| value.idempotent_hint),
+                        open_world: annotations.and_then(|value| value.open_world_hint),
+                    },
                     parameters: get_parameter_names(&tool),
                     permission,
                     explicit_permission,

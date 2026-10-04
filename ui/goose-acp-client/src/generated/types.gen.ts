@@ -242,7 +242,17 @@ export type GetToolsResponse_unstable = {
  */
 export type ToolListItem = {
     name: string;
+    displayName: string;
     description: string;
+    /**
+     * Extension/MCP scope parsed from the canonical routed tool name.
+     */
+    extensionName: string;
+    /**
+     * Whether the display metadata is built into Goose or declared by an MCP server.
+     */
+    metadataSource: string;
+    metadataHints: ToolMetadataHints;
     parameters: Array<string>;
     /**
      * Backward-compatible permission value used by existing clients.
@@ -257,6 +267,16 @@ export type ToolListItem = {
     permissionReason: string;
     inputSchema: unknown;
     outputSchema?: unknown;
+};
+
+/**
+ * Descriptive metadata supplied by the tool provider. These are hints, not security guarantees.
+ */
+export type ToolMetadataHints = {
+    readOnly?: boolean | null;
+    destructive?: boolean | null;
+    idempotent?: boolean | null;
+    openWorld?: boolean | null;
 };
 
 /**

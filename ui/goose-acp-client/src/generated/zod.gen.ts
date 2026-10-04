@@ -130,6 +130,16 @@ export const zGetToolsRequest_unstable = z.object({
 });
 
 /**
+ * Descriptive metadata supplied by the tool provider. These are hints, not security guarantees.
+ */
+export const zToolMetadataHints = z.object({
+    readOnly: z.boolean().nullish(),
+    destructive: z.boolean().nullish(),
+    idempotent: z.boolean().nullish(),
+    openWorld: z.boolean().nullish()
+});
+
+/**
  * Permission level for a tool.
  */
 export const zToolPermissionLevel = z.enum([
@@ -154,7 +164,11 @@ export const zToolPermissionSource = z.enum([
  */
 export const zToolListItem = z.object({
     name: z.string(),
+    displayName: z.string(),
     description: z.string(),
+    extensionName: z.string(),
+    metadataSource: z.string(),
+    metadataHints: zToolMetadataHints,
     parameters: z.array(z.string()),
     permission: zToolPermissionLevel.nullish(),
     explicitPermission: zToolPermissionLevel.nullish(),

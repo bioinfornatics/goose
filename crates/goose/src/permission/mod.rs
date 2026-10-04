@@ -1,6 +1,7 @@
 pub mod permission_inspector;
 pub mod permission_judge;
 pub mod permission_store;
+pub mod shell_policy;
 
 pub use goose_providers::permission::{Permission, PermissionConfirmation};
 pub mod permission_confirmation {

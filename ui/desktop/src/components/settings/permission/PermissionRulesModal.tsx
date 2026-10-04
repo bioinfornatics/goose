@@ -48,6 +48,21 @@ function firstSentence(value: string): string {
   return value.match(/^([^.?!]+[.?!])/)?.[0] ?? value;
 }
 
+export function toolMetadataLabels(tool: ToolListItem): string[] {
+  const labels: string[] = [];
+  if (tool.metadataHints.readOnly === true) labels.push('Read only · Declared by extension');
+  if (tool.metadataHints.destructive === true) {
+    labels.push('Potentially destructive · Declared by extension');
+  }
+  if (tool.metadataHints.openWorld === true) {
+    labels.push('External interaction · Declared by extension');
+  }
+  if (tool.metadataHints.readOnly == null && tool.metadataHints.destructive == null) {
+    labels.push('Impact not declared · Approval recommended');
+  }
+  return labels;
+}
+
 interface PermissionRulesModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -235,15 +250,28 @@ export default function PermissionRulesModal({ isOpen, onClose }: PermissionRule
                               >
                                 <div className="min-w-0">
                                   <label htmlFor={id} className="font-medium text-text-primary">
-                                    {humanizeToolName(tool.name)}
+                                    {tool.displayName || humanizeToolName(tool.name)}
                                   </label>
-                                  <p className="text-sm text-text-secondary">
-                                    {firstSentence(tool.description)}
+                                  <p className="text-xs font-medium text-text-secondary">
+                                    {extension.name} · This function only
                                   </p>
+                                  <p className="text-sm text-text-secondary">
+                                    {firstSentence(tool.description) ||
+                                      'No description was provided by this extension.'}
+                                  </p>
+                                  <div className="flex flex-wrap gap-1 py-1 text-xs text-text-secondary">
+                                    {toolMetadataLabels(tool).map((label) => (
+                                      <span key={label}>{label}</span>
+                                    ))}
+                                  </div>
                                   <p className="text-xs text-text-secondary">
                                     Effective: {effectiveLabel} · {tool.permissionReason}
                                   </p>
-                                  <code className="text-xs text-text-secondary">{tool.name}</code>
+                                  <details className="text-xs text-text-secondary">
+                                    <summary>Technical details</summary>
+                                    <code>{tool.name}</code>
+                                    <span className="ml-2">Metadata: {tool.metadataSource}</span>
+                                  </details>
                                 </div>
                                 <select
                                   id={id}

@@ -463,6 +463,13 @@
           "items": {
             "$ref": "#/$defs/ToolListItem"
           }
+        },
+        "writablePermissionScopes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ToolPermissionScope"
+          },
+          "description": "Scopes accepted by the permissions mutation endpoint."
         }
       },
       "required": [
@@ -539,6 +546,31 @@
         "permissionReason": {
           "type": "string"
         },
+        "applicablePermissionRules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ToolPermissionRule"
+          },
+          "description": "All persisted rules that can participate in this tool's resolution."
+        },
+        "effectivePermissionScope": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ToolPermissionScope"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Scope of the rule that produced the effective permission, when rule-backed."
+        },
+        "effectivePermissionOrigin": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Storage origin of the rule that produced the effective permission."
+        },
         "inputSchema": {},
         "outputSchema": {}
       },
@@ -599,12 +631,105 @@
       "type": "string",
       "enum": [
         "explicit_rule",
+        "scoped_rule",
         "mode_default",
         "tool_annotation",
         "smart_approve_cache",
         "smart_approve_runtime"
       ],
       "description": "Explains where the effective permission shown to the user comes from."
+    },
+    "ToolPermissionRule": {
+      "type": "object",
+      "properties": {
+        "scope": {
+          "$ref": "#/$defs/ToolPermissionScope"
+        },
+        "effect": {
+          "$ref": "#/$defs/ToolPermissionLevel"
+        },
+        "principal": {
+          "$ref": "#/$defs/ToolPermissionPrincipal"
+        },
+        "origin": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "effect",
+        "principal",
+        "origin"
+      ],
+      "description": "A single tool item returned by the tools list endpoint."
+    },
+    "ToolPermissionScope": {
+      "type": "string",
+      "enum": [
+        "user",
+        "project_shared",
+        "project_local",
+        "session",
+        "managed"
+      ],
+      "description": "The lifetime and storage boundary for a permission rule."
+    },
+    "ToolPermissionPrincipal": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "extension": {
+              "type": "string"
+            },
+            "function": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "function"
+            }
+          },
+          "required": [
+            "type",
+            "extension",
+            "function"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "extension": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "extension"
+            }
+          },
+          "required": [
+            "type",
+            "extension"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "capability": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "capability"
+            }
+          },
+          "required": [
+            "type",
+            "capability"
+          ]
+        }
+      ],
+      "description": "Stable identity of the principal targeted by a permission rule."
     },
     "SetToolPermissionsRequest_unstable": {
       "type": "object",
@@ -614,6 +739,13 @@
           "items": {
             "$ref": "#/$defs/ToolPermissionEntry"
           }
+        },
+        "sessionId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Session context used for project and session scoped writes."
         }
       },
       "required": [
@@ -628,6 +760,11 @@
       "properties": {
         "toolName": {
           "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/ToolPermissionScope",
+          "description": "Destination for this mutation. Omitted by legacy clients means user scope.",
+          "default": "user"
         },
         "permission": {
           "anyOf": [

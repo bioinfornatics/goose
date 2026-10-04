@@ -153,11 +153,52 @@ export const zToolPermissionLevel = z.enum([
  */
 export const zToolPermissionSource = z.enum([
     'explicit_rule',
+    'scoped_rule',
     'mode_default',
     'tool_annotation',
     'smart_approve_cache',
     'smart_approve_runtime'
 ]);
+
+/**
+ * The lifetime and storage boundary for a permission rule.
+ */
+export const zToolPermissionScope = z.enum([
+    'user',
+    'project_shared',
+    'project_local',
+    'session',
+    'managed'
+]);
+
+/**
+ * Stable identity of the principal targeted by a permission rule.
+ */
+export const zToolPermissionPrincipal = z.union([
+    z.object({
+        extension: z.string(),
+        function: z.string(),
+        type: z.literal('function')
+    }),
+    z.object({
+        extension: z.string(),
+        type: z.literal('extension')
+    }),
+    z.object({
+        capability: z.string(),
+        type: z.literal('capability')
+    })
+]);
+
+/**
+ * A single tool item returned by the tools list endpoint.
+ */
+export const zToolPermissionRule = z.object({
+    scope: zToolPermissionScope,
+    effect: zToolPermissionLevel,
+    principal: zToolPermissionPrincipal,
+    origin: z.string()
+});
 
 /**
  * A single tool item returned by the tools list endpoint.
@@ -175,6 +216,9 @@ export const zToolListItem = z.object({
     effectivePermission: zToolPermissionLevel.nullish(),
     permissionSource: zToolPermissionSource,
     permissionReason: z.string(),
+    applicablePermissionRules: z.array(zToolPermissionRule).optional(),
+    effectivePermissionScope: zToolPermissionScope.nullish(),
+    effectivePermissionOrigin: z.string().nullish(),
     inputSchema: z.unknown(),
     outputSchema: z.unknown().optional()
 });
@@ -183,7 +227,8 @@ export const zToolListItem = z.object({
  * Tools response.
  */
 export const zGetToolsResponse_unstable = z.object({
-    tools: z.array(zToolListItem)
+    tools: z.array(zToolListItem),
+    writablePermissionScopes: z.array(zToolPermissionScope).optional()
 });
 
 /**
@@ -191,6 +236,7 @@ export const zGetToolsResponse_unstable = z.object({
  */
 export const zToolPermissionEntry = z.object({
     toolName: z.string(),
+    scope: zToolPermissionScope.optional().default('user'),
     permission: zToolPermissionLevel.nullish()
 });
 
@@ -198,7 +244,8 @@ export const zToolPermissionEntry = z.object({
  * Set permission levels for one or more tools.
  */
 export const zSetToolPermissionsRequest_unstable = z.object({
-    toolPermissions: z.array(zToolPermissionEntry)
+    toolPermissions: z.array(zToolPermissionEntry),
+    sessionId: z.string().nullish()
 });
 
 export const zSetToolPermissionsResponse_unstable = z.record(z.string(), z.unknown());

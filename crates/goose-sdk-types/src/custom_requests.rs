@@ -63,6 +63,7 @@ pub struct GetToolsRequest {
 #[serde(rename_all = "snake_case")]
 pub enum ToolPermissionSource {
     ExplicitRule,
+    ScopedRule,
     ModeDefault,
     ToolAnnotation,
     SmartApproveCache,
@@ -81,6 +82,25 @@ pub struct ToolMetadataHints {
     pub idempotent: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open_world: Option<bool>,
+}
+
+/// A single tool item returned by the tools list endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolPermissionRule {
+    pub scope: ToolPermissionScope,
+    pub effect: ToolPermissionLevel,
+    pub principal: ToolPermissionPrincipal,
+    pub origin: String,
+}
+
+/// Stable identity of the principal targeted by a permission rule.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ToolPermissionPrincipal {
+    Function { extension: String, function: String },
+    Extension { extension: String },
+    Capability { capability: String },
 }
 
 /// A single tool item returned by the tools list endpoint.
@@ -105,6 +125,15 @@ pub struct ToolListItem {
     pub effective_permission: Option<ToolPermissionLevel>,
     pub permission_source: ToolPermissionSource,
     pub permission_reason: String,
+    /// All persisted rules that can participate in this tool's resolution.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub applicable_permission_rules: Vec<ToolPermissionRule>,
+    /// Scope of the rule that produced the effective permission, when rule-backed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effective_permission_scope: Option<ToolPermissionScope>,
+    /// Storage origin of the rule that produced the effective permission.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effective_permission_origin: Option<String>,
     pub input_schema: serde_json::Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_schema: Option<serde_json::Value>,
@@ -114,6 +143,13 @@ pub struct ToolListItem {
 #[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema, JsonRpcResponse)]
 pub struct GetToolsResponse {
     pub tools: Vec<ToolListItem>,
+    /// Scopes accepted by the permissions mutation endpoint.
+    #[serde(
+        default,
+        rename = "writablePermissionScopes",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub writable_permission_scopes: Vec<ToolPermissionScope>,
 }
 
 /// Read a resource from an extension.
@@ -2342,11 +2378,26 @@ pub enum ToolPermissionLevel {
     NeverAllow,
 }
 
+/// The lifetime and storage boundary for a permission rule.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolPermissionScope {
+    #[default]
+    User,
+    ProjectShared,
+    ProjectLocal,
+    Session,
+    Managed,
+}
+
 /// A single tool permission entry.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolPermissionEntry {
     pub tool_name: String,
+    /// Destination for this mutation. Omitted by legacy clients means user scope.
+    #[serde(default)]
+    pub scope: ToolPermissionScope,
     /// Omit to remove the explicit rule and use the current mode default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission: Option<ToolPermissionLevel>,
@@ -2358,6 +2409,9 @@ pub struct ToolPermissionEntry {
 #[serde(rename_all = "camelCase")]
 pub struct SetToolPermissionsRequest {
     pub tool_permissions: Vec<ToolPermissionEntry>,
+    /// Session context used for project and session scoped writes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema, JsonRpcResponse)]
@@ -2373,6 +2427,7 @@ mod tests {
             serde_json::from_str(r#"{"toolName":"developer__shell","permission":null}"#).unwrap();
 
         assert_eq!(entry.tool_name, "developer__shell");
+        assert_eq!(entry.scope, ToolPermissionScope::User);
         assert_eq!(entry.permission, None);
     }
 
@@ -2383,6 +2438,24 @@ mod tests {
                 .unwrap();
 
         assert_eq!(entry.permission, Some(ToolPermissionLevel::NeverAllow));
+    }
+
+    #[test]
+    fn tool_permission_entry_accepts_explicit_scope() {
+        let entry: ToolPermissionEntry = serde_json::from_str(
+            r#"{"toolName":"developer__shell","permission":"ask_before","scope":"session"}"#,
+        )
+        .unwrap();
+        assert_eq!(entry.scope, ToolPermissionScope::Session);
+    }
+
+    #[test]
+    fn managed_scope_is_deserializable_for_read_only_rejection() {
+        let entry: ToolPermissionEntry = serde_json::from_str(
+            r#"{"toolName":"developer__shell","permission":"never_allow","scope":"managed"}"#,
+        )
+        .unwrap();
+        assert_eq!(entry.scope, ToolPermissionScope::Managed);
     }
 
     #[test]

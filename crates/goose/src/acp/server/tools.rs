@@ -2,16 +2,74 @@ use super::*;
 use crate::agents::extension_manager::{get_parameter_names, is_tool_owned_by_extension};
 use crate::agents::reply_parts::is_tool_visible_to_app;
 use crate::config::permission::PermissionLevel;
+use crate::config::scoped_permissions::{
+    PermissionEffect, PermissionPrincipal, PermissionRequest, PermissionRule, PermissionScope,
+};
 use goose_sdk_types::custom_requests::{
-    ToolListItem, ToolMetadataHints, ToolPermissionLevel, ToolPermissionSource,
+    ToolListItem, ToolMetadataHints, ToolPermissionLevel, ToolPermissionPrincipal,
+    ToolPermissionRule, ToolPermissionScope, ToolPermissionSource,
 };
 use rmcp::model::CallToolRequestParams;
+use std::collections::BTreeSet;
 
-fn permission_level_to_sdk(level: PermissionLevel) -> ToolPermissionLevel {
-    match level {
-        PermissionLevel::AlwaysAllow => ToolPermissionLevel::AlwaysAllow,
-        PermissionLevel::AskBefore => ToolPermissionLevel::AskBefore,
-        PermissionLevel::NeverAllow => ToolPermissionLevel::NeverAllow,
+fn permission_effect_to_sdk(effect: PermissionEffect) -> ToolPermissionLevel {
+    match effect {
+        PermissionEffect::Allow => ToolPermissionLevel::AlwaysAllow,
+        PermissionEffect::Ask => ToolPermissionLevel::AskBefore,
+        PermissionEffect::Deny => ToolPermissionLevel::NeverAllow,
+    }
+}
+fn permission_scope_to_sdk(scope: PermissionScope) -> ToolPermissionScope {
+    match scope {
+        PermissionScope::User => ToolPermissionScope::User,
+        PermissionScope::ProjectShared => ToolPermissionScope::ProjectShared,
+        PermissionScope::ProjectLocal => ToolPermissionScope::ProjectLocal,
+        PermissionScope::Session => ToolPermissionScope::Session,
+        PermissionScope::Managed => ToolPermissionScope::Managed,
+    }
+}
+fn permission_scope_from_sdk(scope: ToolPermissionScope) -> PermissionScope {
+    match scope {
+        ToolPermissionScope::User => PermissionScope::User,
+        ToolPermissionScope::ProjectShared => PermissionScope::ProjectShared,
+        ToolPermissionScope::ProjectLocal => PermissionScope::ProjectLocal,
+        ToolPermissionScope::Session => PermissionScope::Session,
+        ToolPermissionScope::Managed => PermissionScope::Managed,
+    }
+}
+fn principal_to_sdk(principal: &PermissionPrincipal) -> ToolPermissionPrincipal {
+    match principal {
+        PermissionPrincipal::Function {
+            extension,
+            function,
+        } => ToolPermissionPrincipal::Function {
+            extension: extension.clone(),
+            function: function.clone(),
+        },
+        PermissionPrincipal::Extension { extension } => ToolPermissionPrincipal::Extension {
+            extension: extension.clone(),
+        },
+        PermissionPrincipal::Capability { capability } => ToolPermissionPrincipal::Capability {
+            capability: capability.clone(),
+        },
+    }
+}
+fn rule_to_sdk(rule: &PermissionRule) -> ToolPermissionRule {
+    ToolPermissionRule {
+        scope: permission_scope_to_sdk(rule.origin.scope),
+        effect: permission_effect_to_sdk(rule.effect),
+        principal: principal_to_sdk(&rule.principal),
+        origin: rule.origin.source.clone(),
+    }
+}
+fn principal_applies(principal: &PermissionPrincipal, extension: &str, function: &str) -> bool {
+    match principal {
+        PermissionPrincipal::Function {
+            extension: e,
+            function: f,
+        } => e == extension && f == function,
+        PermissionPrincipal::Extension { extension: e } => e == extension,
+        PermissionPrincipal::Capability { .. } => false,
     }
 }
 
@@ -38,21 +96,60 @@ impl GooseAcpAgent {
         let agent = self.get_session_agent(&req.session_id).await?;
         let goose_mode = agent.goose_mode().await;
         let permission_manager = self.permission_manager();
+        let session = self
+            .session_manager
+            .get_session(session_id, false)
+            .await
+            .map_err(|_| {
+                agent_client_protocol::Error::resource_not_found(Some(session_id.clone()))
+            })?;
+        let scoped_rules = permission_manager
+            .scoped_rules(Some(&session.working_dir), Some(session_id))
+            .map_err(|error| {
+                agent_client_protocol::Error::internal_error().data(error.to_string())
+            })?;
 
         let mut tools: Vec<ToolListItem> = agent
             .list_tools(session_id, req.extension_name)
             .await
             .into_iter()
             .map(|tool| {
-                let explicit_permission = permission_manager
-                    .get_user_permission(&tool.name)
-                    .map(permission_level_to_sdk);
+                let (extension_name, function_name) = tool
+                    .name
+                    .split_once("__")
+                    .unwrap_or(("unknown", tool.name.as_ref()));
+                let request = PermissionRequest {
+                    extension: extension_name.to_string(),
+                    function: function_name.to_string(),
+                    capabilities: BTreeSet::new(),
+                };
+                let resolution =
+                    crate::config::scoped_permissions::resolve_permission(&scoped_rules, &request);
+                let applicable_rules = scoped_rules
+                    .iter()
+                    .filter(|rule| {
+                        principal_applies(&rule.principal, extension_name, function_name)
+                    })
+                    .map(rule_to_sdk)
+                    .collect();
+                let explicit_permission = resolution
+                    .matched_rule
+                    .as_ref()
+                    .map(|rule| permission_effect_to_sdk(rule.effect));
+                let effective_permission_scope = resolution
+                    .matched_rule
+                    .as_ref()
+                    .map(|rule| permission_scope_to_sdk(rule.origin.scope));
+                let effective_permission_origin = resolution
+                    .matched_rule
+                    .as_ref()
+                    .map(|rule| rule.origin.source.clone());
                 let (effective_permission, permission_source, permission_reason) =
                     if let Some(permission) = explicit_permission {
                         (
                             Some(permission),
-                            ToolPermissionSource::ExplicitRule,
-                            "Explicit user rule".to_string(),
+                            ToolPermissionSource::ScopedRule,
+                            "Resolved from an applicable scoped rule".to_string(),
                         )
                     } else {
                         match goose_mode {
@@ -102,10 +199,7 @@ impl GooseAcpAgent {
                     }
                     };
                 let permission = explicit_permission.or(effective_permission);
-                let (extension_name, fallback_name) = tool
-                    .name
-                    .split_once("__")
-                    .unwrap_or(("unknown", tool.name.as_ref()));
+                let fallback_name = function_name;
                 let annotations = tool.annotations.as_ref();
                 let display_name = annotations
                     .and_then(|value| value.title.clone())
@@ -138,6 +232,9 @@ impl GooseAcpAgent {
                     effective_permission,
                     permission_source,
                     permission_reason,
+                    applicable_permission_rules: applicable_rules,
+                    effective_permission_scope,
+                    effective_permission_origin,
                     input_schema: serde_json::Value::Object(tool.input_schema.as_ref().clone()),
                     output_schema: tool
                         .output_schema
@@ -147,7 +244,15 @@ impl GooseAcpAgent {
             })
             .collect();
         tools.sort_by(|a, b| a.name.cmp(&b.name));
-        Ok(GetToolsResponse { tools })
+        Ok(GetToolsResponse {
+            tools,
+            writable_permission_scopes: vec![
+                ToolPermissionScope::User,
+                ToolPermissionScope::ProjectShared,
+                ToolPermissionScope::ProjectLocal,
+                ToolPermissionScope::Session,
+            ],
+        })
     }
 
     pub(super) async fn on_call_tool(
@@ -243,17 +348,94 @@ impl GooseAcpAgent {
         req: SetToolPermissionsRequest,
     ) -> Result<SetToolPermissionsResponse, agent_client_protocol::Error> {
         let permission_manager = self.permission_manager();
+        let session_id = req.session_id.as_deref();
+        let needs_project = req.tool_permissions.iter().any(|entry| {
+            matches!(
+                entry.scope,
+                ToolPermissionScope::ProjectShared | ToolPermissionScope::ProjectLocal
+            )
+        });
+        let project_root = if needs_project {
+            let id = session_id.ok_or_else(|| {
+                agent_client_protocol::Error::invalid_params()
+                    .data("project-scoped permissions require sessionId")
+            })?;
+            Some(
+                self.session_manager
+                    .get_session(id, false)
+                    .await
+                    .map_err(|_| {
+                        agent_client_protocol::Error::resource_not_found(Some(id.to_string()))
+                    })?
+                    .working_dir,
+            )
+        } else {
+            None
+        };
+
         for entry in &req.tool_permissions {
-            let Some(permission) = entry.permission else {
-                permission_manager.remove_user_permission(&entry.tool_name);
-                continue;
+            let scope = permission_scope_from_sdk(entry.scope);
+            if scope == PermissionScope::Managed {
+                return Err(agent_client_protocol::Error::invalid_params()
+                    .data("managed permission scope is read-only"));
+            }
+            if scope == PermissionScope::Session && session_id.is_none() {
+                return Err(agent_client_protocol::Error::invalid_params()
+                    .data("session-scoped permissions require sessionId"));
+            }
+            let (extension, function) = entry.tool_name.split_once("__").ok_or_else(|| {
+                agent_client_protocol::Error::invalid_params()
+                    .data("toolName must be a canonical extension__function name")
+            })?;
+            let principal = PermissionPrincipal::Function {
+                extension: extension.to_string(),
+                function: function.to_string(),
             };
-            let level = match permission {
-                ToolPermissionLevel::AlwaysAllow => PermissionLevel::AlwaysAllow,
-                ToolPermissionLevel::AskBefore => PermissionLevel::AskBefore,
-                ToolPermissionLevel::NeverAllow => PermissionLevel::NeverAllow,
-            };
-            permission_manager.update_user_permission(&entry.tool_name, level);
+            if let Some(permission) = entry.permission {
+                let effect = match permission {
+                    ToolPermissionLevel::AlwaysAllow => PermissionEffect::Allow,
+                    ToolPermissionLevel::AskBefore => PermissionEffect::Ask,
+                    ToolPermissionLevel::NeverAllow => PermissionEffect::Deny,
+                };
+                permission_manager
+                    .update_scoped_permission(
+                        scope,
+                        project_root.as_deref(),
+                        session_id,
+                        principal,
+                        effect,
+                    )
+                    .map_err(|error| {
+                        agent_client_protocol::Error::invalid_params().data(error.to_string())
+                    })?;
+            } else {
+                let retained: Vec<_> = permission_manager
+                    .scoped_rules(project_root.as_deref(), session_id)
+                    .map_err(|error| {
+                        agent_client_protocol::Error::internal_error().data(error.to_string())
+                    })?
+                    .into_iter()
+                    .filter(|rule| rule.origin.scope == scope && rule.principal != principal)
+                    .collect();
+                permission_manager
+                    .reset_scoped_permissions(scope, project_root.as_deref(), session_id)
+                    .map_err(|error| {
+                        agent_client_protocol::Error::invalid_params().data(error.to_string())
+                    })?;
+                for rule in retained {
+                    permission_manager
+                        .update_scoped_permission(
+                            scope,
+                            project_root.as_deref(),
+                            session_id,
+                            rule.principal,
+                            rule.effect,
+                        )
+                        .map_err(|error| {
+                            agent_client_protocol::Error::invalid_params().data(error.to_string())
+                        })?;
+                }
+            }
         }
         Ok(SetToolPermissionsResponse {})
     }

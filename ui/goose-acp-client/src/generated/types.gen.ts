@@ -235,6 +235,10 @@ export type GetToolsRequest_unstable = {
  */
 export type GetToolsResponse_unstable = {
     tools: Array<ToolListItem>;
+    /**
+     * Scopes accepted by the permissions mutation endpoint.
+     */
+    writablePermissionScopes?: Array<ToolPermissionScope>;
 };
 
 /**
@@ -265,6 +269,18 @@ export type ToolListItem = {
     effectivePermission?: ToolPermissionLevel | null;
     permissionSource: ToolPermissionSource;
     permissionReason: string;
+    /**
+     * All persisted rules that can participate in this tool's resolution.
+     */
+    applicablePermissionRules?: Array<ToolPermissionRule>;
+    /**
+     * Scope of the rule that produced the effective permission, when rule-backed.
+     */
+    effectivePermissionScope?: ToolPermissionScope | null;
+    /**
+     * Storage origin of the rule that produced the effective permission.
+     */
+    effectivePermissionOrigin?: string | null;
     inputSchema: unknown;
     outputSchema?: unknown;
 };
@@ -287,13 +303,47 @@ export type ToolPermissionLevel = 'always_allow' | 'ask_before' | 'never_allow';
 /**
  * Explains where the effective permission shown to the user comes from.
  */
-export type ToolPermissionSource = 'explicit_rule' | 'mode_default' | 'tool_annotation' | 'smart_approve_cache' | 'smart_approve_runtime';
+export type ToolPermissionSource = 'explicit_rule' | 'scoped_rule' | 'mode_default' | 'tool_annotation' | 'smart_approve_cache' | 'smart_approve_runtime';
+
+/**
+ * A single tool item returned by the tools list endpoint.
+ */
+export type ToolPermissionRule = {
+    scope: ToolPermissionScope;
+    effect: ToolPermissionLevel;
+    principal: ToolPermissionPrincipal;
+    origin: string;
+};
+
+/**
+ * The lifetime and storage boundary for a permission rule.
+ */
+export type ToolPermissionScope = 'user' | 'project_shared' | 'project_local' | 'session' | 'managed';
+
+/**
+ * Stable identity of the principal targeted by a permission rule.
+ */
+export type ToolPermissionPrincipal = {
+    extension: string;
+    function: string;
+    type: 'function';
+} | {
+    extension: string;
+    type: 'extension';
+} | {
+    capability: string;
+    type: 'capability';
+};
 
 /**
  * Set permission levels for one or more tools.
  */
 export type SetToolPermissionsRequest_unstable = {
     toolPermissions: Array<ToolPermissionEntry>;
+    /**
+     * Session context used for project and session scoped writes.
+     */
+    sessionId?: string | null;
 };
 
 /**
@@ -301,6 +351,10 @@ export type SetToolPermissionsRequest_unstable = {
  */
 export type ToolPermissionEntry = {
     toolName: string;
+    /**
+     * Destination for this mutation. Omitted by legacy clients means user scope.
+     */
+    scope?: ToolPermissionScope;
     /**
      * Omit to remove the explicit rule and use the current mode default.
      */

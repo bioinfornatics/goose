@@ -189,6 +189,37 @@ fn test_custom_get_tools() {
 
 #[test]
 #[serial]
+fn test_custom_tool_permissions_advertise_and_reject_scopes() {
+    write_acp_global_config(DEFAULT_ACP_TEST_CONFIG);
+    run_test(async move {
+        let openai = OpenAiFixture::new(vec![], Arc::new(EnforceSessionId::default())).await;
+        let mut conn = AcpServerConnection::new(TestConnectionConfig::default(), openai).await;
+        let SessionData { session, .. } = conn.new_session().await.unwrap();
+        let response = send_custom(
+            conn.cx(),
+            "_goose/unstable/tools/list",
+            serde_json::json!({ "sessionId": session.session_id().0 }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            response["writablePermissionScopes"],
+            serde_json::json!(["user", "project_shared", "project_local", "session"])
+        );
+        assert!(response["tools"]
+            .as_array()
+            .is_some_and(|tools| tools.iter().all(|tool| tool.get("arguments").is_none())));
+        let rejected = send_custom(
+            conn.cx(),
+            "_goose/unstable/tools/permissions/set",
+            serde_json::json!({ "toolPermissions": [{ "toolName": "developer__shell", "permission": "never_allow", "scope": "managed" }] }),
+        ).await;
+        assert!(rejected.is_err());
+    });
+}
+
+#[test]
+#[serial]
 #[cfg(feature = "live-voice")]
 fn test_live_voice_availability_is_bound_to_an_accessible_main_session() {
     let _guard = env_lock::lock_env([

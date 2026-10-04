@@ -31,7 +31,22 @@ pub enum InputResult {
     Edit(Option<String>),
     ListSkills,
     LoadSkills(Vec<String>),
-    Permissions,
+    Permissions(PermissionsCommand),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PermissionsCommand {
+    Interactive,
+    List,
+    Set {
+        tool: String,
+        permission: String,
+        scope: String,
+    },
+    Reset {
+        tool: String,
+        scope: String,
+    },
 }
 
 #[derive(Debug)]
@@ -218,6 +233,27 @@ pub fn get_input(
     }
 }
 
+fn parse_permissions_command(input: &str) -> Option<PermissionsCommand> {
+    let parts = shlex::split(input)?;
+    match parts.as_slice() {
+        [command] if command == "list" => Some(PermissionsCommand::List),
+        [command, tool, permission, flag, scope] if command == "set" && flag == "--scope" => {
+            Some(PermissionsCommand::Set {
+                tool: tool.clone(),
+                permission: permission.clone(),
+                scope: scope.clone(),
+            })
+        }
+        [command, tool, flag, scope] if command == "reset" && flag == "--scope" => {
+            Some(PermissionsCommand::Reset {
+                tool: tool.clone(),
+                scope: scope.clone(),
+            })
+        }
+        _ => None,
+    }
+}
+
 fn handle_slash_command(input: &str) -> Option<InputResult> {
     let input = input.trim();
 
@@ -322,7 +358,11 @@ fn handle_slash_command(input: &str) -> Option<InputResult> {
                 }))
             }
         }
-        "/permissions" => Some(InputResult::Permissions),
+        "/permissions" => Some(InputResult::Permissions(PermissionsCommand::Interactive)),
+        s if s.starts_with("/permissions ") => {
+            parse_permissions_command(s.strip_prefix("/permissions ").unwrap_or_default())
+                .map(InputResult::Permissions)
+        }
         s if s == CMD_CLEAR => Some(InputResult::Clear),
         s if s == CMD_NEW => Some(InputResult::New),
         s if s == CMD_COMPACT => Some(InputResult::Compact),
@@ -533,7 +573,19 @@ mod tests {
 
         assert!(matches!(
             handle_slash_command("/permissions"),
-            Some(InputResult::Permissions)
+            Some(InputResult::Permissions(PermissionsCommand::Interactive))
+        ));
+        assert!(matches!(
+            handle_slash_command(
+                "/permissions set developer__shell ask --scope project-local"
+            ),
+            Some(InputResult::Permissions(PermissionsCommand::Set { tool, permission, scope }))
+                if tool == "developer__shell" && permission == "ask" && scope == "project-local"
+        ));
+        assert!(matches!(
+            handle_slash_command("/permissions reset developer__shell --scope session"),
+            Some(InputResult::Permissions(PermissionsCommand::Reset { tool, scope }))
+                if tool == "developer__shell" && scope == "session"
         ));
         assert!(handle_slash_command("/permissions extra").is_none());
 

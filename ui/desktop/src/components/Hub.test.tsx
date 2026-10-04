@@ -14,6 +14,7 @@ import type { LiveVoiceController } from '../liveVoice/useLiveVoice';
 type ChatInputCapture = {
   draftRef?: { current: string };
   handleSubmit: (input: UserInput) => void;
+  onOpenPermissions?: () => Promise<void>;
   liveVoice?: {
     availability: { status: string; message: string } | null;
     start: () => Promise<void>;
@@ -143,6 +144,22 @@ describe('Hub', () => {
       resumeSessionId: 'session-with-live-voice',
     });
     expect(createSession).not.toHaveBeenCalled();
+  });
+
+  it('creates a session before opening permissions from a new discussion', async () => {
+    const setView = vi.fn();
+    vi.mocked(createSession).mockResolvedValue({ id: 'session-1' } as Session);
+    renderHub({ current: '' }, setView);
+
+    await act(async () => captured.chatInput?.onOpenPermissions?.());
+
+    expect(createSession).toHaveBeenCalled();
+    expect(setView).toHaveBeenCalledWith('pair', {
+      disableAnimation: true,
+      resumeSessionId: 'session-1',
+      openPermissions: true,
+      noAutoSubmit: true,
+    });
   });
 
   it('starts a chat with no extensions when the user cleared the picker', async () => {

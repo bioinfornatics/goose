@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   humanizeToolName,
   permissionAtScope,
+  resolvePermissionSessionId,
   sessionExtensionNames,
   toolMetadataLabels,
 } from './PermissionRulesModal';
@@ -33,6 +34,11 @@ describe('permission tool labels', () => {
   it('recommends approval when impact metadata is missing', () => {
     const tool = { metadataHints: {} } as ToolListItem;
     expect(toolMetadataLabels(tool)).toEqual(['Impact not declared · Approval recommended']);
+  });
+
+  it('prefers the authoritative ChatInput session ID over stale context', () => {
+    expect(resolvePermissionSessionId('new-session', '')).toBe('new-session');
+    expect(resolvePermissionSessionId(undefined, 'context-session')).toBe('context-session');
   });
 
   it('selects the explicit rule for the chosen persistence scope', () => {

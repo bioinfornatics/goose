@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   humanizeToolName,
+  permissionAtScope,
   sessionExtensionNames,
   toolMetadataLabels,
 } from './PermissionRulesModal';
@@ -32,6 +33,30 @@ describe('permission tool labels', () => {
   it('recommends approval when impact metadata is missing', () => {
     const tool = { metadataHints: {} } as ToolListItem;
     expect(toolMetadataLabels(tool)).toEqual(['Impact not declared · Approval recommended']);
+  });
+
+  it('selects the explicit rule for the chosen persistence scope', () => {
+    const tool = {
+      name: 'developer__shell',
+      extensionName: 'developer',
+      applicablePermissionRules: [
+        {
+          scope: 'user',
+          effect: 'always_allow',
+          principal: { type: 'function', extension: 'developer', function: 'shell' },
+          origin: 'user',
+        },
+        {
+          scope: 'session',
+          effect: 'ask_before',
+          principal: { type: 'function', extension: 'developer', function: 'shell' },
+          origin: 'session',
+        },
+      ],
+    } as ToolListItem;
+
+    expect(permissionAtScope(tool, 'session')).toBe('ask_before');
+    expect(permissionAtScope(tool, 'project_local')).toBe('default');
   });
 
   it('uses only the extensions returned for the active session', () => {

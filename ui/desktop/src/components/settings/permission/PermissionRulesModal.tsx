@@ -3,8 +3,8 @@ import { AlertCircle, ChevronDown, ChevronRight, Search, SlidersHorizontal } fro
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../../ui/dialog';
 import { Input } from '../../ui/input';
 import { Button } from '../../ui/button';
-import { FixedExtensionEntry, useConfig } from '../../ConfigContext';
 import { useChatContext } from '../../../contexts/ChatContext';
+import { getSessionExtensions } from '../../../acp/session-extensions';
 import { listTools, setToolPermissions } from '../../../acp/permissions';
 import type { ToolListItem, ToolPermissionLevel } from '../../../acp/permissions';
 import { defineMessages, useIntl } from '../../../i18n';
@@ -37,7 +37,11 @@ const i18n = defineMessages({
 });
 
 type PermissionChoice = ToolPermissionLevel | 'default';
-type ExtensionTools = { extension: FixedExtensionEntry; tools: ToolListItem[]; failed: boolean };
+type ExtensionTools = {
+  extension: { name: string; description?: string | null };
+  tools: ToolListItem[];
+  failed: boolean;
+};
 
 export function humanizeToolName(name: string): string {
   const rawName = name.split('__').at(-1) ?? name;
@@ -70,7 +74,6 @@ interface PermissionRulesModalProps {
 
 export default function PermissionRulesModal({ isOpen, onClose }: PermissionRulesModalProps) {
   const intl = useIntl();
-  const { getExtensions } = useConfig();
   const sessionId = useChatContext()?.chat.sessionId ?? '';
   const [groups, setGroups] = useState<ExtensionTools[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -82,15 +85,7 @@ export default function PermissionRulesModal({ isOpen, onClose }: PermissionRule
   const load = useCallback(async () => {
     if (!isOpen || !sessionId) return;
     setLoading(true);
-    const entries = (await getExtensions(true)).filter((extension) => extension.enabled);
-    if (!entries.some((extension) => extension.name === 'platform')) {
-      entries.push({
-        name: 'platform',
-        type: 'builtin',
-        description: 'Built-in tools',
-        enabled: true,
-      });
-    }
+    const entries = await getSessionExtensions(sessionId);
     const loaded = await Promise.all(
       entries.map(async (extension): Promise<ExtensionTools> => {
         try {
@@ -109,7 +104,7 @@ export default function PermissionRulesModal({ isOpen, onClose }: PermissionRule
     setGroups(visible);
     setExpanded(new Set(visible.map((group) => group.extension.name)));
     setLoading(false);
-  }, [getExtensions, isOpen, sessionId]);
+  }, [isOpen, sessionId]);
 
   useEffect(() => {
     void load();

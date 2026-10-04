@@ -162,7 +162,7 @@ export const zGetToolsResponse_unstable = z.object({
  */
 export const zToolPermissionEntry = z.object({
     toolName: z.string(),
-    permission: zToolPermissionLevel
+    permission: zToolPermissionLevel.nullish()
 });
 
 /**

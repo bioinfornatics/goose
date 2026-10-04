@@ -266,7 +266,10 @@ export type SetToolPermissionsRequest_unstable = {
  */
 export type ToolPermissionEntry = {
     toolName: string;
-    permission: ToolPermissionLevel;
+    /**
+     * Omit to remove the explicit rule and use the current mode default.
+     */
+    permission?: ToolPermissionLevel | null;
 };
 
 export type SetToolPermissionsResponse_unstable = {

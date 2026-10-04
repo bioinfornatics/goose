@@ -2308,7 +2308,9 @@ pub enum ToolPermissionLevel {
 #[serde(rename_all = "camelCase")]
 pub struct ToolPermissionEntry {
     pub tool_name: String,
-    pub permission: ToolPermissionLevel,
+    /// Omit to remove the explicit rule and use the current mode default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission: Option<ToolPermissionLevel>,
 }
 
 /// Set permission levels for one or more tools.

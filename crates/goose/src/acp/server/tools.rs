@@ -151,7 +151,11 @@ impl GooseAcpAgent {
     ) -> Result<SetToolPermissionsResponse, agent_client_protocol::Error> {
         let permission_manager = self.permission_manager();
         for entry in &req.tool_permissions {
-            let level = match entry.permission {
+            let Some(permission) = entry.permission else {
+                permission_manager.remove_user_permission(&entry.tool_name);
+                continue;
+            };
+            let level = match permission {
                 ToolPermissionLevel::AlwaysAllow => PermissionLevel::AlwaysAllow,
                 ToolPermissionLevel::AskBefore => PermissionLevel::AskBefore,
                 ToolPermissionLevel::NeverAllow => PermissionLevel::NeverAllow,

@@ -541,12 +541,19 @@
           "type": "string"
         },
         "permission": {
-          "$ref": "#/$defs/ToolPermissionLevel"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ToolPermissionLevel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Omit to remove the explicit rule and use the current mode default."
         }
       },
       "required": [
-        "toolName",
-        "permission"
+        "toolName"
       ],
       "description": "A single tool permission entry."
     },

@@ -39,8 +39,9 @@ use goose::agents::{
 };
 use goose::config::extensions::name_to_key;
 use goose::config::permission::PermissionLevel;
+use goose::config::scoped_permissions::{PermissionEffect, PermissionPrincipal, PermissionScope};
 use goose::config::{Config, GooseMode};
-use input::InputResult;
+use input::{InputResult, PermissionsCommand};
 use rmcp::model::ServerNotification;
 use rmcp::model::{ElicitationAction, PromptMessage};
 use rmcp::model::{ErrorCode, ErrorData};
@@ -774,15 +775,46 @@ impl CliSession {
                 history.save(editor);
                 self.handle_list_skills().await?;
             }
-            InputResult::Permissions => {
+            InputResult::Permissions(command) => {
                 history.save(editor);
-                self.handle_permissions().await?;
+                self.handle_permissions(command).await?;
             }
         }
         Ok(())
     }
 
-    async fn handle_permissions(&self) -> Result<()> {
+    fn parse_permission_scope(value: &str) -> Result<PermissionScope> {
+        match value {
+            "user" => Ok(PermissionScope::User),
+            "project-shared" => Ok(PermissionScope::ProjectShared),
+            "project-local" => Ok(PermissionScope::ProjectLocal),
+            "session" => Ok(PermissionScope::Session),
+            _ => anyhow::bail!(
+                "Unknown permission scope '{value}'. Use user, project-local, project-shared, or session"
+            ),
+        }
+    }
+
+    fn parse_permission_effect(value: &str) -> Result<PermissionEffect> {
+        match value {
+            "allow" => Ok(PermissionEffect::Allow),
+            "ask" => Ok(PermissionEffect::Ask),
+            "deny" => Ok(PermissionEffect::Deny),
+            _ => anyhow::bail!("Unknown permission '{value}'. Use allow, ask, or deny"),
+        }
+    }
+
+    fn tool_principal(tool_name: &str) -> Result<PermissionPrincipal> {
+        let (extension, function) = tool_name
+            .split_once("__")
+            .ok_or_else(|| anyhow::anyhow!("Tool must use canonical extension__function form"))?;
+        Ok(PermissionPrincipal::Function {
+            extension: extension.to_string(),
+            function: function.to_string(),
+        })
+    }
+
+    async fn handle_permissions(&self, command: PermissionsCommand) -> Result<()> {
         let tools = self.agent.list_tools(&self.session_id, None).await;
         if tools.is_empty() {
             output::render_error("No tools are available in this session.");
@@ -790,6 +822,58 @@ impl CliSession {
         }
 
         let permission_manager = &self.agent.config.permission_manager;
+        let session = self
+            .agent
+            .config
+            .session_manager
+            .get_session(&self.session_id, false)
+            .await?;
+        let project_root = session.working_dir;
+
+        if matches!(command, PermissionsCommand::List) {
+            let rules =
+                permission_manager.scoped_rules(Some(&project_root), Some(&self.session_id))?;
+            if rules.is_empty() {
+                println!("No explicit permission rules are configured.");
+            } else {
+                for rule in rules {
+                    println!(
+                        "{:?}\t{:?}\t{:?}\t{}",
+                        rule.origin.scope, rule.effect, rule.principal, rule.origin.source
+                    );
+                }
+            }
+            return Ok(());
+        }
+
+        if let PermissionsCommand::Set {
+            tool,
+            permission,
+            scope,
+        } = &command
+        {
+            permission_manager.update_scoped_permission(
+                Self::parse_permission_scope(scope)?,
+                Some(&project_root),
+                Some(&self.session_id),
+                Self::tool_principal(tool)?,
+                Self::parse_permission_effect(permission)?,
+            )?;
+            println!("Updated {tool} at {scope} scope.");
+            return Ok(());
+        }
+
+        if let PermissionsCommand::Reset { tool, scope } = &command {
+            permission_manager.remove_scoped_permission(
+                Self::parse_permission_scope(scope)?,
+                Some(&project_root),
+                Some(&self.session_id),
+                &Self::tool_principal(tool)?,
+            )?;
+            println!("Reset {tool} at {scope} scope.");
+            return Ok(());
+        }
+
         let tool_name = cliclack::select("Choose a tool to update permission")
             .items(
                 &tools
@@ -818,12 +902,39 @@ impl CliSession {
             .filter_mode()
             .interact()?;
 
-        let current_permission = match permission_manager.get_user_permission(&tool_name) {
-            Some(PermissionLevel::AlwaysAllow) => "Always Allow",
-            Some(PermissionLevel::AskBefore) => "Ask Before",
-            Some(PermissionLevel::NeverAllow) => "Never Allow",
-            None => "Not Set",
-        };
+        let scope = cliclack::select("Save this rule to")
+            .item(
+                PermissionScope::Session,
+                "This session",
+                "Discarded with the session",
+            )
+            .item(
+                PermissionScope::ProjectLocal,
+                "This project, for me",
+                "Local checkout configuration",
+            )
+            .item(
+                PermissionScope::ProjectShared,
+                "This project, shared",
+                "Restrictive rules only until workspace trust is available",
+            )
+            .item(
+                PermissionScope::User,
+                "All sessions on this device",
+                "User-wide configuration",
+            )
+            .interact()?;
+        let principal = Self::tool_principal(&tool_name)?;
+        let current_permission = permission_manager
+            .scoped_rules(Some(&project_root), Some(&self.session_id))?
+            .into_iter()
+            .find(|rule| rule.origin.scope == scope && rule.principal == principal)
+            .map(|rule| match rule.effect {
+                PermissionEffect::Allow => "Always Allow",
+                PermissionEffect::Ask => "Ask Before",
+                PermissionEffect::Deny => "Never Allow",
+            })
+            .unwrap_or("Not Set");
         let permission = cliclack::select(format!(
             "Set permission level for {tool_name} (currently {current_permission})"
         ))
@@ -846,10 +957,37 @@ impl CliSession {
         .interact()?;
 
         match permission {
-            Some(permission) => permission_manager.update_user_permission(&tool_name, permission),
-            None => permission_manager.remove_user_permission(&tool_name),
+            Some(PermissionLevel::AlwaysAllow) => permission_manager.update_scoped_permission(
+                scope,
+                Some(&project_root),
+                Some(&self.session_id),
+                principal,
+                PermissionEffect::Allow,
+            )?,
+            Some(PermissionLevel::AskBefore) => permission_manager.update_scoped_permission(
+                scope,
+                Some(&project_root),
+                Some(&self.session_id),
+                principal,
+                PermissionEffect::Ask,
+            )?,
+            Some(PermissionLevel::NeverAllow) => permission_manager.update_scoped_permission(
+                scope,
+                Some(&project_root),
+                Some(&self.session_id),
+                principal,
+                PermissionEffect::Deny,
+            )?,
+            None => permission_manager.remove_scoped_permission(
+                scope,
+                Some(&project_root),
+                Some(&self.session_id),
+                &principal,
+            )?,
         }
-        cliclack::outro(format!("Updated permission for {tool_name}."))?;
+        cliclack::outro(format!(
+            "Updated permission for {tool_name} at {scope:?} scope."
+        ))?;
         Ok(())
     }
 

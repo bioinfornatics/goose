@@ -400,6 +400,39 @@ impl PermissionManager {
         Ok(())
     }
 
+    pub fn remove_scoped_permission(
+        &self,
+        scope: PermissionScope,
+        project_root: Option<&Path>,
+        session_id: Option<&str>,
+        principal: &PermissionPrincipal,
+    ) -> Result<()> {
+        match scope {
+            PermissionScope::User => self.mutate_permission_map(|map| {
+                if let Some(config) = map.get_mut(USER_PERMISSION) {
+                    config.rules.retain(|rule| &rule.principal != principal);
+                }
+            }),
+            PermissionScope::ProjectShared | PermissionScope::ProjectLocal => {
+                let root = project_root
+                    .ok_or_else(|| anyhow::anyhow!("project scope requires a project root"))?;
+                let path = Self::project_permission_path(root, scope)?;
+                Self::mutate_rule_file(&path, scope, |rules| {
+                    rules.retain(|rule| &rule.principal != principal)
+                })?;
+            }
+            PermissionScope::Session => {
+                let id = session_id
+                    .ok_or_else(|| anyhow::anyhow!("session scope requires a session ID"))?;
+                if let Some(rules) = self.session_rules.write().unwrap().get_mut(id) {
+                    rules.retain(|rule| &rule.principal != principal);
+                }
+            }
+            PermissionScope::Managed => bail!("managed permission storage is not implemented"),
+        }
+        Ok(())
+    }
+
     pub fn reset_scoped_permissions(
         &self,
         scope: PermissionScope,

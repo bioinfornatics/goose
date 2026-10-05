@@ -7,7 +7,7 @@ use anyhow::{bail, Result};
 use fs2::FileExt;
 use rmcp::model::Tool;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -16,6 +16,46 @@ use tempfile::NamedTempFile;
 use tracing;
 
 const PERMISSION_FILE: &str = "permission.yaml";
+const PERMISSION_VERSION: u8 = 2;
+const SMART_APPROVE_FILE: &str = "permission-cache.yaml";
+type GroupedPermissions = HashMap<String, Vec<String>>;
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum UserPermissionDocument {
+    V2(UserPermissionV2),
+    V1(HashMap<String, PermissionConfig>),
+}
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct UserPermissionV2 {
+    version: u8,
+    user: GroupedPermissionConfig,
+}
+#[derive(Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct GroupedPermissionConfig {
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    always_allow: GroupedPermissions,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    ask_before: GroupedPermissions,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    never_allow: GroupedPermissions,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    rules: Vec<PermissionRule>,
+}
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ProjectPermissionV2 {
+    version: u8,
+    permissions: GroupedPermissionConfig,
+}
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum ProjectPermissionDocument {
+    V2(ProjectPermissionV2),
+    V1(Vec<PermissionRule>),
+}
 
 static PERMISSION_MANAGER: LazyLock<Arc<PermissionManager>> =
     LazyLock::new(|| Arc::new(PermissionManager::new(Paths::config_dir())));
@@ -77,8 +117,14 @@ impl PermissionManager {
         self.permission_map
             .read()
             .unwrap()
-            .keys()
-            .cloned()
+            .iter()
+            .filter(|(_, c)| {
+                !c.always_allow.is_empty()
+                    || !c.ask_before.is_empty()
+                    || !c.never_allow.is_empty()
+                    || !c.rules.is_empty()
+            })
+            .map(|(name, _)| name.clone())
             .collect()
     }
 
@@ -144,6 +190,18 @@ impl PermissionManager {
         let map = self.permission_map.read().unwrap();
         // Check if the permission category exists in the map
         if let Some(permission_config) = map.get(name) {
+            let principal = Self::legacy_principal(principal_name);
+            if let Some(rule) = permission_config
+                .rules
+                .iter()
+                .find(|rule| rule.principal == principal)
+            {
+                return Some(match rule.effect {
+                    PermissionEffect::Allow => PermissionLevel::AlwaysAllow,
+                    PermissionEffect::Ask => PermissionLevel::AskBefore,
+                    PermissionEffect::Deny => PermissionLevel::NeverAllow,
+                });
+            }
             // Check the permission levels for the given tool
             if permission_config
                 .never_allow
@@ -185,6 +243,10 @@ impl PermissionManager {
             permission_config
                 .never_allow
                 .retain(|permission| permission != principal_name);
+            let principal = Self::legacy_principal(principal_name);
+            permission_config
+                .rules
+                .retain(|rule| rule.principal != principal);
         });
     }
 
@@ -196,26 +258,16 @@ impl PermissionManager {
     /// Helper function to update a permission level for a specific tool in a given permission category.
     fn update_permission(&self, name: &str, principal_name: &str, level: PermissionLevel) {
         self.mutate_permission_map(|map| {
-            let permission_config = map.entry(name.to_string()).or_default();
-
-            permission_config
-                .always_allow
-                .retain(|p| p != principal_name);
-            permission_config.ask_before.retain(|p| p != principal_name);
-            permission_config
-                .never_allow
-                .retain(|p| p != principal_name);
-
+            let config = map.entry(name.to_string()).or_default();
+            config.always_allow.retain(|p| p != principal_name);
+            config.ask_before.retain(|p| p != principal_name);
+            config.never_allow.retain(|p| p != principal_name);
+            let principal = Self::legacy_principal(principal_name);
+            config.rules.retain(|rule| rule.principal != principal);
             match level {
-                PermissionLevel::AlwaysAllow => permission_config
-                    .always_allow
-                    .push(principal_name.to_string()),
-                PermissionLevel::AskBefore => permission_config
-                    .ask_before
-                    .push(principal_name.to_string()),
-                PermissionLevel::NeverAllow => permission_config
-                    .never_allow
-                    .push(principal_name.to_string()),
+                PermissionLevel::AlwaysAllow => config.always_allow.push(principal_name.into()),
+                PermissionLevel::AskBefore => config.ask_before.push(principal_name.into()),
+                PermissionLevel::NeverAllow => config.never_allow.push(principal_name.into()),
             }
         });
     }
@@ -249,19 +301,42 @@ impl PermissionManager {
     }
 
     fn load_permission_map(config_path: &Path) -> HashMap<String, PermissionConfig> {
-        let file_contents =
-            fs::read_to_string(config_path).expect("Failed to read permission.yaml");
-        serde_yaml::from_str(&file_contents).unwrap_or_else(|error| {
-            tracing::error!(
-                "Failed to parse {}: {}. Refusing to start with corrupted permission config.",
-                config_path.display(),
-                error,
+        let contents = fs::read_to_string(config_path).expect("Failed to read permission.yaml");
+        let document: UserPermissionDocument = serde_yaml::from_str(&contents)
+            .unwrap_or_else(|error| Self::corrupted_config(config_path, &error.to_string()));
+        let mut map = match document {
+            UserPermissionDocument::V1(map) => map,
+            UserPermissionDocument::V2(document) => {
+                if document.version != PERMISSION_VERSION {
+                    Self::corrupted_config(config_path, "unsupported permission schema version");
+                }
+                let config =
+                    Self::ungroup_config(document.user, PermissionScope::User, config_path)
+                        .unwrap_or_else(|error| {
+                            Self::corrupted_config(config_path, &error.to_string())
+                        });
+                HashMap::from([(USER_PERMISSION.to_string(), config)])
+            }
+        };
+        let cache_path = config_path.with_file_name(SMART_APPROVE_FILE);
+        if cache_path.exists() {
+            let cache = fs::read_to_string(&cache_path).expect("Failed to read permission cache");
+            map.insert(
+                SMART_APPROVE_PERMISSION.to_string(),
+                serde_yaml::from_str(&cache).unwrap_or_else(|error| {
+                    Self::corrupted_config(&cache_path, &error.to_string())
+                }),
             );
-            panic!(
-                "Corrupted permission config at {}. Fix or remove the file to continue.",
-                config_path.display(),
-            );
-        })
+        }
+        map
+    }
+
+    fn corrupted_config(path: &Path, error: &str) -> ! {
+        tracing::error!("Failed to parse {}: {}", path.display(), error);
+        panic!(
+            "Corrupted permission config at {}. Fix or remove the file to continue.",
+            path.display()
+        );
     }
 
     fn permission_storage_path(config_path: &Path) -> PathBuf {
@@ -285,23 +360,142 @@ impl PermissionManager {
     }
 
     fn write_permission_map(storage_path: &Path, map: &HashMap<String, PermissionConfig>) {
-        let yaml_content =
-            serde_yaml::to_string(map).expect("Failed to serialize permission config");
-        let config_dir = storage_path
+        let user = map.get(USER_PERMISSION).cloned().unwrap_or_default();
+        let document = UserPermissionV2 {
+            version: PERMISSION_VERSION,
+            user: Self::group_config(&user),
+        };
+        Self::atomic_write(
+            storage_path,
+            &serde_yaml::to_string(&document).expect("Failed to serialize permission config"),
+        );
+        let cache_path = storage_path.with_file_name(SMART_APPROVE_FILE);
+        if let Some(cache) = map.get(SMART_APPROVE_PERMISSION) {
+            Self::atomic_write(
+                &cache_path,
+                &serde_yaml::to_string(cache).expect("Failed to serialize permission cache"),
+            );
+        } else if cache_path.exists() {
+            fs::remove_file(cache_path).expect("Failed to remove permission cache");
+        }
+    }
+
+    fn atomic_write(path: &Path, contents: &str) {
+        let parent = path
             .parent()
-            .expect("permission.yaml must have a parent directory");
-        let mut temporary_file =
-            NamedTempFile::new_in(config_dir).expect("Failed to write to permission.yaml");
-        temporary_file
-            .write_all(yaml_content.as_bytes())
-            .expect("Failed to write to permission.yaml");
-        temporary_file
+            .expect("permission file must have a parent directory");
+        fs::create_dir_all(parent).expect("Failed to create permission directory");
+        let mut temporary = NamedTempFile::new_in(parent).expect("Failed to write permission file");
+        temporary
+            .write_all(contents.as_bytes())
+            .expect("Failed to write permission file");
+        temporary
             .as_file()
             .sync_all()
-            .expect("Failed to write to permission.yaml");
-        temporary_file
-            .persist(storage_path)
-            .expect("Failed to write to permission.yaml");
+            .expect("Failed to write permission file");
+        temporary
+            .persist(path)
+            .expect("Failed to write permission file");
+    }
+
+    fn group_config(config: &PermissionConfig) -> GroupedPermissionConfig {
+        let mut grouped = GroupedPermissionConfig {
+            rules: config.rules.clone(),
+            ..Default::default()
+        };
+        for name in &config.always_allow {
+            Self::group_name(
+                name,
+                &mut grouped.always_allow,
+                &mut grouped.rules,
+                PermissionEffect::Allow,
+            );
+        }
+        for name in &config.ask_before {
+            Self::group_name(
+                name,
+                &mut grouped.ask_before,
+                &mut grouped.rules,
+                PermissionEffect::Ask,
+            );
+        }
+        for name in &config.never_allow {
+            Self::group_name(
+                name,
+                &mut grouped.never_allow,
+                &mut grouped.rules,
+                PermissionEffect::Deny,
+            );
+        }
+        grouped
+    }
+
+    fn group_name(
+        name: &str,
+        target: &mut GroupedPermissions,
+        rules: &mut Vec<PermissionRule>,
+        effect: PermissionEffect,
+    ) {
+        match name.split_once("__") {
+            Some((extension, function)) => target
+                .entry(extension.into())
+                .or_default()
+                .push(function.into()),
+            None => rules.push(PermissionRule {
+                origin: RuleOrigin {
+                    scope: PermissionScope::User,
+                    source: "user".into(),
+                },
+                principal: PermissionPrincipal::Extension {
+                    extension: name.into(),
+                },
+                effect,
+            }),
+        }
+    }
+
+    fn ungroup_config(
+        grouped: GroupedPermissionConfig,
+        scope: PermissionScope,
+        path: &Path,
+    ) -> Result<PermissionConfig> {
+        let mut config = PermissionConfig {
+            rules: grouped.rules,
+            ..Default::default()
+        };
+        let mut seen = HashSet::new();
+        for (entries, target) in [
+            (grouped.always_allow, &mut config.always_allow),
+            (grouped.ask_before, &mut config.ask_before),
+            (grouped.never_allow, &mut config.never_allow),
+        ] {
+            for (extension, functions) in entries {
+                for function in functions {
+                    let principal = PermissionPrincipal::Function {
+                        extension: extension.clone(),
+                        function: function.clone(),
+                    };
+                    if !seen.insert(principal) {
+                        bail!(
+                            "{} assigns the same principal to multiple effects",
+                            path.display()
+                        );
+                    }
+                    target.push(format!("{extension}__{function}"));
+                }
+            }
+        }
+        for rule in &mut config.rules {
+            rule.origin.scope = scope;
+            rule.origin.source = path.display().to_string();
+            if !seen.insert(rule.principal.clone()) {
+                bail!(
+                    "{} assigns the same principal to multiple effects",
+                    path.display()
+                );
+            }
+        }
+        Ok(config)
     }
 
     /// Collects applicable persisted and session rules.
@@ -550,10 +744,33 @@ impl PermissionManager {
             return Ok(Vec::new());
         }
         let contents = fs::read_to_string(path)?;
-        let mut rules: Vec<PermissionRule> = serde_yaml::from_str(&contents)?;
+        let document: ProjectPermissionDocument = serde_yaml::from_str(&contents)?;
+        let legacy = matches!(&document, ProjectPermissionDocument::V1(_));
+        let mut rules = match document {
+            ProjectPermissionDocument::V1(rules) => rules,
+            ProjectPermissionDocument::V2(document) => {
+                if document.version != PERMISSION_VERSION {
+                    bail!(
+                        "{} has an unsupported permission schema version",
+                        path.display()
+                    );
+                }
+                let config = Self::ungroup_config(document.permissions, scope, path)?;
+                Self::config_rules(config, scope, path)
+            }
+        };
+        let mut seen = HashSet::new();
         for rule in &mut rules {
-            if rule.origin.scope != scope {
+            if legacy && rule.origin.scope != scope {
                 bail!("{} contains a rule with the wrong scope", path.display());
+            }
+            rule.origin.scope = scope;
+            rule.origin.source = path.display().to_string();
+            if !seen.insert(rule.principal.clone()) {
+                bail!(
+                    "{} assigns the same principal to multiple effects",
+                    path.display()
+                );
             }
             if scope == PermissionScope::ProjectShared && rule.effect == PermissionEffect::Allow {
                 bail!(
@@ -561,9 +778,31 @@ impl PermissionManager {
                     path.display()
                 );
             }
-            rule.origin.source = path.display().to_string();
         }
         Ok(rules)
+    }
+
+    fn config_rules(
+        config: PermissionConfig,
+        scope: PermissionScope,
+        path: &Path,
+    ) -> Vec<PermissionRule> {
+        let mut rules = config.rules;
+        for (names, effect) in [
+            (config.always_allow, PermissionEffect::Allow),
+            (config.ask_before, PermissionEffect::Ask),
+            (config.never_allow, PermissionEffect::Deny),
+        ] {
+            rules.extend(names.into_iter().map(|name| PermissionRule {
+                origin: RuleOrigin {
+                    scope,
+                    source: path.display().to_string(),
+                },
+                principal: Self::legacy_principal(&name),
+                effect,
+            }));
+        }
+        rules
     }
 
     fn mutate_rule_file<F>(path: &Path, scope: PermissionScope, mutation: F) -> Result<()>
@@ -584,7 +823,15 @@ impl PermissionManager {
         lock.lock_exclusive()?;
         let mut rules = Self::load_project_rules(&storage_path, scope)?;
         mutation(&mut rules);
-        let yaml = serde_yaml::to_string(&rules)?;
+        let config = PermissionConfig {
+            rules,
+            ..Default::default()
+        };
+        let document = ProjectPermissionV2 {
+            version: PERMISSION_VERSION,
+            permissions: Self::group_config(&config),
+        };
+        let yaml = serde_yaml::to_string(&document)?;
         let mut temporary = NamedTempFile::new_in(parent)?;
         temporary.write_all(yaml.as_bytes())?;
         temporary.as_file().sync_all()?;
@@ -597,6 +844,15 @@ impl PermissionManager {
     pub fn remove_extension(&self, extension_name: &str) {
         self.mutate_permission_map(|map| {
             for permission_config in map.values_mut() {
+                permission_config
+                    .rules
+                    .retain(|rule| match &rule.principal {
+                        PermissionPrincipal::Function { extension, .. }
+                        | PermissionPrincipal::Extension { extension } => {
+                            extension != extension_name
+                        }
+                        PermissionPrincipal::Capability { .. } => true,
+                    });
                 permission_config
                     .always_allow
                     .retain(|p| !Self::belongs_to_extension(p, extension_name));

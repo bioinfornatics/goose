@@ -1,0 +1,15 @@
+version: 2
+user:
+  always_allow: {}
+  ask_before: {}
+  never_allow: {}
+shell:
+  rules:
+    - id: deny-git-writes
+      decision: deny
+      pattern:
+        - git
+        - any_of: [push, reset, rebase]
+      reason: Git history and remote mutations are forbidden
+      match: ["git push"]
+      not_match: ["git status", "git diff"]

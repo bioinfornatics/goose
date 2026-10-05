@@ -788,7 +788,10 @@ async fn build_test_pipeline(
     let permission_manager = Arc::new(PermissionManager::new(temp_dir.path().join("permissions")));
     let mut tool_inspection_manager = ToolInspectionManager::new();
     tool_inspection_manager.add_inspector(Box::new(SecurityInspector::enabled()));
-    tool_inspection_manager.add_inspector(Box::new(ShellPolicyInspector::builtin()));
+    tool_inspection_manager.add_inspector(Box::new(ShellPolicyInspector::new(
+        permission_manager.clone(),
+        session_manager.clone(),
+    )));
     tool_inspection_manager.add_inspector(Box::new(PermissionInspector::new(
         permission_manager.clone(),
         shared_provider,

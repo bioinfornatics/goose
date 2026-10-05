@@ -3,6 +3,7 @@ use crate::config::scoped_permissions::{
     resolve_permission, PermissionEffect, PermissionPrincipal, PermissionRequest,
     PermissionResolution, PermissionRule, PermissionScope, RuleOrigin,
 };
+use crate::permission::shell_policy::{Decision, ShellPolicy, ShellPolicyConfig};
 use anyhow::{bail, Result};
 use fs2::FileExt;
 use rmcp::model::Tool;
@@ -31,6 +32,8 @@ enum UserPermissionDocument {
 struct UserPermissionV2 {
     version: u8,
     user: GroupedPermissionConfig,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    shell: Option<ShellPolicyConfig>,
 }
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -49,6 +52,8 @@ struct GroupedPermissionConfig {
 struct ProjectPermissionV2 {
     version: u8,
     permissions: GroupedPermissionConfig,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    shell: Option<ShellPolicyConfig>,
 }
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
@@ -84,6 +89,7 @@ pub struct PermissionConfig {
 pub struct PermissionManager {
     config_path: PathBuf,
     permission_map: RwLock<HashMap<String, PermissionConfig>>,
+    user_shell: RwLock<Option<ShellPolicyConfig>>,
     session_rules: RwLock<HashMap<String, Vec<PermissionRule>>>,
 }
 
@@ -94,16 +100,17 @@ const SMART_APPROVE_PERMISSION: &str = "smart_approve";
 impl PermissionManager {
     pub fn new(config_dir: PathBuf) -> Self {
         let permission_path = config_dir.join(PERMISSION_FILE);
-        let permission_map = if permission_path.exists() {
-            Self::load_permission_map(&permission_path)
+        let (permission_map, user_shell) = if permission_path.exists() {
+            Self::load_user_document(&permission_path)
         } else {
             // Consolidate directory creation for re-use in global singleton or ACP.
             fs::create_dir_all(&config_dir).expect("Failed to create config directory");
-            HashMap::new()
+            (HashMap::new(), None)
         };
         PermissionManager {
             config_path: permission_path,
             permission_map: RwLock::new(permission_map),
+            user_shell: RwLock::new(user_shell),
             session_rules: RwLock::new(HashMap::new()),
         }
     }
@@ -290,22 +297,25 @@ impl PermissionManager {
             .lock_exclusive()
             .expect("Failed to lock permission.yaml");
 
-        let mut latest_map = if storage_path.exists() {
-            Self::load_permission_map(&storage_path)
+        let (mut latest_map, latest_shell) = if storage_path.exists() {
+            Self::load_user_document(&storage_path)
         } else {
-            HashMap::new()
+            (HashMap::new(), self.user_shell.read().unwrap().clone())
         };
         mutation(&mut latest_map);
-        Self::write_permission_map(&storage_path, &latest_map);
+        Self::write_permission_map(&storage_path, &latest_map, latest_shell.as_ref());
         *in_memory_map = latest_map;
+        *self.user_shell.write().unwrap() = latest_shell;
     }
 
-    fn load_permission_map(config_path: &Path) -> HashMap<String, PermissionConfig> {
+    fn load_user_document(
+        config_path: &Path,
+    ) -> (HashMap<String, PermissionConfig>, Option<ShellPolicyConfig>) {
         let contents = fs::read_to_string(config_path).expect("Failed to read permission.yaml");
         let document: UserPermissionDocument = serde_yaml::from_str(&contents)
             .unwrap_or_else(|error| Self::corrupted_config(config_path, &error.to_string()));
-        let mut map = match document {
-            UserPermissionDocument::V1(map) => map,
+        let (mut map, shell) = match document {
+            UserPermissionDocument::V1(map) => (map, None),
             UserPermissionDocument::V2(document) => {
                 if document.version != PERMISSION_VERSION {
                     Self::corrupted_config(config_path, "unsupported permission schema version");
@@ -315,7 +325,10 @@ impl PermissionManager {
                         .unwrap_or_else(|error| {
                             Self::corrupted_config(config_path, &error.to_string())
                         });
-                HashMap::from([(USER_PERMISSION.to_string(), config)])
+                (
+                    HashMap::from([(USER_PERMISSION.to_string(), config)]),
+                    document.shell,
+                )
             }
         };
         let cache_path = config_path.with_file_name(SMART_APPROVE_FILE);
@@ -328,7 +341,7 @@ impl PermissionManager {
                 }),
             );
         }
-        map
+        (map, shell)
     }
 
     fn corrupted_config(path: &Path, error: &str) -> ! {
@@ -359,11 +372,16 @@ impl PermissionManager {
         }
     }
 
-    fn write_permission_map(storage_path: &Path, map: &HashMap<String, PermissionConfig>) {
+    fn write_permission_map(
+        storage_path: &Path,
+        map: &HashMap<String, PermissionConfig>,
+        shell: Option<&ShellPolicyConfig>,
+    ) {
         let user = map.get(USER_PERMISSION).cloned().unwrap_or_default();
         let document = UserPermissionV2 {
             version: PERMISSION_VERSION,
             user: Self::group_config(&user),
+            shell: shell.cloned(),
         };
         Self::atomic_write(
             storage_path,
@@ -821,6 +839,7 @@ impl PermissionManager {
             .truncate(false)
             .open(storage_path.with_extension("yaml.lock"))?;
         lock.lock_exclusive()?;
+        let shell = Self::load_project_shell(&storage_path, scope)?;
         let mut rules = Self::load_project_rules(&storage_path, scope)?;
         mutation(&mut rules);
         let config = PermissionConfig {
@@ -830,6 +849,7 @@ impl PermissionManager {
         let document = ProjectPermissionV2 {
             version: PERMISSION_VERSION,
             permissions: Self::group_config(&config),
+            shell,
         };
         let yaml = serde_yaml::to_string(&document)?;
         let mut temporary = NamedTempFile::new_in(parent)?;
@@ -839,6 +859,61 @@ impl PermissionManager {
             .persist(&storage_path)
             .map_err(|error| error.error)?;
         Ok(())
+    }
+
+    pub fn compile_shell_policy(&self, project_root: Option<&Path>) -> Result<ShellPolicy> {
+        let mut rules = ShellPolicy::with_builtin_rules().rules().to_vec();
+        if let Some(config) = self.user_shell.read().unwrap().as_ref() {
+            rules.extend(config.compile()?);
+        }
+        if let Some(root) = project_root {
+            for scope in [
+                PermissionScope::ProjectShared,
+                PermissionScope::ProjectLocal,
+            ] {
+                let path = Self::project_permission_path(root, scope)?;
+                if let Some(config) = Self::load_project_shell(&path, scope)? {
+                    rules.extend(config.compile()?);
+                }
+            }
+        }
+        Ok(ShellPolicy::new(rules))
+    }
+
+    fn load_project_shell(
+        path: &Path,
+        scope: PermissionScope,
+    ) -> Result<Option<ShellPolicyConfig>> {
+        if !path.exists() {
+            return Ok(None);
+        }
+        let contents = fs::read_to_string(path)?;
+        let document: ProjectPermissionDocument = serde_yaml::from_str(&contents)?;
+        match document {
+            ProjectPermissionDocument::V1(_) => Ok(None),
+            ProjectPermissionDocument::V2(document) => {
+                if document.version != PERMISSION_VERSION {
+                    bail!(
+                        "{} has an unsupported permission schema version",
+                        path.display()
+                    );
+                }
+                if scope == PermissionScope::ProjectShared
+                    && document.shell.as_ref().is_some_and(|config| {
+                        config
+                            .rules
+                            .iter()
+                            .any(|rule| rule.decision == Decision::Allow)
+                    })
+                {
+                    bail!(
+                        "{} contains a shell allow rule but workspace trust is unavailable",
+                        path.display()
+                    );
+                }
+                Ok(document.shell)
+            }
+        }
     }
 
     pub fn remove_extension(&self, extension_name: &str) {

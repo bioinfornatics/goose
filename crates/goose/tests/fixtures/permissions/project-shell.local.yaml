@@ -1,0 +1,13 @@
+version: 2
+permissions:
+  always_allow: {}
+  ask_before: {}
+  never_allow: {}
+shell:
+  rules:
+    - id: ask-cargo-publish
+      decision: ask
+      pattern: [cargo, publish]
+      reason: Publishing a crate requires approval
+      match: ["cargo publish"]
+      not_match: ["cargo test"]

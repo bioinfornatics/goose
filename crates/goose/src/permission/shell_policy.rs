@@ -1,12 +1,16 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
-use crate::config::GooseMode;
+use crate::config::{GooseMode, PermissionManager};
 use crate::conversation::message::{Message, ToolRequest};
+use crate::session::SessionManager;
 use crate::tool_inspection::{InspectionAction, InspectionResult, ToolInspector};
 
 const MAX: usize = 32768;
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Decision {
     Allow,
     Ask,
@@ -22,10 +26,90 @@ pub enum PatternValidationError {
     NoAlternatives,
     EmptyAlternative,
 }
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ArgumentPattern {
     Match(Vec<String>),
     NotMatch(Vec<String>),
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShellPolicyConfig {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rules: Vec<ShellRuleConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShellRuleConfig {
+    pub id: String,
+    pub decision: Decision,
+    pub pattern: Vec<ShellArgumentPattern>,
+    pub reason: String,
+    #[serde(default, rename = "match", skip_serializing_if = "Vec::is_empty")]
+    pub match_examples: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub not_match: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum ShellArgumentPattern {
+    Literal(String),
+    AnyOf { any_of: Vec<String> },
+}
+
+impl ShellPolicyConfig {
+    pub fn compile(&self) -> Result<Vec<TokenPrefixRule>> {
+        let mut ids = std::collections::HashSet::new();
+        self.rules
+            .iter()
+            .map(|rule| {
+                if rule.id.trim().is_empty() || !ids.insert(rule.id.as_str()) {
+                    bail!("shell rule IDs must be non-empty and unique");
+                }
+                if rule.reason.trim().is_empty() {
+                    bail!("shell rule '{}' requires a reason", rule.id);
+                }
+                let prefix = rule
+                    .pattern
+                    .iter()
+                    .map(|pattern| match pattern {
+                        ShellArgumentPattern::Literal(value) => {
+                            ArgumentPattern::matches([value.clone()])
+                        }
+                        ShellArgumentPattern::AnyOf { any_of } => {
+                            ArgumentPattern::matches(any_of.clone())
+                        }
+                    })
+                    .collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(|error| {
+                        anyhow::anyhow!("invalid shell rule '{}': {error:?}", rule.id)
+                    })?;
+                let compiled = TokenPrefixRule::new(rule.decision, prefix).map_err(|error| {
+                    anyhow::anyhow!("invalid shell rule '{}': {error:?}", rule.id)
+                })?;
+                for example in &rule.match_examples {
+                    if !compiled.matches_command(example)? {
+                        bail!(
+                            "shell rule '{}' match example does not match: {example}",
+                            rule.id
+                        );
+                    }
+                }
+                for example in &rule.not_match {
+                    if compiled.matches_command(example)? {
+                        bail!(
+                            "shell rule '{}' not_match example matches: {example}",
+                            rule.id
+                        );
+                    }
+                }
+                Ok(compiled)
+            })
+            .collect()
+    }
 }
 impl ArgumentPattern {
     pub fn matches<I, S>(x: I) -> Result<Self, PatternValidationError>
@@ -86,6 +170,13 @@ impl TokenPrefixRule {
         (t.len() >= self.prefix.len() && self.prefix.iter().zip(t).all(|(p, x)| p.test(x)))
             .then_some(self.decision)
     }
+
+    fn matches_command(&self, command: &str) -> Result<bool> {
+        let commands =
+            parse(command).map_err(|_| anyhow::anyhow!("example uses unsupported shell syntax"))?;
+        Ok(commands.len() == 1
+            && unwrap(&commands[0]).is_some_and(|tokens| self.eval(tokens).is_some()))
+    }
 }
 #[derive(Clone, Debug, Default)]
 pub struct ShellPolicy {
@@ -131,13 +222,18 @@ pub fn evaluate_shell_command(s: &str) -> Evaluation {
 }
 
 pub struct ShellPolicyInspector {
-    policy: ShellPolicy,
+    permission_manager: Arc<PermissionManager>,
+    session_manager: Arc<SessionManager>,
 }
 
 impl ShellPolicyInspector {
-    pub fn builtin() -> Self {
+    pub fn new(
+        permission_manager: Arc<PermissionManager>,
+        session_manager: Arc<SessionManager>,
+    ) -> Self {
         Self {
-            policy: ShellPolicy::with_builtin_rules(),
+            permission_manager,
+            session_manager,
         }
     }
 }
@@ -154,11 +250,41 @@ impl ToolInspector for ShellPolicyInspector {
 
     async fn inspect(
         &self,
-        _session_id: &str,
+        session_id: &str,
         tool_requests: &[ToolRequest],
         _messages: &[Message],
         _goose_mode: GooseMode,
     ) -> Result<Vec<InspectionResult>> {
+        let policy = match self.session_manager.get_session(session_id, false).await {
+            Ok(session) => self
+                .permission_manager
+                .compile_shell_policy(Some(&session.working_dir)),
+            Err(error) => Err(error),
+        };
+        let policy = match policy {
+            Ok(policy) => policy,
+            Err(error) => {
+                tracing::error!(%error, "Failed to load shell policy; asking instead");
+                return Ok(tool_requests
+                    .iter()
+                    .filter(|request| {
+                        request.tool_call.as_ref().is_ok_and(|tool_call| {
+                            matches!(tool_call.name.as_ref(), "shell" | "developer__shell")
+                        })
+                    })
+                    .map(|request| InspectionResult {
+                        tool_request_id: request.id.clone(),
+                        action: InspectionAction::RequireApproval(Some(
+                            "Shell policy could not be loaded".to_string(),
+                        )),
+                        reason: "Shell policy could not be loaded".to_string(),
+                        confidence: 1.0,
+                        inspector_name: self.name().to_string(),
+                        finding_id: None,
+                    })
+                    .collect());
+            }
+        };
         Ok(tool_requests
             .iter()
             .filter_map(|request| {
@@ -172,7 +298,7 @@ impl ToolInspector for ShellPolicyInspector {
                     .as_ref()
                     .and_then(|arguments| arguments.get("command"))
                     .and_then(serde_json::Value::as_str);
-                let (action, reason) = match command.map(|command| self.policy.evaluate(command)) {
+                let (action, reason) = match command.map(|command| policy.evaluate(command)) {
                     Some(Evaluation::Decision(Decision::Deny)) => (
                         InspectionAction::Deny,
                         "Shell command is forbidden by deterministic policy",
@@ -478,37 +604,66 @@ mod tests {
             Evaluation::Decision(Decision::Allow)
         )
     }
+
     #[tokio::test]
-    async fn inspector_denies_dangerous_commands_in_auto_mode() {
+    async fn inspector_uses_project_policy_and_fails_closed() {
+        use crate::session::SessionType;
         use rmcp::model::CallToolRequestParams;
         use rmcp::object;
 
-        let requests = [
-            ToolRequest {
-                id: "deny".to_string(),
-                tool_call: Ok(CallToolRequestParams::new("shell").with_arguments(object!({
-                    "command": "git status && rm -rf /"
-                }))),
-                metadata: None,
-                tool_meta: None,
-            },
-            ToolRequest {
-                id: "safe".to_string(),
-                tool_call: Ok(CallToolRequestParams::new("shell").with_arguments(object!({
-                    "command": "git status"
-                }))),
-                metadata: None,
-                tool_meta: None,
-            },
-        ];
-        let results = ShellPolicyInspector::builtin()
-            .inspect("session", &requests, &[], GooseMode::Auto)
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("project");
+        let project_config = project.join(".config/goose");
+        std::fs::create_dir_all(&project_config).unwrap();
+        std::fs::write(
+            project_config.join("permission.local.yaml"),
+            r#"version: 2
+permissions: {}
+shell:
+  rules:
+    - id: deny-git-push
+      decision: deny
+      pattern: [git, push]
+      reason: Git push is forbidden
+      match: ["git push"]
+      not_match: ["git status"]
+"#,
+        )
+        .unwrap();
+        let sessions = Arc::new(SessionManager::new(root.path().join("sessions")));
+        let session = sessions
+            .create_session(project, "test".into(), SessionType::User, GooseMode::Auto)
             .await
             .unwrap();
-
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].tool_request_id, "deny");
+        let permissions = Arc::new(PermissionManager::new(root.path().join("permissions")));
+        let inspector = ShellPolicyInspector::new(permissions, sessions);
+        let request = ToolRequest {
+            id: "deny".into(),
+            tool_call: Ok(CallToolRequestParams::new("shell").with_arguments(object!({
+                "command": "git push"
+            }))),
+            metadata: None,
+            tool_meta: None,
+        };
+        let results = inspector
+            .inspect(
+                &session.id,
+                std::slice::from_ref(&request),
+                &[],
+                GooseMode::Auto,
+            )
+            .await
+            .unwrap();
         assert_eq!(results[0].action, InspectionAction::Deny);
+
+        let results = inspector
+            .inspect("missing-session", &[request], &[], GooseMode::Auto)
+            .await
+            .unwrap();
+        assert!(matches!(
+            results[0].action,
+            InspectionAction::RequireApproval(_)
+        ));
     }
 
     #[test]

@@ -156,3 +156,100 @@ fn explicit_mutation_atomically_replaces_v2_file() {
     assert!(old_contents.contains("one:"));
     assert!(!old_contents.contains("two:"));
 }
+
+#[test]
+fn shell_rules_compose_and_permission_writes_preserve_them() {
+    use goose::permission::shell_policy::{Decision, Evaluation};
+
+    let root = tempfile::tempdir().unwrap();
+    let user_dir = root.path().join("user");
+    let project = root.path().join("project");
+    fs::create_dir_all(&user_dir).unwrap();
+    let project_config = project.join(".config/goose");
+    fs::create_dir_all(&project_config).unwrap();
+    fs::copy(
+        "tests/fixtures/permissions/user-shell.yaml",
+        user_dir.join("permission.yaml"),
+    )
+    .unwrap();
+    fs::copy(
+        "tests/fixtures/permissions/project-shell.local.yaml",
+        project_config.join("permission.local.yaml"),
+    )
+    .unwrap();
+
+    let manager = PermissionManager::new(user_dir.clone());
+    let policy = manager.compile_shell_policy(Some(&project)).unwrap();
+    assert_eq!(
+        policy.evaluate("git push"),
+        Evaluation::Decision(Decision::Deny)
+    );
+    assert_eq!(
+        policy.evaluate("git status"),
+        Evaluation::Decision(Decision::Allow)
+    );
+    assert_eq!(
+        policy.evaluate("cargo publish"),
+        Evaluation::Decision(Decision::Ask)
+    );
+    assert_eq!(
+        policy.evaluate("sudo id"),
+        Evaluation::Decision(Decision::Deny)
+    );
+
+    manager.update_user_permission("developer__shell", PermissionLevel::AskBefore);
+    assert!(fs::read_to_string(user_dir.join("permission.yaml"))
+        .unwrap()
+        .contains("decision: deny"));
+
+    manager
+        .update_scoped_permission(
+            PermissionScope::ProjectLocal,
+            Some(&project),
+            None,
+            PermissionPrincipal::Extension {
+                extension: "developer".into(),
+            },
+            PermissionEffect::Deny,
+        )
+        .unwrap();
+    assert!(
+        fs::read_to_string(project_config.join("permission.local.yaml"))
+            .unwrap()
+            .contains("decision: ask")
+    );
+}
+
+#[test]
+fn shared_shell_allow_and_invalid_shell_patterns_are_rejected() {
+    use goose::permission::shell_policy::Evaluation;
+
+    let root = tempfile::tempdir().unwrap();
+    let user = root.path().join("user");
+    let project = root.path().join("project");
+    let config = project.join(".config/goose");
+    fs::create_dir_all(&config).unwrap();
+    fs::write(
+        config.join("permission.yaml"),
+        "version: 2\npermissions: {}\nshell:\n  rules:\n    - decision: allow\n      prefix:\n        - match: [git]\n",
+    )
+    .unwrap();
+    let manager = PermissionManager::new(user);
+    assert!(manager.compile_shell_policy(Some(&project)).is_err());
+
+    fs::write(
+        config.join("permission.yaml"),
+        "version: 2\npermissions: {}\nshell:\n  rules:\n    - decision: deny\n      prefix:\n        - match: []\n",
+    )
+    .unwrap();
+    assert!(manager.compile_shell_policy(Some(&project)).is_err());
+
+    fs::remove_file(config.join("permission.yaml")).unwrap();
+    assert_eq!(
+        manager
+            .compile_shell_policy(Some(&project))
+            .unwrap()
+            .evaluate("echo ok"),
+        Evaluation::Decision(goose::permission::shell_policy::Decision::Allow)
+    );
+}

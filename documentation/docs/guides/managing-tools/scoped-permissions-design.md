@@ -76,3 +76,31 @@ This contract does not define:
 Permission resolution decides whether goose may request an operation. It is not a security sandbox and must not be treated as a substitute for operating-system enforcement.
 
 Those systems may supply rules to the pure resolver, but they must preserve its precedence and fail-closed semantics.
+
+## Declarative shell policy
+
+Version 2 permission files can include a separate `shell` section. Rules match a structured token prefix: a position is either one literal token or an `any_of` list of alternatives. Every rule has a unique non-empty ID and reason. Its `match` and `not_match` examples are validated at load time using the bounded parser; examples are never executed.
+
+Built-in rules are always retained. User, shared-project, and local-project rules are composed using the most restrictive matching decision.
+
+~~~yaml
+version: 2
+user:
+  always_allow: {}
+  ask_before: {}
+  never_allow: {}
+shell:
+  rules:
+    - id: deny-git-writes
+      decision: deny
+      pattern:
+        - git
+        - any_of: [push, reset, rebase]
+      reason: Git history and remote mutations are forbidden
+      match: ["git push", "git reset --hard"]
+      not_match: ["git status", "git diff"]
+~~~
+
+Project files use the same `shell` shape alongside `permissions`. Shared project policy may only add `ask` or `deny` rules; `allow` requires workspace trust and is rejected until that mechanism exists. Duplicate IDs, empty reasons or patterns, invalid examples, and unsupported syntax make shell-policy loading fail closed by requiring approval.
+
+The shell policy is a bounded guardrail, not an OS sandbox. Interpreters, mutable scripts, aliases, and indirect filesystem APIs require a separate sandbox and non-privileged execution account.

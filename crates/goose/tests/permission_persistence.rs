@@ -1,5 +1,4 @@
-use goose::config::permission::{PermissionConfig, PermissionLevel, PermissionManager};
-use std::collections::HashMap;
+use goose::config::permission::{PermissionLevel, PermissionManager};
 
 #[test]
 fn stale_manager_cannot_restore_revoked_permission() {
@@ -63,13 +62,20 @@ fn permission_updates_atomically_replace_storage_file() {
     manager.update_user_permission("second_tool", PermissionLevel::AskBefore);
 
     assert_ne!(std::fs::metadata(permission_path).unwrap().ino(), old_inode);
-    let old_values: HashMap<String, PermissionConfig> = serde_yaml::from_reader(old_file).unwrap();
-    assert!(old_values["user"]
-        .always_allow
-        .contains(&"first_tool".to_string()));
-    assert!(!old_values["user"]
-        .ask_before
-        .contains(&"second_tool".to_string()));
+    let old_values: serde_yaml::Value = serde_yaml::from_reader(old_file).unwrap();
+    assert_eq!(old_values["version"].as_u64(), Some(2));
+    assert!(old_values["user"]["rules"]
+        .as_sequence()
+        .is_some_and(|rules| rules.iter().any(|rule| {
+            rule["principal"]["type"].as_str() == Some("extension")
+                && rule["principal"]["extension"].as_str() == Some("first_tool")
+                && rule["effect"].as_str() == Some("allow")
+        })));
+    assert!(!old_values["user"]["rules"]
+        .as_sequence()
+        .is_some_and(|rules| rules
+            .iter()
+            .any(|rule| { rule["principal"]["extension"].as_str() == Some("second_tool") })));
 
     let current_manager = PermissionManager::new(config_dir.path().to_path_buf());
     assert_eq!(
